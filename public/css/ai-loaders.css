@@ -1,0 +1,176 @@
+/* ---------- AI loaders ---------- */
+/* All visual styles for the random animated waiting screens. */
+
+.ai-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 30px 20px;
+  min-height: 210px;
+}
+.ai-loader .ai-msg {
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  transition: opacity 0.18s ease;
+}
+.ail-svg {
+  display: block;
+  overflow: visible;
+}
+
+/* ====== POT ====== */
+.ail-pot-svg .wisp {
+  fill: none;
+  stroke: rgba(255,255,255,0.55);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: ail-wisp 2.4s ease-out infinite;
+}
+.ail-pot-svg .wisp.w1 { animation-delay: 0s; }
+.ail-pot-svg .wisp.w2 { animation-delay: 0.6s; }
+.ail-pot-svg .wisp.w3 { animation-delay: 1.2s; }
+@keyframes ail-wisp {
+  0%   { opacity: 0;   transform: translateY(18px) scaleY(0.6); }
+  20%  { opacity: 0.7; }
+  60%  { opacity: 0.45; }
+  100% { opacity: 0;   transform: translateY(-12px) scaleY(1.1); }
+}
+.ail-pot-svg .ail-pot-surface {
+  transform-origin: 60px 71px;
+  animation: ail-pot-surface 1.2s ease-in-out infinite;
+}
+@keyframes ail-pot-surface {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(1.3); }
+}
+.ail-pot-svg .ail-pot-bubble {
+  transform-origin: center;
+  animation: ail-pot-bubble 1.8s ease-out infinite;
+}
+.ail-pot-svg .ail-pot-bubble.bubble1 { animation-delay: 0s; }
+.ail-pot-svg .ail-pot-bubble.bubble2 { animation-delay: 0.5s; }
+.ail-pot-svg .ail-pot-bubble.bubble3 { animation-delay: 1s; }
+.ail-pot-svg .ail-pot-bubble.bubble4 { animation-delay: 1.5s; }
+@keyframes ail-pot-bubble {
+  0%, 70%, 100% { transform: scale(0); opacity: 0; }
+  20%, 50%      { transform: scale(1); opacity: 0.95; }
+}
+.ail-pot-svg .ail-flame {
+  transform-origin: 60px 144px;
+  animation: ail-flame 0.16s ease-in-out infinite alternate;
+}
+@keyframes ail-flame {
+  0%   { transform: scaleY(1)    scaleX(1); }
+  100% { transform: scaleY(1.18) scaleX(0.9); }
+}
+
+/* ====== WHISK ====== */
+.ail-whisk-svg .ail-whisk-rot {
+  transform-origin: 60px 100px;
+  animation: ail-whisk 0.7s ease-in-out infinite alternate;
+}
+@keyframes ail-whisk {
+  0%   { transform: rotate(-22deg) translateX(-3px); }
+  100% { transform: rotate(22deg)  translateX(3px); }
+}
+.ail-whisk-svg .ail-whisk-splash {
+  animation: ail-whisk-splash 0.9s ease-in-out infinite;
+  transform-origin: center;
+  opacity: 0;
+}
+.ail-whisk-svg .ail-whisk-splash.s1 { animation-delay: 0s; }
+.ail-whisk-svg .ail-whisk-splash.s2 { animation-delay: 0.3s; }
+.ail-whisk-svg .ail-whisk-splash.s3 { animation-delay: 0.6s; }
+@keyframes ail-whisk-splash {
+  0%, 60%, 100% { opacity: 0; transform: translateY(0)   scale(0.6); }
+  30%           { opacity: 1; transform: translateY(-8px) scale(1.1); }
+}
+
+/* ====== DINO ====== */
+.ail-dino-stage {
+  position: relative;
+  width: 270px;
+  height: 96px;
+  border-bottom: 2px solid var(--border);
+  overflow: hidden;
+}
+.ail-dino-stage::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0; right: 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--text-dim) 0 5px, transparent 5px 11px);
+  opacity: 0.45;
+}
+.ail-dino-svg {
+  position: absolute;
+  bottom: 4px; left: 30px;
+  animation: ail-dino-jump 1.4s cubic-bezier(0.34,0,0.45,1) infinite;
+}
+@keyframes ail-dino-jump {
+  0%, 65%, 100% { transform: translateY(0); }
+  78%, 88%      { transform: translateY(-40px); }
+}
+.ail-dino-svg .leg-l { animation: ail-dino-leg-l 0.22s steps(2) infinite; }
+.ail-dino-svg .leg-r { animation: ail-dino-leg-r 0.22s steps(2) infinite; }
+@keyframes ail-dino-leg-l { 0%,49% { transform: translateY(0); } 50%,100% { transform: translateY(2px); } }
+@keyframes ail-dino-leg-r { 0%,49% { transform: translateY(2px); } 50%,100% { transform: translateY(0); } }
+.ail-cactus {
+  position: absolute;
+  bottom: 4px;
+  right: -25px;
+  animation: ail-cactus-slide 1.4s linear infinite;
+}
+.ail-cactus-2 {
+  animation-delay: 0.7s;
+}
+@keyframes ail-cactus-slide {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-320px); }
+}
+
+/* ====== PONG ====== */
+.ail-pong-court {
+  width: 240px;
+  height: 120px;
+  background: #0a0d11;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.ail-pong-court::before {
+  content: '';
+  position: absolute;
+  top: 6px; bottom: 6px; left: 50%;
+  border-left: 1px dashed rgba(255,255,255,0.18);
+}
+.ail-pong-court .paddle {
+  position: absolute;
+  width: 4px; height: 28px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.ail-pong-court .paddle.left  { left: 6px;  animation: ail-pad-l 1.6s cubic-bezier(0.45,0.05,0.55,0.95) infinite alternate; }
+.ail-pong-court .paddle.right { right: 6px; animation: ail-pad-r 1.6s cubic-bezier(0.45,0.05,0.55,0.95) infinite alternate; }
+@keyframes ail-pad-l { 0% { top: 16px; } 100% { top: 76px; } }
+@keyframes ail-pad-r { 0% { top: 76px; } 100% { top: 16px; } }
+.ail-pong-court .ball {
+  position: absolute;
+  width: 6px; height: 6px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255,255,255,0.6);
+  animation: ail-pong-ball 1.6s linear infinite;
+}
+@keyframes ail-pong-ball {
+  0%   { left: 14px;  top: 30px; }
+  25%  { left: 220px; top: 86px; }
+  50%  { left: 14px;  top: 56px; }
+  75%  { left: 220px; top: 30px; }
+  100% { left: 14px;  top: 30px; }
+}
