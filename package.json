@@ -2,10 +2,12 @@
   "name": "calories",
   "version": "1.0.0",
   "description": "Personal calorie tracker with AI-generated baby-step recipes",
-  "main": "server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "electron": "electron .",
+    "electron:build": "electron-builder --win"
   },
   "keywords": [],
   "author": "",
@@ -16,5 +18,37 @@
     "express": "^4.21.1",
     "node-fetch": "^2.7.0",
     "openai": "^6.34.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.calories.app",
+    "productName": "Calories",
+    "files": [
+      "electron/**/*",
+      "server.js",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

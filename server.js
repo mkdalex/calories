@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const OpenAI = require('openai');
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.CALORIES_DATA_DIR || path.join(__dirname, 'data');
 const PROFILE_FILE = path.join(DATA_DIR, 'profile.json');
 const LOG_FILE = path.join(DATA_DIR, 'log.json');
 const WEIGHT_FILE = path.join(DATA_DIR, 'weight.json');
