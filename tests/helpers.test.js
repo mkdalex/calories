@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  round1, fmtDate, todayStr,
+  round1, fmtDate, todayStr, forEachDateInRange,
   readJson, writeJson, withFileLock,
   normalizeFoodName, customLookup, isRelevantMatch
 } = require('../server.js');
@@ -51,6 +51,61 @@ test('fmtDate / todayStr', async (t) => {
     const a = todayStr();
     const b = fmtDate(new Date());
     assert.equal(a, b);
+  });
+});
+
+test('forEachDateInRange', async (t) => {
+  await t.test('visits both endpoints inclusively, one day per step', () => {
+    const visited = [];
+    forEachDateInRange(new Date(2026, 4, 10), new Date(2026, 4, 13), ds => visited.push(ds));
+    assert.deepEqual(visited, ['2026-05-10', '2026-05-11', '2026-05-12', '2026-05-13']);
+  });
+
+  await t.test('single-day range visits exactly one date', () => {
+    const visited = [];
+    const d = new Date(2026, 0, 1);
+    forEachDateInRange(d, d, ds => visited.push(ds));
+    assert.deepEqual(visited, ['2026-01-01']);
+  });
+
+  await t.test('start after end visits nothing', () => {
+    const visited = [];
+    forEachDateInRange(new Date(2026, 4, 15), new Date(2026, 4, 10), ds => visited.push(ds));
+    assert.deepEqual(visited, []);
+  });
+
+  await t.test('crosses month boundary', () => {
+    const visited = [];
+    forEachDateInRange(new Date(2026, 0, 30), new Date(2026, 1, 2), ds => visited.push(ds));
+    assert.deepEqual(visited, ['2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02']);
+  });
+
+  await t.test('crosses year boundary', () => {
+    const visited = [];
+    forEachDateInRange(new Date(2025, 11, 30), new Date(2026, 0, 2), ds => visited.push(ds));
+    assert.deepEqual(visited, ['2025-12-30', '2025-12-31', '2026-01-01', '2026-01-02']);
+  });
+
+  await t.test('handles a leap day correctly', () => {
+    const visited = [];
+    forEachDateInRange(new Date(2024, 1, 28), new Date(2024, 2, 1), ds => visited.push(ds));
+    assert.deepEqual(visited, ['2024-02-28', '2024-02-29', '2024-03-01']);
+  });
+
+  await t.test('does not mutate the start/end Date inputs', () => {
+    const start = new Date(2026, 4, 10);
+    const end = new Date(2026, 4, 12);
+    const startCopy = start.getTime();
+    const endCopy = end.getTime();
+    forEachDateInRange(start, end, () => {});
+    assert.equal(start.getTime(), startCopy, 'start should not be mutated');
+    assert.equal(end.getTime(), endCopy, 'end should not be mutated');
+  });
+
+  await t.test('large range (365 days) returns exactly 365 entries', () => {
+    let count = 0;
+    forEachDateInRange(new Date(2025, 0, 1), new Date(2025, 11, 31), () => count++);
+    assert.equal(count, 365);
   });
 });
 

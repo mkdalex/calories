@@ -16,6 +16,7 @@
     --purple: #c084fc;
     --warn: #fbbf24;
     --danger: #f87171;
+    --danger-bright: #e05;
     --shadow: 0 4px 16px rgba(0,0,0,0.4);
     /* z-index stacking — keep ordered and named so nothing fights for the same plane */
     --z-tooltip: 10;
