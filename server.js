@@ -945,8 +945,7 @@ function normalizeFoodName(name) {
   return name.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
 }
 
-function customLookup(name) {
-  const customs = readJson(req.dataFiles.custom_foods, {});
+function customLookup(customs, name) {
   return customs[normalizeFoodName(name)] || null;
 }
 
@@ -1406,6 +1405,9 @@ app.post('/api/parse', async (req, res) => {
       return res.status(502).json({ error: 'AI parse failed: ' + e.message });
     }
 
+    // Load user's custom foods once for this request
+    const customs = readJson(req.dataFiles.custom_foods, {});
+
     const resolved = await Promise.all((parsed.items || []).map(async (item) => {
       const category = item.category || 'generic';
       let finalKcal = Math.round(item.kcal_total || 0);
@@ -1419,7 +1421,7 @@ app.post('/api/parse', async (req, res) => {
       let flagged = null;
 
       // 1. Custom foods first — user-verified, always wins
-      const custom = customLookup(item.name);
+      const custom = customLookup(customs, item.name);
       if (custom) {
         finalKcal = Math.round(custom.kcal * (item.qty || 1));
         finalProtein = Math.round(custom.protein * (item.qty || 1) * 10) / 10;
