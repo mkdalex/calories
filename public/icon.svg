@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Green background, rounded corners (matches the Electron .ico) -->
+  <rect width="512" height="512" rx="110" fill="#4ade80"/>
+  <!-- Big bold C -->
+  <text x="256" y="372"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+        font-size="380"
+        font-weight="700"
+        text-anchor="middle"
+        fill="#ffffff">C</text>
+</svg>
