@@ -80,6 +80,11 @@ function fmtDate(d) {
 function pctOf(eaten, target) {
   return Math.min(target > 0 ? eaten / target * 100 : 0, 100).toFixed(1);
 }
+// Round to 1 decimal place. Non-numeric input → 0.
+function round1(x) {
+  const n = Number(x) || 0;
+  return Math.round(n * 10) / 10;
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

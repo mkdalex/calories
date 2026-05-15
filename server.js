@@ -259,12 +259,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- JSON file helpers ----------
 function readJson(file, fallback) {
-  try {
-    if (!fs.existsSync(file)) return fallback;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return fallback; }
 }
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
@@ -275,7 +271,12 @@ const fileLocks = new Map();
 function withFileLock(filePath, fn) {
   const prev = fileLocks.get(filePath) || Promise.resolve();
   const next = prev.then(() => fn(), () => fn());
-  fileLocks.set(filePath, next.catch(() => undefined));
+  const stored = next.catch(() => undefined);
+  fileLocks.set(filePath, stored);
+  // Clean up only if no later caller has appended to this path's chain.
+  stored.finally(() => {
+    if (fileLocks.get(filePath) === stored) fileLocks.delete(filePath);
+  });
   return next;
 }
 function todayStr() { return fmtDate(new Date()); }
@@ -286,6 +287,15 @@ function fmtDate(d) {
 function round1(x) {
   const n = Number(x) || 0;
   return Math.round(n * 10) / 10;
+}
+// Walk every calendar day from startD to endD inclusive (forward, +1 day per step).
+// Calls fn with the local-time yyyy-mm-dd string for each day. Doesn't mutate inputs.
+function forEachDateInRange(startD, endD, fn) {
+  const d = new Date(startD);
+  while (d <= endD) {
+    fn(fmtDate(d));
+    d.setDate(d.getDate() + 1);
+  }
 }
 function newId() {
   return crypto.randomBytes(6).toString('hex');
@@ -376,17 +386,14 @@ app.get('/api/calibrate', (req, res) => {
   }
 
   // Sum kcal logged in the window
-  const d = new Date(firstD);
   let totalKcal = 0, daysLogged = 0;
-  while (d <= lastD) {
-    const ds = fmtDate(d);
+  forEachDateInRange(firstD, lastD, ds => {
     const entries = log[ds] || [];
     if (entries.length) {
       totalKcal += entries.reduce((a, e) => a + (e.kcal || 0), 0);
       daysLogged += 1;
     }
-    d.setDate(d.getDate() + 1);
-  }
+  });
 
   if (daysLogged < 10) {
     return res.json({ can_calibrate: false, reason: `Need at least 10 logged days in the window (have ${daysLogged} of ${daysSpan}).`, tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee, calibrated: stats.tdee_calibrated });
@@ -592,32 +599,18 @@ app.delete('/api/weight/:date', async (req, res) => {
 // Per-user cache keyed by mtime of the log file: recompute only when the log actually changes.
 // The full-log scan is O(entries) per call; with a year of history this is ~thousands of items.
 const favoritesCache = new Map(); // userId -> { mtimeMs, favs }
+const FAV_MACROS = ['kcal', 'protein', 'fat', 'carb', 'fiber'];
 function computeFavorites(log) {
   const counts = {};
-  for (const [date, entries] of Object.entries(log).sort()) {
+  // Iterate dates oldest-first so `c.last` ends up holding the newest entry.
+  for (const [, entries] of Object.entries(log).sort()) {
     for (const e of entries) {
       if (!e.name) continue;
       const key = e.name.trim().toLowerCase();
-      if (!counts[key]) counts[key] = {
-        name: e.name, count: 0, kcal_sum: 0, protein_sum: 0, fat_sum: 0, carb_sum: 0, fiber_sum: 0,
-        last_kcal: 0, last_protein: 0, last_fat: 0, last_carb: 0, last_fiber: 0, last_text: e.name, last_date: ''
-      };
-      const c = counts[key];
+      const c = counts[key] ??= { name: e.name, count: 0, sums: { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 }, last: e };
       c.count++;
-      c.kcal_sum += e.kcal || 0;
-      c.protein_sum += e.protein || 0;
-      c.fat_sum += e.fat || 0;
-      c.carb_sum += e.carb || 0;
-      c.fiber_sum += e.fiber || 0;
-      if (date >= c.last_date) {
-        c.last_date = date;
-        c.last_kcal = e.kcal || 0;
-        c.last_protein = e.protein || 0;
-        c.last_fat = e.fat || 0;
-        c.last_carb = e.carb || 0;
-        c.last_fiber = e.fiber || 0;
-        c.last_text = e.name;
-      }
+      for (const m of FAV_MACROS) c.sums[m] += e[m] || 0;
+      c.last = e;
     }
   }
   return Object.values(counts)
@@ -626,20 +619,21 @@ function computeFavorites(log) {
     .map(f => ({
       name: f.name,
       count: f.count,
-      kcal: Math.round(f.kcal_sum / f.count),
-      protein: round1(f.protein_sum / f.count),
-      last_kcal: f.last_kcal,
-      last_protein: f.last_protein,
-      last_fat: f.last_fat || 0,
-      last_carb: f.last_carb || 0,
-      last_fiber: f.last_fiber || 0,
-      last_text: f.last_text
+      kcal: Math.round(f.sums.kcal / f.count),
+      protein: round1(f.sums.protein / f.count),
+      last_kcal: f.last.kcal || 0,
+      last_protein: f.last.protein || 0,
+      last_fat: f.last.fat || 0,
+      last_carb: f.last.carb || 0,
+      last_fiber: f.last.fiber || 0,
+      last_text: f.last.name
     }));
 }
 
 app.get('/api/favorites', (req, res) => {
   const logFile = req.dataFiles.log;
-  const mtimeMs = fs.existsSync(logFile) ? fs.statSync(logFile).mtimeMs : 0;
+  const stat = fs.statSync(logFile, { throwIfNoEntry: false });
+  const mtimeMs = stat ? stat.mtimeMs : 0;
   const cached = favoritesCache.get(req.userId);
   if (cached && cached.mtimeMs === mtimeMs) return res.json(cached.favs);
   const favs = computeFavorites(readJson(logFile, {}));
@@ -656,18 +650,15 @@ app.get('/api/log-range', (req, res) => {
   const stats = computeStats(profile);
   const goal = stats ? stats.kcal_goal : null;
   const result = {};
-  const d = new Date(start + 'T00:00:00');
+  const startD = new Date(start + 'T00:00:00');
   const endD = new Date(end + 'T00:00:00');
-  while (d <= endD) {
-    const ds = fmtDate(d);
+  forEachDateInRange(startD, endD, ds => {
     const entries = log[ds] || [];
-    if (entries.length) {
-      const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      const protein = round1(entries.reduce((a, e) => a + (e.protein || 0), 0));
-      result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
-    }
-    d.setDate(d.getDate() + 1);
-  }
+    if (!entries.length) return;
+    const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
+    const protein = round1(entries.reduce((a, e) => a + (e.protein || 0), 0));
+    result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
+  });
   res.json(result);
 });
 
@@ -744,22 +735,18 @@ app.get('/api/weekly-review', (req, res) => {
 
   // Walk dates in window
   const dayTotals = []; // { date, kcal, protein, fat, carb, fiber, entries }
-  const d = new Date(startD);
-  while (d <= endD) {
-    const ds = fmtDate(d);
+  forEachDateInRange(startD, endD, ds => {
     const entries = log[ds] || [];
-    if (entries.length) {
-      const t = entries.reduce((a, e) => ({
-        kcal: a.kcal + (e.kcal || 0),
-        protein: a.protein + (e.protein || 0),
-        fat: a.fat + (e.fat || 0),
-        carb: a.carb + (e.carb || 0),
-        fiber: a.fiber + (e.fiber || 0)
-      }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
-      dayTotals.push({ date: ds, ...t, entries });
-    }
-    d.setDate(d.getDate() + 1);
-  }
+    if (!entries.length) return;
+    const t = entries.reduce((a, e) => ({
+      kcal: a.kcal + (e.kcal || 0),
+      protein: a.protein + (e.protein || 0),
+      fat: a.fat + (e.fat || 0),
+      carb: a.carb + (e.carb || 0),
+      fiber: a.fiber + (e.fiber || 0)
+    }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
+    dayTotals.push({ date: ds, ...t, entries });
+  });
 
   if (!dayTotals.length) {
     return res.json({ start: startStr, end: endStr, days_logged: 0, empty: true });
@@ -935,8 +922,9 @@ app.get('/api/suggest', (req, res) => {
   }
 
   const log = readJson(req.dataFiles.log, {});
+  // Local-time cutoff to stay consistent with how dates are keyed in the log file.
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const cutoffStr = fmtDate(cutoff);
   const histMap = {};
   for (const [date, entries] of Object.entries(log)) {
     if (date < cutoffStr) continue;
@@ -962,6 +950,7 @@ app.get('/api/suggest', (req, res) => {
 });
 
 // ---------- /api/macro-suggest ----------
+const MACRO_SUGGEST_SYSTEM = require('./prompts/macro-suggest');
 const macroSuggestCache = new Map();
 
 app.get('/api/macro-suggest', async (req, res) => {
@@ -974,10 +963,7 @@ app.get('/api/macro-suggest', async (req, res) => {
   if (cached && Date.now() - cached.ts < 5 * 60 * 1000) return res.json(cached.data);
   const macroNames = { protein: 'protein', fat: 'fat', carb: 'carbohydrates', fiber: 'fiber' };
   try {
-    const system = `You suggest simple foods to help someone hit a remaining macro target. Output STRICT JSON only:
-{"suggestions":[{"name":"<food>","kcal":<number>,"protein":<g>,"fat":<g>,"carb":<g>,"fiber":<g>,"note":"<one sentence why>"}]}
-Return exactly 3. Practical, common in Australia. Mix: one single food, one combo, one that slightly overshoots. Output ONLY the JSON.`;
-    const data = await aiJson('macro-suggest', system, `User needs roughly ${rounded}g more ${macroNames[macro] || macro} today. Suggest 3 practical foods/combos.`, 8000);
+    const data = await aiJson('macro-suggest', MACRO_SUGGEST_SYSTEM, `User needs roughly ${rounded}g more ${macroNames[macro] || macro} today. Suggest 3 practical foods/combos.`, 8000);
     macroSuggestCache.set(cacheKey, { ts: Date.now(), data });
     res.json(data);
   } catch (e) {
@@ -986,6 +972,7 @@ Return exactly 3. Practical, common in Australia. Mix: one single food, one comb
 });
 
 // ---------- /api/gap-suggest ----------
+const GAP_SUGGEST_SYSTEM = require('./prompts/gap-suggest');
 const gapSuggestCache = new Map();
 
 app.post('/api/gap-suggest', async (req, res) => {
@@ -1003,14 +990,11 @@ app.post('/api/gap-suggest', async (req, res) => {
   const cached = gapSuggestCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return res.json(cached.data);
   try {
-    const system = `You suggest practical foods to close macro gaps for someone tracking calories. Output STRICT JSON only:
-{"suggestions":[{"name":"<food description>","kcal":<number>,"protein":<g>,"fat":<g>,"carb":<g>,"fiber":<g>}]}
-Return exactly 3. Each must fit within the kcal budget (no more than 10% over). Prioritise foods that close MULTIPLE gaps. Common in Australia, simple to prepare. Output ONLY the JSON.`;
     const behindDesc = behind.map(m => {
       const n = { protein: 'protein', fat: 'fat', carb: 'carbs', fiber: 'fiber' };
       return `${n[m] || m}: ~${remaining[m] !== undefined ? Math.round(remaining[m]) : '?'}g needed`;
     }).join(', ');
-    const data = await aiJson('gap-suggest', system, `User has ${rem.kcal} kcal left today. Key gaps: ${behindDesc}. Suggest 3 practical foods/combos that help close these gaps.`, 5000);
+    const data = await aiJson('gap-suggest', GAP_SUGGEST_SYSTEM, `User has ${rem.kcal} kcal left today. Key gaps: ${behindDesc}. Suggest 3 practical foods/combos that help close these gaps.`, 5000);
     gapSuggestCache.set(cacheKey, { ts: Date.now(), data });
     res.json(data);
   } catch (e) {
@@ -1158,6 +1142,31 @@ app.post('/api/import', async (req, res) => {
 // ---------- Food data sources ----------
 
 // 1. Open Food Facts (uses v2 search API — more reliable than legacy cgi/search.pl)
+// OFF nutriments → result shape. Returns null if the product lacks usable energy data.
+// `fallbackName` is used when the product itself has no name; `fallbackBarcode` is
+// returned when the product has no .code (the barcode endpoint can substitute the
+// requested barcode here so the response is always self-describing).
+function offProductToResult(product, fallbackName, fallbackBarcode = null) {
+  const n = product.nutriments || {};
+  const kcal100 = n['energy-kcal_100g'] || (n['energy_100g'] ? n['energy_100g'] / 4.184 : null);
+  if (!kcal100) return null;
+  const serving = product.serving_quantity ? Number(product.serving_quantity) : null;
+  const protein100 = n.proteins_100g || 0;
+  const kcalRounded = Math.round(kcal100);
+  const proteinRounded = round1(protein100);
+  return {
+    name: product.product_name || product.product_name_en || fallbackName,
+    brand: product.brands || null,
+    serving_g: serving || 100,
+    kcal_per_serving: serving ? Math.round(kcal100 * serving / 100) : kcalRounded,
+    protein_per_serving: serving ? round1(protein100 * serving / 100) : proteinRounded,
+    kcal_100g: kcalRounded,
+    protein_100g: proteinRounded,
+    source: 'openfoodfacts',
+    barcode: product.code || fallbackBarcode
+  };
+}
+
 async function offSearch(name) {
   try {
     const url = `https://world.openfoodfacts.org/api/v2/search?search_terms=${encodeURIComponent(name)}&fields=code,product_name,product_name_en,brands,serving_quantity,nutriments&page_size=5`;
@@ -1169,23 +1178,11 @@ async function offSearch(name) {
     if (!j.products || !j.products.length) return null;
     // Pick the first product with usable energy data
     for (const p of j.products) {
-      const n = p.nutriments || {};
-      const kcal100 = n['energy-kcal_100g'] || (n['energy_100g'] ? n['energy_100g'] / 4.184 : null);
-      if (!kcal100) continue;
-      return {
-        name: p.product_name || p.product_name_en || name,
-        brand: p.brands || null,
-        serving_g: p.serving_quantity ? Number(p.serving_quantity) : 100,
-        kcal_per_serving: p.serving_quantity ? Math.round(kcal100 * Number(p.serving_quantity) / 100) : Math.round(kcal100),
-        protein_per_serving: p.serving_quantity ? Math.round(((n.proteins_100g || 0) * Number(p.serving_quantity) / 100) * 10) / 10 : Math.round((n.proteins_100g || 0) * 10) / 10,
-        kcal_100g: Math.round(kcal100),
-        protein_100g: Math.round((n.proteins_100g || 0) * 10) / 10,
-        source: 'openfoodfacts',
-        barcode: p.code || null
-      };
+      const result = offProductToResult(p, name);
+      if (result) return result;
     }
     return null;
-  } catch (e) {
+  } catch {
     // OFF endpoint is flaky — fail silent, lookup chain continues to next source
     return null;
   }
@@ -1196,21 +1193,7 @@ async function offBarcode(barcode) {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`, { timeout: 5000 });
     const j = await r.json();
     if (j.status !== 1 || !j.product) return null;
-    const p = j.product;
-    const n = p.nutriments || {};
-    const kcal100 = n['energy-kcal_100g'] || (n['energy_100g'] ? n['energy_100g'] / 4.184 : null);
-    if (!kcal100) return null;
-    return {
-      name: p.product_name || p.product_name_en || barcode,
-      brand: p.brands || null,
-      serving_g: p.serving_quantity ? Number(p.serving_quantity) : 100,
-      kcal_per_serving: p.serving_quantity ? Math.round(kcal100 * Number(p.serving_quantity) / 100) : Math.round(kcal100),
-      protein_per_serving: p.serving_quantity ? Math.round(((n.proteins_100g || 0) * Number(p.serving_quantity) / 100) * 10) / 10 : Math.round((n.proteins_100g || 0) * 10) / 10,
-      kcal_100g: Math.round(kcal100),
-      protein_100g: Math.round((n.proteins_100g || 0) * 10) / 10,
-      source: 'openfoodfacts',
-      barcode: p.code || barcode
-    };
+    return offProductToResult(j.product, barcode, barcode);
   } catch (e) {
     console.error('OFF barcode error:', e.message);
     return null;
@@ -1264,19 +1247,12 @@ function parseFsServingDescription(desc) {
   const servingGramsMatch = desc.match(/per\s+[^-]+\((\d+)\s*g\)/i);
   const servingGrams = servingGramsMatch ? Number(servingGramsMatch[1]) : null;
 
-  if (isPer100g) {
-    return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: true };
-  } else if (servingGrams) {
-    return {
-      kcal: Math.round(kcalVal * 100 / servingGrams),
-      protein: Math.round(proteinVal * 100 / servingGrams * 10) / 10,
-      fat: Math.round(fatVal * 100 / servingGrams * 10) / 10,
-      carb: Math.round(carbVal * 100 / servingGrams * 10) / 10,
-      per100g: true
-    };
-  } else {
-    return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: false };
+  if (isPer100g) return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: true };
+  if (servingGrams) {
+    const k = 100 / servingGrams;
+    return { kcal: Math.round(kcalVal * k), protein: round1(proteinVal * k), fat: round1(fatVal * k), carb: round1(carbVal * k), per100g: true };
   }
+  return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: false };
 }
 
 async function fsSearch(name) {
@@ -1295,18 +1271,21 @@ async function fsSearch(name) {
       // Sanity: >900 kcal/100g is impossible (pure fat ~900). >2000 per-serving = bad data.
       if (parsed.per100g && parsed.kcal > 900) continue;
       if (!parsed.per100g && parsed.kcal > 2000) continue;
+      // Round once; mirror into both per-serving and per-100g fields (when applicable).
+      const kcal = Math.round(parsed.kcal);
+      const protein = round1(parsed.protein);
+      const fat = round1(parsed.fat || 0);
+      const carb = round1(parsed.carb || 0);
+      const per100 = parsed.per100g;
       return {
         name: f.food_name,
         brand: f.brand_name || null,
-        serving_g: parsed.per100g ? 100 : null,
-        kcal_per_serving: Math.round(parsed.kcal),
-        protein_per_serving: Math.round(parsed.protein * 10) / 10,
-        fat_per_serving: Math.round((parsed.fat || 0) * 10) / 10,
-        carb_per_serving: Math.round((parsed.carb || 0) * 10) / 10,
-        kcal_100g: parsed.per100g ? Math.round(parsed.kcal) : null,
-        protein_100g: parsed.per100g ? Math.round(parsed.protein * 10) / 10 : null,
-        fat_100g: parsed.per100g ? Math.round((parsed.fat || 0) * 10) / 10 : null,
-        carb_100g: parsed.per100g ? Math.round((parsed.carb || 0) * 10) / 10 : null,
+        serving_g: per100 ? 100 : null,
+        kcal_per_serving: kcal, protein_per_serving: protein, fat_per_serving: fat, carb_per_serving: carb,
+        kcal_100g: per100 ? kcal : null,
+        protein_100g: per100 ? protein : null,
+        fat_100g: per100 ? fat : null,
+        carb_100g: per100 ? carb : null,
         source: 'fatsecret',
         food_id: f.food_id
       };
@@ -1356,17 +1335,15 @@ async function usdaSearch(name) {
     const carb100 = nut(1005);    // Carbohydrate g
     const fiber100 = nut(1079);   // Dietary fiber g
     if (!kcal100) return null;
+    const kcal = Math.round(kcal100);
+    const protein = round1(protein100);
     return {
       name: f.description,
       brand: f.brandOwner || null,
       serving_g: 100,
-      kcal_per_serving: Math.round(kcal100),
-      protein_per_serving: Math.round(protein100 * 10) / 10,
-      kcal_100g: Math.round(kcal100),
-      protein_100g: Math.round(protein100 * 10) / 10,
-      fat_100g: Math.round(fat100 * 10) / 10,
-      carb_100g: Math.round(carb100 * 10) / 10,
-      fiber_100g: Math.round(fiber100 * 10) / 10,
+      kcal_per_serving: kcal, protein_per_serving: protein,
+      kcal_100g: kcal, protein_100g: protein,
+      fat_100g: round1(fat100), carb_100g: round1(carb100), fiber_100g: round1(fiber100),
       source: 'usda',
       fdc_id: f.fdcId
     };
@@ -1412,74 +1389,8 @@ app.get('/api/search', async (req, res) => {
 });
 
 // ---------- /api/parse ----------
-const PARSE_SYSTEM = `You parse casually-typed meal descriptions into structured food items and estimate nutrition. The user is Australian.
-
-SPLITTING RULE: If the input contains multiple distinct foods, split them into separate items. "eggs and toast" → 2 items. "steak with chips and salad" → 3 items. "coffee with milk" → 1 item (coffee is the base, milk is part of it).
-
-QUANTITY RULE: When a gram weight is explicitly stated (even in parentheses), ALWAYS use it as the qty/unit. "2 steaks (350g)" → qty:350, unit:g. "3 eggs (180g)" → qty:180, unit:g. Only use piece/slice when NO gram weight is given at all.
-
-Return STRICT JSON only:
-{"items":[{
-  "name": "<clean display name — no store names>",
-  "search_name": "<generic database-friendly name, stripped of all brand/store names, e.g. 'chicken breast', 'greek yogurt', 'instant noodles', 'white rice'>",
-  "qty": <number>,
-  "unit": "<g|ml|piece|slice|cup|tbsp|can>",
-  "category": "<whole-food|chain|branded|generic|home-cooked>",
-  "kcal_total": <kcal for the FULL qty>,
-  "kcal_low": <realistic low end for full qty>,
-  "kcal_high": <realistic high end for full qty>,
-  "protein_g": <protein grams for FULL qty>,
-  "fat_g": <fat grams for FULL qty>,
-  "carb_g": <carb grams for FULL qty>,
-  "fiber_g": <fiber grams for FULL qty>,
-  "confidence": "<high|medium|low>",
-  "reasoning": "<one short sentence explaining your estimate>"
-}],
-"suggested_extras": ["<short description like '1 tbsp olive oil' or 'butter on bread'>"]}
-
-CATEGORY rules:
-- whole-food: raw ingredients with well-known nutrition (chicken breast, oats, eggs, broccoli, rice, banana). Confidence usually HIGH.
-- chain: identifiable restaurant chain item (Domino's pizza, KFC zinger, Maccas big mac, Subway footlong, Hungry Jack's whopper, Guzman burrito, Nando's chicken). Use published AU chain nutrition if you know it precisely. Confidence HIGH if known, MEDIUM if approximate.
-- branded: packaged product with known nutrition (Mountain Dew can, Tim Tam, Vegemite, Weet-Bix, Up&Go, Shapes, Milo, Bundaberg). Confidence HIGH for well-known SKUs.
-- generic: nonspecific prepared food where size/recipe varies a lot (a muffin, a sandwich, pasta, stir fry, curry). Confidence LOW — these vary 2x easily. Give a WIDE range.
-- home-cooked: user's own recipe or family dish ("mum's lasagna", "my usual brekky"). Confidence MEDIUM. Wide range.
-
-HONESTY rules:
-- If uncertain, use LOW confidence with a wide range. NEVER invent a confident number when unsure.
-- For chain items: only use HIGH confidence if you know the exact published AU nutrition. Otherwise MEDIUM.
-- For generic items: default to LOW confidence regardless.
-
-NAME rules:
-- Strip supermarket/store names (Woolies, Woolworths, Coles, IGA, ALDI, Costco) from display name — they say WHERE, not WHAT.
-  "Woolies extra tasty cheese slice" → name: "extra tasty cheese slice", search_name: "cheddar cheese slice"
-  "Coles brand yoghurt" → name: "plain yoghurt", search_name: "plain yogurt"
-- Keep brand names that ARE the product: Four'N Twenty, Vegemite, Weet-Bix, Tim Tam, Shapes, Milo, Up&Go, Bega, Bundaberg.
-- search_name should always be the most generic searchable version: "Coles free range eggs" → search_name: "eggs". "Heinz tomato soup can" → search_name: "tomato soup". "ALDI frozen stir fry vegetables" → search_name: "stir fry vegetables".
-- Translate Aussie slang: chook→chicken, snags→sausages, bikkie→biscuit, avo→avocado, brekky→breakfast, servo pie→meat pie, flat white→flat white coffee, rissole→beef rissole.
-
-SUGGESTED EXTRAS rules:
-- Return 1–3 extras that are commonly added to THIS specific meal but NOT already mentioned by the user.
-- Think: cooking fat (oil, butter), condiments, sauces, toppings, sides typically eaten together.
-- Each extra must be a short, actionable string like "1 tbsp olive oil", "butter on toast", "tomato sauce", "soy sauce marinade".
-- Only suggest things that add meaningful calories (>20 kcal). Skip salt, herbs, spices.
-- If nothing sensible to suggest, return an empty array [].
-
-Output ONLY the JSON object. No markdown fences, no explanation.`;
-
-const VERIFY_SYSTEM = `You are an Australian nutrition fact-checker. You are given food items with their current calorie and macro values (from database lookup or AI estimate). Your job: verify each item looks nutritionally plausible for an Australian diet.
-
-Return STRICT JSON only:
-{"items":[{"ok":true}]}
-or for corrections:
-{"items":[{"ok":false,"kcal":X,"protein":X,"fat":X,"carb":X,"fiber":X,"note":"<one short reason>"}]}
-
-RULES:
-- Approve (ok:true) if values are within 30% of what you'd expect for this food. When in doubt, approve.
-- Correct (ok:false) only if values are clearly wrong: wrong food matched by database, impossible macros, fat wildly high for a lean cut, etc.
-- Never correct custom foods or chain items with published nutrition.
-- Output exactly one entry per item in order. No extra fields.
-
-Output ONLY the JSON object. No markdown fences.`;
+const PARSE_SYSTEM = require('./prompts/parse');
+const VERIFY_SYSTEM = require('./prompts/verify');
 
 // --- /api/parse helpers ---
 
@@ -1511,7 +1422,8 @@ function applyCustomFood(custom, item, f) {
 }
 
 // Try USDA + FatSecret in parallel. Mutates `f` if a relevant match wins per the resolution rules.
-async function applyDbSources(item, category, f) {
+async function applyDbSources(item, f) {
+  const category = item.category || 'generic';
   const isGram = item.unit === 'g' || item.unit === 'ml';
   const aiLow = item.kcal_low || f.kcal * 0.6;
   const aiHigh = item.kcal_high || f.kcal * 1.4;
@@ -1593,12 +1505,11 @@ function applySanityCaps(item, f) {
 }
 
 async function resolveItem(item, customs) {
-  const category = item.category || 'generic';
   const f = initialFinals(item);
 
   const custom = customLookup(customs, item.name);
   if (custom) applyCustomFood(custom, item, f);
-  else await applyDbSources(item, category, f);
+  else await applyDbSources(item, f);
 
   applySanityCaps(item, f);
 
@@ -1606,7 +1517,7 @@ async function resolveItem(item, customs) {
     item: { name: item.name, qty: item.qty, unit: item.unit, kcal: f.kcal, protein: f.protein, fat: f.fat, carb: f.carb, fiber: f.fiber, source: f.source, confidence: f.confidence },
     trace: {
       name: item.name, qty: item.qty, unit: item.unit,
-      category, confidence: f.confidence, reasoning: item.reasoning || '',
+      category: item.category || 'generic', confidence: f.confidence, reasoning: item.reasoning || '',
       ai_kcal_total: Math.round(item.kcal_total || 0),
       ai_kcal_low: Math.round(item.kcal_low || 0),
       ai_kcal_high: Math.round(item.kcal_high || 0),
@@ -1699,33 +1610,7 @@ app.post('/api/parse', async (req, res) => {
 });
 
 // ---------- /api/recipe ----------
-const RECIPE_SYSTEM = `You write recipes for someone who has never cooked before. Be patient and explicit. Output STRICT JSON only.
-
-Format:
-{
-  "name": "<recipe name>",
-  "total_kcal": <number>,
-  "protein_g": <number>,
-  "fat_g": <number>,
-  "carb_g": <number>,
-  "fiber_g": <number>,
-  "servings": <number>,
-  "time_min": <number>,
-  "narrative": "<2-3 sentence plain-English story of what you'll make and why it fits the budget>",
-  "ingredients": [{"item": "...", "qty": "...", "note": "<optional, e.g. 'or any leafy green'>"}],
-  "tools": ["<each pan/bowl/utensil needed>"],
-  "prep": ["<each prep task as its own bullet, before any cooking starts>"],
-  "steps": [
-    {"n": 1, "do": "<one action only>", "watch_for": "<visual cue, e.g. 'edges turn golden brown'>", "time": "<e.g. '3 min' or null>", "why": "<optional, only if non-obvious>"}
-  ]
-}
-
-Hard rules:
-- Every action gets its own step. "Heat pan and add oil" is TWO steps.
-- Always include a "time" or "watch_for" so the user knows when to move on.
-- Define any tool the first time it appears in steps ("a spatula — the flat flexible thing").
-- Round kcal to nearest 10. Hit the calorie budget within ±15%.
-- Output ONLY the JSON object. No markdown fences, no explanation outside JSON.`;
+const RECIPE_SYSTEM = require('./prompts/recipe');
 
 app.post('/api/recipe', async (req, res) => {
   if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
@@ -1748,13 +1633,7 @@ Write the recipe as JSON.`;
 });
 
 // ---------- /api/recipe-ideas ----------
-const RECIPE_IDEAS_SYSTEM = `You suggest 3 quick recipe IDEAS (not full recipes). Output STRICT JSON only:
-{"ideas":[{"name":"<short, 5 words max>","emoji":"<one food emoji>","kcal":<number>,"protein_g":<number>,"time_min":<number>,"summary":"<one sentence what it is>","uses":["<ingredient 1>","<ingredient 2>"]}]}
-- Each idea uses primarily the ingredients listed by the user.
-- Match the requested effort and time band.
-- Stay near the calorie budget (within ±15%).
-- Pick varied styles (e.g. one bowl, one wrap/sandwich, one stir-fry) — not three of the same.
-- Output ONLY the JSON, no prose.`;
+const RECIPE_IDEAS_SYSTEM = require('./prompts/recipe-ideas');
 
 app.post('/api/recipe-ideas', async (req, res) => {
   if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
@@ -1783,11 +1662,7 @@ Return JSON with 3 ideas.`;
 });
 
 // ---------- /api/snack ----------
-const SNACK_SYSTEM = `You suggest 3 snack ideas for someone tracking calories. Output STRICT JSON only:
-{"snacks":[{"name":"...","kcal":<number>,"protein_g":<number>,"fat_g":<number>,"carb_g":<number>,"fiber_g":<number>,"why":"<one short sentence on why it's a good pick>"}]}
-- Each snack must be under the user's kcal cap.
-- Mix high-protein options with at least one easy/no-prep option.
-- Output ONLY the JSON.`;
+const SNACK_SYSTEM = require('./prompts/snack');
 
 app.post('/api/snack', async (req, res) => {
   if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
@@ -1801,17 +1676,19 @@ app.post('/api/snack', async (req, res) => {
 });
 
 // ---------- /api/health ----------
-app.get('/api/health', async (req, res) => {
-  const checks = {
-    openai: { configured: !!process.env.OPENAI_API_KEY, model: OPENAI_MODEL, status: 'unknown', detail: '' },
-    openfoodfacts: { configured: true, status: 'unknown', detail: '' },
-    fatsecret: { configured: !!(process.env.FATSECRET_CLIENT_ID && process.env.FATSECRET_CLIENT_SECRET), status: 'unknown', detail: '' },
-    usda: { configured: !!process.env.USDA_API_KEY, status: 'unknown', detail: '' }
-  };
+// Run one source check: short-circuit when missing config, wrap user fn in try/catch.
+async function runCheck(configured, missingDetail, fn) {
+  if (!configured) return { status: 'missing', detail: missingDetail };
+  try { return await fn(); }
+  catch (e) { return { status: 'error', detail: e.message }; }
+}
 
-  // OpenAI
-  if (checks.openai.configured) {
-    try {
+app.get('/api/health', async (req, res) => {
+  const fsConfigured = !!(process.env.FATSECRET_CLIENT_ID && process.env.FATSECRET_CLIENT_SECRET);
+  // Run all four checks in parallel — each has its own ~3-4s timeout, so sequential
+  // worst-case is ~12s vs ~4s parallel.
+  const [openaiRes, offRes, fsRes, usdaRes, public_ip] = await Promise.all([
+    runCheck(!!process.env.OPENAI_API_KEY, 'No OPENAI_API_KEY in .env', async () => {
       const r = await openai.chat.completions.create({
         model: OPENAI_MODEL,
         messages: [{ role: 'user', content: 'Reply with the JSON {"ok":true}' }],
@@ -1819,53 +1696,46 @@ app.get('/api/health', async (req, res) => {
         max_completion_tokens: 500
       });
       const c = r.choices[0].message.content;
-      if (c && c.trim()) {
-        checks.openai.status = 'ok';
-        checks.openai.detail = `Model ${r.model} responded`;
-      } else {
-        checks.openai.status = 'warn';
-        checks.openai.detail = 'Model returned empty content (try bigger token budget)';
-      }
-    } catch (e) {
-      checks.openai.status = 'error';
-      checks.openai.detail = e.message;
-    }
-  } else { checks.openai.status = 'missing'; checks.openai.detail = 'No OPENAI_API_KEY in .env'; }
-
-  // OFF
-  try {
-    const r = await fetch('https://world.openfoodfacts.org/api/v2/product/737628064502.json', { timeout: 4000 });
-    const ct = r.headers.get('content-type') || '';
-    if (r.ok && ct.includes('json')) { checks.openfoodfacts.status = 'ok'; checks.openfoodfacts.detail = 'Reachable'; }
-    else { checks.openfoodfacts.status = 'warn'; checks.openfoodfacts.detail = `HTTP ${r.status}`; }
-  } catch (e) { checks.openfoodfacts.status = 'error'; checks.openfoodfacts.detail = e.message; }
-
-  // FatSecret
-  if (checks.fatsecret.configured) {
-    try {
+      return c && c.trim()
+        ? { status: 'ok', detail: `Model ${r.model} responded` }
+        : { status: 'warn', detail: 'Model returned empty content (try bigger token budget)' };
+    }),
+    runCheck(true, '', async () => {
+      const r = await fetch('https://world.openfoodfacts.org/api/v2/product/737628064502.json', { timeout: 4000 });
+      const ct = r.headers.get('content-type') || '';
+      return r.ok && ct.includes('json')
+        ? { status: 'ok', detail: 'Reachable' }
+        : { status: 'warn', detail: `HTTP ${r.status}` };
+    }),
+    runCheck(fsConfigured, 'FATSECRET_CLIENT_ID / SECRET not in .env', async () => {
       const tok = await fsToken();
-      if (!tok) { checks.fatsecret.status = 'error'; checks.fatsecret.detail = 'OAuth token request failed'; }
-      else {
-        const r = await fetch(`https://platform.fatsecret.com/rest/server.api?method=foods.search&search_expression=apple&format=json&max_results=1`, { headers: { 'Authorization': `Bearer ${tok}` }, timeout: 4000 });
-        const j = await r.json();
-        if (j.error) { checks.fatsecret.status = 'error'; checks.fatsecret.detail = j.error.message; }
-        else { checks.fatsecret.status = 'ok'; checks.fatsecret.detail = 'Search returned results'; }
-      }
-    } catch (e) { checks.fatsecret.status = 'error'; checks.fatsecret.detail = e.message; }
-  } else { checks.fatsecret.status = 'missing'; checks.fatsecret.detail = 'FATSECRET_CLIENT_ID / SECRET not in .env'; }
-
-  // USDA
-  if (checks.usda.configured) {
-    try {
+      if (!tok) return { status: 'error', detail: 'OAuth token request failed' };
+      const r = await fetch(`https://platform.fatsecret.com/rest/server.api?method=foods.search&search_expression=apple&format=json&max_results=1`, { headers: { 'Authorization': `Bearer ${tok}` }, timeout: 4000 });
+      const j = await r.json();
+      return j.error
+        ? { status: 'error', detail: j.error.message }
+        : { status: 'ok', detail: 'Search returned results' };
+    }),
+    runCheck(!!process.env.USDA_API_KEY, 'No USDA_API_KEY in .env', async () => {
       const r = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?query=apple&pageSize=1`, { timeout: 4000, headers: { 'X-Api-Key': process.env.USDA_API_KEY } });
       const j = await r.json();
-      if (j.error) { checks.usda.status = 'error'; checks.usda.detail = j.error.message || JSON.stringify(j.error); }
-      else if (j.foods && j.foods.length) { checks.usda.status = 'ok'; checks.usda.detail = 'Search returned results'; }
-      else { checks.usda.status = 'warn'; checks.usda.detail = 'No results for test query'; }
-    } catch (e) { checks.usda.status = 'error'; checks.usda.detail = e.message; }
-  } else { checks.usda.status = 'missing'; checks.usda.detail = 'No USDA_API_KEY in .env'; }
+      if (j.error) return { status: 'error', detail: j.error.message || JSON.stringify(j.error) };
+      return j.foods && j.foods.length
+        ? { status: 'ok', detail: 'Search returned results' }
+        : { status: 'warn', detail: 'No results for test query' };
+    }),
+    fetchPublicIp()
+  ]);
 
-  res.json({ checks, public_ip: await fetchPublicIp() });
+  res.json({
+    checks: {
+      openai:        { configured: !!process.env.OPENAI_API_KEY, model: OPENAI_MODEL, ...openaiRes },
+      openfoodfacts: { configured: true, ...offRes },
+      fatsecret:     { configured: fsConfigured, ...fsRes },
+      usda:          { configured: !!process.env.USDA_API_KEY, ...usdaRes }
+    },
+    public_ip
+  });
 });
 
 async function fetchPublicIp() {
@@ -1960,7 +1830,7 @@ if (require.main === module) {
 } else {
   module.exports = {
     app, createTestSession,
-    round1, fmtDate, todayStr,
+    round1, fmtDate, todayStr, forEachDateInRange,
     readJson, writeJson, withFileLock,
     normalizeFoodName, customLookup, isRelevantMatch,
     initialFinals, applyCustomFood, applySanityCaps,

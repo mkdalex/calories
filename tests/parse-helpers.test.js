@@ -55,7 +55,7 @@ test('applyCustomFood', async (t) => {
     assert.equal(f.confidence, 'high');
   });
 
-  await t.test('qty=0 produces zero kcal (the bug #4 fix — || would have given 1 serving)', () => {
+  await t.test('qty=0 produces zero kcal (uses ?? not || to coerce)', () => {
     const f = initialFinals(aiItem({ name: 'banana' }));
     applyCustomFood(banana, aiItem({ name: 'banana', qty: 0 }), f);
     assert.equal(f.kcal, 0, 'qty=0 must mean zero, not silently fall back to qty=1');

@@ -258,15 +258,31 @@ $('#logParse').addEventListener('click', async () => {
   }
 });
 
+const TRACE_CONF_COLOR = { high: 'var(--green)', medium: 'var(--warn)', low: 'var(--danger-bright)' };
+const TRACE_CAT_LABEL = { 'whole-food': 'whole food', chain: 'chain restaurant', branded: 'branded product', generic: 'generic', 'home-cooked': 'home-cooked' };
+const TRACE_SOURCE_LABEL = {
+  'custom':      'your saved value',
+  'usda+ai':     'USDA (AI confirmed)',
+  'usda':        'USDA',
+  'fatsecret':   'FatSecret',
+  'ai-estimate': 'AI estimate'
+};
+const TRACE_FLAG_NOTE = {
+  'high-kcal':  ' <span style="color:var(--danger-bright);">⚠ unusually high — verify</span>',
+  'sanity-cap': ' <span style="color:var(--warn);">⚠ sanity capped</span>'
+};
+const TRACE_USDA_STATUS = {
+  confirmed: { icon: '✓', color: 'var(--green)', note: 'confirms AI' },
+  conflict:  { icon: '!', color: 'var(--warn)',  note: 'differs from AI — used USDA (lab data)' }
+};
+const TRACE_USDA_FALLBACK = { icon: '?', color: 'var(--warn)', note: 'differs from AI — used USDA (lab data)' };
+
 function renderTrace(trace) {
   if (!trace || !trace.length) return '';
 
-  const confColor = { high: 'var(--green)', medium: 'var(--warn)', low: '#e05' };
-  const catLabel = { 'whole-food': 'whole food', chain: 'chain restaurant', branded: 'branded product', generic: 'generic', 'home-cooked': 'home-cooked' };
-
   const rows = trace.map(t => {
     const conf = t.confidence || 'medium';
-    const cColor = confColor[conf] || confColor.medium;
+    const cColor = TRACE_CONF_COLOR[conf] || TRACE_CONF_COLOR.medium;
 
     // AI section
     let aiRow = `<div class="trace-step">
@@ -280,23 +296,23 @@ function renderTrace(trace) {
     // USDA row (if present)
     let usdaRow = '';
     if (t.usda) {
-      const icon = t.usda.status === 'confirmed' ? '✓' : t.usda.status === 'conflict' ? '!' : '?';
-      const color = t.usda.status === 'confirmed' ? 'var(--green)' : 'var(--warn)';
-      const note = t.usda.status === 'confirmed' ? 'confirms AI' : 'differs from AI — used USDA (lab data)';
+      const u = TRACE_USDA_STATUS[t.usda.status] || TRACE_USDA_FALLBACK;
       usdaRow = `<div class="trace-step">
-        <span class="src" style="color:${color};">${icon} USDA</span>
+        <span class="src" style="color:${u.color};">${u.icon} USDA</span>
         <span class="arrow">→</span>
-        <span class="detail">${escapeHtml(t.usda.name)} · ${t.usda.kcal_100g} kcal/100g · ${note}</span>
+        <span class="detail">${escapeHtml(t.usda.name)} · ${t.usda.kcal_100g} kcal/100g · ${u.note}</span>
       </div>`;
     }
 
-    // Final result row
-    const sourceLabel = t.source === 'custom' ? 'your saved value' : t.source === 'usda+ai' ? 'USDA (AI confirmed)' : t.source === 'usda' ? 'USDA' : t.source === 'fatsecret' ? 'FatSecret' : t.source === 'ai-verified' ? `AI verified${t.verify_note ? ' — ' + t.verify_note : ''}` : 'AI estimate';
-    const flagNote = t.flagged === 'high-kcal' ? ' <span style="color:#e05;">⚠ unusually high — verify</span>' : t.flagged === 'sanity-cap' ? ' <span style="color:var(--warn);">⚠ sanity capped</span>' : '';
+    // ai-verified is the only source label that depends on per-item data, so it can't go in the lookup.
+    const sourceLabel = t.source === 'ai-verified'
+      ? `AI verified${t.verify_note ? ' — ' + t.verify_note : ''}`
+      : TRACE_SOURCE_LABEL[t.source] || 'AI estimate';
+    const flagNote = TRACE_FLAG_NOTE[t.flagged] || '';
 
     return `<div class="trace-item">
       <div class="trace-item-name">${escapeHtml(t.name)} <span class="qty">· ${t.qty} ${t.unit}</span>
-        <span style="font-size:11px;color:var(--text-dim);margin-left:6px;">${catLabel[t.category] || t.category}</span>
+        <span style="font-size:11px;color:var(--text-dim);margin-left:6px;">${TRACE_CAT_LABEL[t.category] || t.category}</span>
       </div>
       ${aiRow}${usdaRow}
       <div class="trace-scaling">→ Final: <strong>${t.final_kcal} kcal</strong> · ${t.final_protein}g P · ${t.final_fat || 0}g F · ${t.final_carb || 0}g C · ${t.final_fiber || 0}g Fib · source: ${sourceLabel}${flagNote}</div>
@@ -312,7 +328,7 @@ function renderTrace(trace) {
 function refreshParsedTotals() {
   if (!parsedCache) return;
   const t = parsedCache.totals;
-  const proteinR = Math.round((t.protein || 0) * 10) / 10;
+  const proteinR = round1(t.protein);
   const extras = (t.fat || t.carb || t.fiber) ? ` · ${t.fat||0}g F · ${t.carb||0}g C · ${t.fiber||0}g Fib` : '';
   $('#parsedTotals').innerHTML = `
     <div class="card" style="margin: 0; padding: 12px 14px;">
