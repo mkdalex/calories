@@ -345,13 +345,14 @@ function renderToday() {
 
   // Meal list with period headers
   const list = $('#mealList');
-  if (!data.entries.length) {
+  const entries = data.entries || [];
+  if (!entries.length) {
     list.innerHTML = `<div class="empty">No meals logged yet. Tap <strong>+ Log meal</strong> to start.</div>`;
   } else {
     // Group entries by meal period, inserting header divs when period changes
     let lastPeriod = null;
     const rows = [];
-    data.entries.forEach(e => {
+    entries.forEach(e => {
       const period = getMealPeriod(e.time);
       if (period !== lastPeriod) {
         rows.push(`<div class="meal-period-hdr">${PERIOD_ICON[period] || '🍽️'} ${period}</div>`);
@@ -378,7 +379,7 @@ function renderToday() {
     $$('.meal-del').forEach(btn => btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const id = btn.dataset.id;
-      const entry = data.entries.find(e => e.id === id);
+      const entry = entries.find(e => e.id === id);
       await fetch(`/api/log/${data.date}/${id}`, { method: 'DELETE' });
       loadToday();
       if (entry) {
@@ -395,13 +396,13 @@ function renderToday() {
     $$('.meal-rescan').forEach(btn => btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const id = btn.dataset.id;
-      const entry = data.entries.find(e => e.id === id);
+      const entry = entries.find(e => e.id === id);
       if (!entry) return;
       await rescanEntry(entry, data.date, btn);
     }));
     $$('.meal-tmpl').forEach(btn => btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
-      const entry = data.entries.find(e => e.id === btn.dataset.id);
+      const entry = entries.find(e => e.id === btn.dataset.id);
       if (!entry) return;
       const name = prompt('Template name:', entry.name.slice(0, 60));
       if (!name || !name.trim()) return;
@@ -411,7 +412,7 @@ function renderToday() {
     }));
     $$('.meal[data-id]').forEach(row => row.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('meal-del') || ev.target.classList.contains('meal-rescan')) return;
-      const entry = data.entries.find(e => e.id === row.dataset.id);
+      const entry = entries.find(e => e.id === row.dataset.id);
       if (entry) openEditModal(entry, data.date);
     }));
   }
