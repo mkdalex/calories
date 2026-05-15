@@ -64,15 +64,14 @@ async function loadFavorites() {
   if (!favs.length) { wrap.innerHTML = ''; return; }
   wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">Frequent foods</div>
     <div class="fav-pills">` +
-    favs.map(f => `
-      <button class="fav-pill" data-fav='${JSON.stringify(f).replace(/'/g, "&apos;")}'>
+    favs.map((f, i) => `
+      <button class="fav-pill" data-fav-idx="${i}">
         <span class="fp-name">${escapeHtml(f.name)}</span>
         <span class="fp-meta">${f.last_kcal || f.kcal} kcal · ${f.last_protein || f.protein}g P</span>
       </button>
     `).join('') + `</div>`;
   $$('.fav-pill').forEach(btn => btn.addEventListener('click', () => {
-    const f = JSON.parse(btn.dataset.fav.replace(/&apos;/g, "'"));
-    openFavPopup(f);
+    openFavPopup(favs[Number(btn.dataset.favIdx)]);
   }));
 }
 

@@ -197,8 +197,8 @@ $('#logText').addEventListener('input', () => {
     const dd = $('#suggestDropdown');
     if (!results.length) { dd.classList.add('hidden'); return; }
     dd.classList.remove('hidden');
-    dd.innerHTML = results.map(r => `
-      <div class="suggest-item" data-r='${JSON.stringify(r).replace(/'/g,"&apos;")}'>
+    dd.innerHTML = results.map((r, i) => `
+      <div class="suggest-item" data-idx="${i}">
         <span class="si-name">${escapeHtml(r.name)}</span>
         <span class="si-meta">${r.kcal} kcal · ${r.protein}g P</span>
         <span class="si-src">${r.source}</span>
@@ -206,7 +206,7 @@ $('#logText').addEventListener('input', () => {
     `).join('');
     dd.querySelectorAll('.suggest-item').forEach(item => {
       item.addEventListener('click', () => {
-        const r = JSON.parse(item.dataset.r.replace(/&apos;/g, "'"));
+        const r = results[Number(item.dataset.idx)];
         if (r.source === 'template' && r.template_id) {
           // Log template directly
           api(`/api/log-template/${r.template_id}`, { method: 'POST', body: {} }).then(res => {
@@ -309,6 +309,21 @@ function renderTrace(trace) {
   </div>`;
 }
 
+function refreshParsedTotals() {
+  if (!parsedCache) return;
+  const t = parsedCache.totals;
+  const proteinR = Math.round((t.protein || 0) * 10) / 10;
+  const extras = (t.fat || t.carb || t.fiber) ? ` · ${t.fat||0}g F · ${t.carb||0}g C · ${t.fiber||0}g Fib` : '';
+  $('#parsedTotals').innerHTML = `
+    <div class="card" style="margin: 0; padding: 12px 14px;">
+      <div style="display: flex; justify-content: space-between;">
+        <strong>Total</strong>
+        <span><strong>${t.kcal} kcal</strong> · ${proteinR}g P${extras}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderParsed(data) {
   const confChip = (conf) => {
     const colors = { high: '#1a7a1a', medium: '#7a5a00', low: '#7a0010' };
@@ -334,7 +349,7 @@ function renderParsed(data) {
     </div>
   `).join('') + renderTrace(data.trace);
 
-  // Wire editable kcal clicks
+  // Wire editable kcal clicks — patch the changed row + totals instead of rebuilding the whole list
   document.querySelectorAll('.editable-kcal').forEach(el => {
     el.addEventListener('click', () => {
       const idx = Number(el.dataset.idx);
@@ -345,10 +360,11 @@ function renderParsed(data) {
       if (isNaN(newKcal) || newKcal <= 0) return;
       parsedCache.items[idx].kcal = newKcal;
       parsedCache.totals.kcal = parsedCache.items.reduce((a, x) => a + x.kcal, 0);
+      el.textContent = newKcal;
+      refreshParsedTotals();
       if (confirm(`Save "${it.name}" as ${newKcal} kcal for next time?`)) {
         api('/api/custom-foods', { method: 'POST', body: { name: it.name, kcal: newKcal, protein: it.protein, fat: it.fat || 0, carb: it.carb || 0, fiber: it.fiber || 0 } });
       }
-      renderParsed(parsedCache);
     });
   });
 
@@ -360,14 +376,7 @@ function renderParsed(data) {
         .then(() => { btn.textContent = 'Saved!'; btn.disabled = true; });
     });
   });
-  $('#parsedTotals').innerHTML = `
-    <div class="card" style="margin: 0; padding: 12px 14px;">
-      <div style="display: flex; justify-content: space-between;">
-        <strong>Total</strong>
-        <span><strong>${data.totals.kcal} kcal</strong> · ${Math.round(data.totals.protein * 10) / 10}g P${(data.totals.fat || data.totals.carb || data.totals.fiber) ? ` · ${data.totals.fat||0}g F · ${data.totals.carb||0}g C · ${data.totals.fiber||0}g Fib` : ''}</span>
-      </div>
-    </div>
-  `;
+  refreshParsedTotals();
   $('#parsedSave').innerHTML = `
     <div style="display:flex;gap:8px;">
       <button class="btn" id="parsedSaveBtn" style="flex:1;">Save to today</button>

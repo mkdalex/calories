@@ -65,7 +65,6 @@ function checkAiAllowed() {
 
 function recordUsage(endpoint, model, usage) {
   if (!usage) return;
-  const arr = readJson(USAGE_FILE, []);
   const p = priceFor(model);
   const inT = usage.prompt_tokens || 0;
   const outT = usage.completion_tokens || 0;
@@ -80,14 +79,17 @@ function recordUsage(endpoint, model, usage) {
     reasoning,
     cost: Math.round(cost * 1_000_000) / 1_000_000
   };
-  arr.push(entry);
-  if (arr.length > 1000) arr.splice(0, arr.length - 1000);
-  writeJson(USAGE_FILE, arr);
+  // Serialize the trimmed-list write so concurrent AI calls don't clobber each other.
+  withFileLock(USAGE_FILE, () => {
+    const arr = readJson(USAGE_FILE, []);
+    arr.push(entry);
+    if (arr.length > 1000) arr.splice(0, arr.length - 1000);
+    writeJson(USAGE_FILE, arr);
+  });
   // Append-only log — can't race, can't be lost by trimming
   try {
     fs.appendFileSync(AI_LOG_FILE, JSON.stringify(entry) + '\n');
-  } catch (e) { /* ignore log failures */ }
-  // Console-print each call so we can SEE what's happening
+  } catch (e) { console.warn('[AI] failed to append ai_calls.log:', e.message); }
   console.log(`[AI] ${entry.ts} ${endpoint} model=${model} in=${inT} out=${outT} reasoning=${reasoning} cost=$${entry.cost.toFixed(4)}`);
 }
 
@@ -120,6 +122,12 @@ app.use(express.json({ limit: '1mb' }));
 
 // ---------- Auth: Discord OAuth + signed cookie sessions ----------
 const cookieParser = require('cookie-parser');
+const IS_PROD = process.env.NODE_ENV === 'production';
+if (IS_PROD && !process.env.SESSION_SECRET) {
+  console.error('FATAL: SESSION_SECRET must be set in production. Generate one with:');
+  console.error('  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  process.exit(1);
+}
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-env-please';
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
@@ -133,7 +141,14 @@ app.use(cookieParser(SESSION_SECRET));
 
 // Sessions persisted to disk so they survive restarts (in-memory map for speed, file for durability)
 function loadSessions() { try { return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')); } catch { return {}; } }
-function saveSessions(s) { try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(s)); } catch (_) {} }
+// Snapshot under the lock so we serialize concurrent writes. The in-memory map is
+// the source of truth; the file just persists it.
+function saveSessions(s) {
+  return withFileLock(SESSIONS_FILE, () => {
+    try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(s)); }
+    catch (e) { console.warn('[sessions] write failed:', e.message); }
+  });
+}
 const sessions = loadSessions();
 
 function newSessionId() { return crypto.randomBytes(24).toString('hex'); }
@@ -141,7 +156,7 @@ function setSession(res, user) {
   const sid = newSessionId();
   sessions[sid] = { user, expires: Date.now() + SESSION_MS };
   saveSessions(sessions);
-  res.cookie(COOKIE_NAME, sid, { signed: true, httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_MS });
+  res.cookie(COOKIE_NAME, sid, { signed: true, httpOnly: true, secure: IS_PROD, sameSite: 'lax', maxAge: SESSION_MS });
 }
 function clearSession(res, req) {
   const sid = req.signedCookies[COOKIE_NAME];
@@ -155,6 +170,16 @@ function getSession(req) {
   if (!s) return null;
   if (s.expires < Date.now()) { delete sessions[sid]; saveSessions(sessions); return null; }
   return s.user;
+}
+
+// Test-only helper. Mints a session and returns the signed cookie string suitable
+// for a `Cookie:` request header. Don't call from production code paths.
+function createTestSession(user) {
+  const sid = newSessionId();
+  sessions[sid] = { user, expires: Date.now() + SESSION_MS };
+  // Match the signing format that cookie-parser expects on read.
+  const signed = 's:' + require('cookie-signature').sign(sid, SESSION_SECRET);
+  return `${COOKIE_NAME}=${encodeURIComponent(signed)}`;
 }
 
 // ---------- Discord OAuth routes ----------
@@ -199,7 +224,7 @@ app.get('/auth/discord/callback', async (req, res) => {
     res.redirect('/');
   } catch (e) {
     console.error('Discord OAuth error:', e);
-    res.status(500).send('OAuth error: ' + e.message);
+    res.status(500).send('Authentication failed. Please try again.');
   }
 });
 
@@ -244,9 +269,23 @@ function readJson(file, fallback) {
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
-function todayStr() {
-  const d = new Date();
+// Per-file mutex. Read-modify-write blocks should wrap themselves in this so two
+// concurrent requests for the same file don't clobber each other's update.
+const fileLocks = new Map();
+function withFileLock(filePath, fn) {
+  const prev = fileLocks.get(filePath) || Promise.resolve();
+  const next = prev.then(() => fn(), () => fn());
+  fileLocks.set(filePath, next.catch(() => undefined));
+  return next;
+}
+function todayStr() { return fmtDate(new Date()); }
+function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Round to 1 decimal place. Coerces non-numbers to 0.
+function round1(x) {
+  const n = Number(x) || 0;
+  return Math.round(n * 10) / 10;
 }
 function newId() {
   return crypto.randomBytes(6).toString('hex');
@@ -303,10 +342,13 @@ app.get('/api/profile', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
   res.json({ profile, stats: computeStats(profile), activity_options: ACTIVITY, goal_options: GOALS });
 });
-app.post('/api/profile', (req, res) => {
-  const existing = readJson(req.dataFiles.profile, {}) || {};
-  const profile = { ...existing, ...(req.body || {}) };
-  writeJson(req.dataFiles.profile, profile);
+app.post('/api/profile', async (req, res) => {
+  const profile = await withFileLock(req.dataFiles.profile, () => {
+    const existing = readJson(req.dataFiles.profile, {}) || {};
+    const merged = { ...existing, ...(req.body || {}) };
+    writeJson(req.dataFiles.profile, merged);
+    return merged;
+  });
   res.json({ profile, stats: computeStats(profile) });
 });
 
@@ -334,11 +376,10 @@ app.get('/api/calibrate', (req, res) => {
   }
 
   // Sum kcal logged in the window
-  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const d = new Date(firstD);
   let totalKcal = 0, daysLogged = 0;
   while (d <= lastD) {
-    const ds = fmt(d);
+    const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (entries.length) {
       totalKcal += entries.reduce((a, e) => a + (e.kcal || 0), 0);
@@ -384,7 +425,7 @@ function computeStreak(log, stats) {
   let streak = 0;
   const d = new Date();
   for (let i = 0; i <= 60; i++) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (!entries.length) {
       if (i === 0) { d.setDate(d.getDate() - 1); continue; } // today may have no entries yet
@@ -402,7 +443,7 @@ function computeWeeklyAvg(log) {
   let totalKcal = 0, days = 0;
   const d = new Date();
   for (let i = 0; i < 7; i++) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (entries.length) {
       totalKcal += entries.reduce((a, e) => a + (e.kcal || 0), 0);
@@ -443,54 +484,63 @@ app.get('/api/log', (req, res) => {
   });
 });
 
-app.post('/api/log', (req, res) => {
+app.post('/api/log', async (req, res) => {
   const { name, kcal, protein, fat, carb, fiber, source, items, date, time } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   const d = date || todayStr();
-  const log = readJson(req.dataFiles.log, {});
-  if (!log[d]) log[d] = [];
-  const entry = {
-    id: newId(),
-    name: String(name).slice(0, 200),
-    kcal: Math.round(Number(kcal) || 0),
-    protein: Math.round((Number(protein) || 0) * 10) / 10,
-    fat: Math.round((Number(fat) || 0) * 10) / 10,
-    carb: Math.round((Number(carb) || 0) * 10) / 10,
-    fiber: Math.round((Number(fiber) || 0) * 10) / 10,
-    source: source || 'manual',
-    items: items || null,
-    time: time || new Date().toISOString()
-  };
-  log[d].push(entry);
-  writeJson(req.dataFiles.log, log);
+  const entry = await withFileLock(req.dataFiles.log, () => {
+    const log = readJson(req.dataFiles.log, {});
+    if (!log[d]) log[d] = [];
+    const e = {
+      id: newId(),
+      name: String(name).slice(0, 200),
+      kcal: Math.round(Number(kcal) || 0),
+      protein: round1(protein),
+      fat: round1(fat),
+      carb: round1(carb),
+      fiber: round1(fiber),
+      source: source || 'manual',
+      items: items || null,
+      time: time || new Date().toISOString()
+    };
+    log[d].push(e);
+    writeJson(req.dataFiles.log, log);
+    return e;
+  });
   res.json({ entry });
 });
 
-app.patch('/api/log/:date/:id', (req, res) => {
+app.patch('/api/log/:date/:id', async (req, res) => {
   const { date, id } = req.params;
   const { name, kcal, protein, fat, carb, fiber, time } = req.body || {};
-  const log = readJson(req.dataFiles.log, {});
-  if (!log[date]) return res.status(404).json({ error: 'date not found' });
-  const idx = log[date].findIndex(e => e.id === id);
-  if (idx < 0) return res.status(404).json({ error: 'entry not found' });
-  if (name !== undefined) log[date][idx].name = String(name).slice(0, 200);
-  if (kcal !== undefined) log[date][idx].kcal = Math.round(Number(kcal) || 0);
-  if (protein !== undefined) log[date][idx].protein = Math.round((Number(protein) || 0) * 10) / 10;
-  if (fat !== undefined) log[date][idx].fat = Math.round((Number(fat) || 0) * 10) / 10;
-  if (carb !== undefined) log[date][idx].carb = Math.round((Number(carb) || 0) * 10) / 10;
-  if (fiber !== undefined) log[date][idx].fiber = Math.round((Number(fiber) || 0) * 10) / 10;
-  if (time !== undefined) log[date][idx].time = time;
-  writeJson(req.dataFiles.log, log);
-  res.json({ entry: log[date][idx] });
+  const result = await withFileLock(req.dataFiles.log, () => {
+    const log = readJson(req.dataFiles.log, {});
+    if (!log[date]) return { error: 'date not found', status: 404 };
+    const idx = log[date].findIndex(e => e.id === id);
+    if (idx < 0) return { error: 'entry not found', status: 404 };
+    if (name !== undefined) log[date][idx].name = String(name).slice(0, 200);
+    if (kcal !== undefined) log[date][idx].kcal = Math.round(Number(kcal) || 0);
+    if (protein !== undefined) log[date][idx].protein = round1(protein);
+    if (fat !== undefined) log[date][idx].fat = round1(fat);
+    if (carb !== undefined) log[date][idx].carb = round1(carb);
+    if (fiber !== undefined) log[date][idx].fiber = round1(fiber);
+    if (time !== undefined) log[date][idx].time = time;
+    writeJson(req.dataFiles.log, log);
+    return { entry: log[date][idx] };
+  });
+  if (result.status) return res.status(result.status).json({ error: result.error });
+  res.json(result);
 });
 
-app.delete('/api/log/:date/:id', (req, res) => {
+app.delete('/api/log/:date/:id', async (req, res) => {
   const { date, id } = req.params;
-  const log = readJson(req.dataFiles.log, {});
-  if (log[date]) {
-    log[date] = log[date].filter(e => e.id !== id);
-    writeJson(req.dataFiles.log, log);
-  }
+  await withFileLock(req.dataFiles.log, () => {
+    const log = readJson(req.dataFiles.log, {});
+    if (log[date]) {
+      log[date] = log[date].filter(e => e.id !== id);
+      writeJson(req.dataFiles.log, log);
+    }
+  });
   res.json({ ok: true });
 });
 
@@ -498,42 +548,51 @@ app.delete('/api/log/:date/:id', (req, res) => {
 app.get('/api/weight', (req, res) => {
   res.json(readJson(req.dataFiles.weight, []));
 });
-app.post('/api/weight', (req, res) => {
+app.post('/api/weight', async (req, res) => {
   const { kg, date } = req.body || {};
   if (!kg) return res.status(400).json({ error: 'kg required' });
-  const arr = readJson(req.dataFiles.weight, []);
   const d = date || todayStr();
-  const existing = arr.findIndex(w => w.date === d);
   const entry = { date: d, kg: Number(kg) };
-  if (existing >= 0) arr[existing] = entry;
-  else arr.push(entry);
-  arr.sort((a, b) => a.date.localeCompare(b.date));
-  writeJson(req.dataFiles.weight, arr);
+  const isLatest = await withFileLock(req.dataFiles.weight, () => {
+    const arr = readJson(req.dataFiles.weight, []);
+    const existing = arr.findIndex(w => w.date === d);
+    if (existing >= 0) arr[existing] = entry;
+    else arr.push(entry);
+    arr.sort((a, b) => a.date.localeCompare(b.date));
+    writeJson(req.dataFiles.weight, arr);
+    return arr[arr.length - 1].date === d;
+  });
   // Only push to profile if this is the most recent weight (don't break TDEE if user backfills an old entry)
-  const profile = readJson(req.dataFiles.profile, null);
-  if (profile && arr[arr.length - 1].date === d) {
-    profile.weight_kg = Number(kg);
-    writeJson(req.dataFiles.profile, profile);
+  if (isLatest) {
+    await withFileLock(req.dataFiles.profile, () => {
+      const profile = readJson(req.dataFiles.profile, null);
+      if (profile) { profile.weight_kg = Number(kg); writeJson(req.dataFiles.profile, profile); }
+    });
   }
   res.json({ entry });
 });
-app.delete('/api/weight/:date', (req, res) => {
+app.delete('/api/weight/:date', async (req, res) => {
   const { date } = req.params;
-  const arr = readJson(req.dataFiles.weight, []);
-  const filtered = arr.filter(w => w.date !== date);
-  writeJson(req.dataFiles.weight, filtered);
-  // If we deleted the latest weight, sync profile back to the new latest
-  const profile = readJson(req.dataFiles.profile, null);
-  if (profile && filtered.length) {
-    profile.weight_kg = Number(filtered[filtered.length - 1].kg);
-    writeJson(req.dataFiles.profile, profile);
+  const latestKg = await withFileLock(req.dataFiles.weight, () => {
+    const arr = readJson(req.dataFiles.weight, []);
+    const filtered = arr.filter(w => w.date !== date);
+    writeJson(req.dataFiles.weight, filtered);
+    return filtered.length ? Number(filtered[filtered.length - 1].kg) : null;
+  });
+  if (latestKg !== null) {
+    await withFileLock(req.dataFiles.profile, () => {
+      const profile = readJson(req.dataFiles.profile, null);
+      if (profile) { profile.weight_kg = latestKg; writeJson(req.dataFiles.profile, profile); }
+    });
   }
   res.json({ ok: true });
 });
 
 // ---------- /api/favorites ----------
-app.get('/api/favorites', (req, res) => {
-  const log = readJson(req.dataFiles.log, {});
+// Per-user cache keyed by mtime of the log file: recompute only when the log actually changes.
+// The full-log scan is O(entries) per call; with a year of history this is ~thousands of items.
+const favoritesCache = new Map(); // userId -> { mtimeMs, favs }
+function computeFavorites(log) {
   const counts = {};
   for (const [date, entries] of Object.entries(log).sort()) {
     for (const e of entries) {
@@ -543,31 +602,32 @@ app.get('/api/favorites', (req, res) => {
         name: e.name, count: 0, kcal_sum: 0, protein_sum: 0, fat_sum: 0, carb_sum: 0, fiber_sum: 0,
         last_kcal: 0, last_protein: 0, last_fat: 0, last_carb: 0, last_fiber: 0, last_text: e.name, last_date: ''
       };
-      counts[key].count++;
-      counts[key].kcal_sum += e.kcal || 0;
-      counts[key].protein_sum += e.protein || 0;
-      counts[key].fat_sum += e.fat || 0;
-      counts[key].carb_sum += e.carb || 0;
-      counts[key].fiber_sum += e.fiber || 0;
-      if (date >= counts[key].last_date) {
-        counts[key].last_date = date;
-        counts[key].last_kcal = e.kcal || 0;
-        counts[key].last_protein = e.protein || 0;
-        counts[key].last_fat = e.fat || 0;
-        counts[key].last_carb = e.carb || 0;
-        counts[key].last_fiber = e.fiber || 0;
-        counts[key].last_text = e.name;
+      const c = counts[key];
+      c.count++;
+      c.kcal_sum += e.kcal || 0;
+      c.protein_sum += e.protein || 0;
+      c.fat_sum += e.fat || 0;
+      c.carb_sum += e.carb || 0;
+      c.fiber_sum += e.fiber || 0;
+      if (date >= c.last_date) {
+        c.last_date = date;
+        c.last_kcal = e.kcal || 0;
+        c.last_protein = e.protein || 0;
+        c.last_fat = e.fat || 0;
+        c.last_carb = e.carb || 0;
+        c.last_fiber = e.fiber || 0;
+        c.last_text = e.name;
       }
     }
   }
-  const favs = Object.values(counts)
+  return Object.values(counts)
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
     .map(f => ({
       name: f.name,
       count: f.count,
       kcal: Math.round(f.kcal_sum / f.count),
-      protein: Math.round((f.protein_sum / f.count) * 10) / 10,
+      protein: round1(f.protein_sum / f.count),
       last_kcal: f.last_kcal,
       last_protein: f.last_protein,
       last_fat: f.last_fat || 0,
@@ -575,6 +635,15 @@ app.get('/api/favorites', (req, res) => {
       last_fiber: f.last_fiber || 0,
       last_text: f.last_text
     }));
+}
+
+app.get('/api/favorites', (req, res) => {
+  const logFile = req.dataFiles.log;
+  const mtimeMs = fs.existsSync(logFile) ? fs.statSync(logFile).mtimeMs : 0;
+  const cached = favoritesCache.get(req.userId);
+  if (cached && cached.mtimeMs === mtimeMs) return res.json(cached.favs);
+  const favs = computeFavorites(readJson(logFile, {}));
+  favoritesCache.set(req.userId, { mtimeMs, favs });
   res.json(favs);
 });
 
@@ -590,11 +659,11 @@ app.get('/api/log-range', (req, res) => {
   const d = new Date(start + 'T00:00:00');
   const endD = new Date(end + 'T00:00:00');
   while (d <= endD) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (entries.length) {
       const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      const protein = Math.round(entries.reduce((a, e) => a + (e.protein || 0), 0) * 10) / 10;
+      const protein = round1(entries.reduce((a, e) => a + (e.protein || 0), 0));
       result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
     }
     d.setDate(d.getDate() + 1);
@@ -643,7 +712,7 @@ app.get('/api/logging-stats', (req, res) => {
   // current streak — walk back from today
   const d = new Date(today + 'T00:00:00');
   for (let i = 0; i < 365; i++) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const has = (log[ds] || []).length > 0;
     if (!has) {
       if (i === 0) { d.setDate(d.getDate() - 1); continue; } // today not logged yet is OK
@@ -671,14 +740,13 @@ app.get('/api/weekly-review', (req, res) => {
   const endStr = req.query.end || todayStr();
   const endD = new Date(endStr + 'T00:00:00');
   const startD = new Date(endD); startD.setDate(startD.getDate() - 6);
-  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  const startStr = fmt(startD);
+  const startStr = fmtDate(startD);
 
   // Walk dates in window
   const dayTotals = []; // { date, kcal, protein, fat, carb, fiber, entries }
   const d = new Date(startD);
   while (d <= endD) {
-    const ds = fmt(d);
+    const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (entries.length) {
       const t = entries.reduce((a, e) => ({
@@ -767,7 +835,7 @@ app.get('/api/templates', (req, res) => {
   res.json(readJson(req.dataFiles.templates, []));
 });
 
-app.post('/api/templates', (req, res) => {
+app.post('/api/templates', async (req, res) => {
   const { name, items, totals, from_log_entry_id, date } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   let templateItems = items;
@@ -783,53 +851,63 @@ app.post('/api/templates', (req, res) => {
     }
   }
   if (!templateItems || !templateItems.length) return res.status(400).json({ error: 'items required' });
-  const templates = readJson(req.dataFiles.templates, []);
   const computed = templateTotals || templateItems.reduce((a, i) => ({
     kcal: a.kcal + (i.kcal || 0), protein: a.protein + (i.protein || 0),
     fat: a.fat + (i.fat || 0), carb: a.carb + (i.carb || 0), fiber: a.fiber + (i.fiber || 0)
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
   const tmpl = { id: newId(), name: String(name).trim().slice(0, 100), items: templateItems, totals: computed, created: new Date().toISOString() };
-  templates.push(tmpl);
-  writeJson(req.dataFiles.templates, templates);
+  await withFileLock(req.dataFiles.templates, () => {
+    const templates = readJson(req.dataFiles.templates, []);
+    templates.push(tmpl);
+    writeJson(req.dataFiles.templates, templates);
+  });
   res.json(tmpl);
 });
 
-app.patch('/api/templates/:id', (req, res) => {
-  const templates = readJson(req.dataFiles.templates, []);
-  const idx = templates.findIndex(t => t.id === req.params.id);
-  if (idx < 0) return res.status(404).json({ error: 'not found' });
-  if (req.body.name) templates[idx].name = String(req.body.name).trim().slice(0, 100);
-  writeJson(req.dataFiles.templates, templates);
-  res.json(templates[idx]);
+app.patch('/api/templates/:id', async (req, res) => {
+  const result = await withFileLock(req.dataFiles.templates, () => {
+    const templates = readJson(req.dataFiles.templates, []);
+    const idx = templates.findIndex(t => t.id === req.params.id);
+    if (idx < 0) return { error: 'not found', status: 404 };
+    if (req.body.name) templates[idx].name = String(req.body.name).trim().slice(0, 100);
+    writeJson(req.dataFiles.templates, templates);
+    return { template: templates[idx] };
+  });
+  if (result.status) return res.status(result.status).json({ error: result.error });
+  res.json(result.template);
 });
 
-app.delete('/api/templates/:id', (req, res) => {
-  const templates = readJson(req.dataFiles.templates, []);
-  writeJson(req.dataFiles.templates, templates.filter(t => t.id !== req.params.id));
+app.delete('/api/templates/:id', async (req, res) => {
+  await withFileLock(req.dataFiles.templates, () => {
+    const templates = readJson(req.dataFiles.templates, []);
+    writeJson(req.dataFiles.templates, templates.filter(t => t.id !== req.params.id));
+  });
   res.json({ ok: true });
 });
 
-app.post('/api/log-template/:id', (req, res) => {
+app.post('/api/log-template/:id', async (req, res) => {
   const templates = readJson(req.dataFiles.templates, []);
   const tmpl = templates.find(t => t.id === req.params.id);
   if (!tmpl) return res.status(404).json({ error: 'template not found' });
   const d = req.query.date || todayStr();
-  const log = readJson(req.dataFiles.log, {});
-  if (!log[d]) log[d] = [];
   const now = new Date().toISOString();
   const entries = (tmpl.items || []).map(item => ({
     id: newId(),
     name: String(item.name || '').slice(0, 200),
     kcal: Math.round(item.kcal || 0),
-    protein: Math.round((item.protein || 0) * 10) / 10,
-    fat: Math.round((item.fat || 0) * 10) / 10,
-    carb: Math.round((item.carb || 0) * 10) / 10,
-    fiber: Math.round((item.fiber || 0) * 10) / 10,
+    protein: round1(item.protein),
+    fat: round1(item.fat),
+    carb: round1(item.carb),
+    fiber: round1(item.fiber),
     source: 'custom',
     time: now
   }));
-  log[d].push(...entries);
-  writeJson(req.dataFiles.log, log);
+  await withFileLock(req.dataFiles.log, () => {
+    const log = readJson(req.dataFiles.log, {});
+    if (!log[d]) log[d] = [];
+    log[d].push(...entries);
+    writeJson(req.dataFiles.log, log);
+  });
   res.json({ logged: entries.length, entries });
 });
 
@@ -953,44 +1031,53 @@ app.get('/api/custom-foods', (req, res) => {
   res.json(readJson(req.dataFiles.custom_foods, {}));
 });
 
-app.post('/api/custom-foods', (req, res) => {
+app.post('/api/custom-foods', async (req, res) => {
   const { name, kcal, protein, fat, carb, fiber } = req.body || {};
   if (!name || kcal == null) return res.status(400).json({ error: 'name and kcal required' });
-  const customs = readJson(req.dataFiles.custom_foods, {});
   const key = normalizeFoodName(name);
-  customs[key] = {
+  const food = {
     name: String(name).trim(),
     kcal: Math.round(Number(kcal)),
-    protein: Math.round((Number(protein) || 0) * 10) / 10,
-    fat: Math.round((Number(fat) || 0) * 10) / 10,
-    carb: Math.round((Number(carb) || 0) * 10) / 10,
-    fiber: Math.round((Number(fiber) || 0) * 10) / 10,
+    protein: round1(protein),
+    fat: round1(fat),
+    carb: round1(carb),
+    fiber: round1(fiber),
     updated: todayStr()
   };
-  writeJson(req.dataFiles.custom_foods, customs);
-  res.json(customs[key]);
+  await withFileLock(req.dataFiles.custom_foods, () => {
+    const customs = readJson(req.dataFiles.custom_foods, {});
+    customs[key] = food;
+    writeJson(req.dataFiles.custom_foods, customs);
+  });
+  res.json(food);
 });
 
-app.patch('/api/custom-foods/:key', (req, res) => {
+app.patch('/api/custom-foods/:key', async (req, res) => {
   const key = decodeURIComponent(req.params.key);
   const { kcal, protein, fat, carb, fiber } = req.body || {};
-  const customs = readJson(req.dataFiles.custom_foods, {});
-  if (!customs[key]) return res.status(404).json({ error: 'not found' });
-  if (kcal != null) customs[key].kcal = Math.round(Number(kcal));
-  if (protein != null) customs[key].protein = Math.round((Number(protein) || 0) * 10) / 10;
-  if (fat != null) customs[key].fat = Math.round((Number(fat) || 0) * 10) / 10;
-  if (carb != null) customs[key].carb = Math.round((Number(carb) || 0) * 10) / 10;
-  if (fiber != null) customs[key].fiber = Math.round((Number(fiber) || 0) * 10) / 10;
-  customs[key].updated = todayStr();
-  writeJson(req.dataFiles.custom_foods, customs);
-  res.json(customs[key]);
+  const result = await withFileLock(req.dataFiles.custom_foods, () => {
+    const customs = readJson(req.dataFiles.custom_foods, {});
+    if (!customs[key]) return { error: 'not found', status: 404 };
+    if (kcal != null) customs[key].kcal = Math.round(Number(kcal));
+    if (protein != null) customs[key].protein = round1(protein);
+    if (fat != null) customs[key].fat = round1(fat);
+    if (carb != null) customs[key].carb = round1(carb);
+    if (fiber != null) customs[key].fiber = round1(fiber);
+    customs[key].updated = todayStr();
+    writeJson(req.dataFiles.custom_foods, customs);
+    return { food: customs[key] };
+  });
+  if (result.status) return res.status(result.status).json({ error: result.error });
+  res.json(result.food);
 });
 
-app.delete('/api/custom-foods/:key', (req, res) => {
+app.delete('/api/custom-foods/:key', async (req, res) => {
   const key = decodeURIComponent(req.params.key);
-  const customs = readJson(req.dataFiles.custom_foods, {});
-  delete customs[key];
-  writeJson(req.dataFiles.custom_foods, customs);
+  await withFileLock(req.dataFiles.custom_foods, () => {
+    const customs = readJson(req.dataFiles.custom_foods, {});
+    delete customs[key];
+    writeJson(req.dataFiles.custom_foods, customs);
+  });
   res.json({ ok: true });
 });
 
@@ -1023,44 +1110,46 @@ app.get('/api/export/json', (req, res) => {
   res.send(JSON.stringify(bundle, null, 2));
 });
 
-app.post('/api/import', (req, res) => {
+app.post('/api/import', async (req, res) => {
   const body = req.body || {};
   const mode = body.mode || 'replace'; // 'replace' | 'merge'
   let written = [];
   for (const k of BACKUP_KEYS) {
     const incoming = body[k];
     if (incoming === undefined || incoming === null) continue;
-    if (mode === 'merge' && k === 'log') {
-      // merge log: combine date-keyed entries (existing + incoming), dedupe by id
-      const existing = readJson(req.dataFiles.log, {});
-      for (const [date, entries] of Object.entries(incoming)) {
-        if (!existing[date]) existing[date] = [];
-        const seen = new Set(existing[date].map(e => e.id));
-        for (const e of entries) if (!seen.has(e.id)) existing[date].push(e);
-      }
-      writeJson(req.dataFiles.log, existing);
-    } else if (mode === 'merge' && k === 'weight') {
-      const existing = readJson(req.dataFiles.weight, []);
-      const byDate = {};
-      for (const w of existing) byDate[w.date] = w;
-      for (const w of incoming) byDate[w.date] = w; // incoming overrides for same date
-      const merged = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-      writeJson(req.dataFiles.weight, merged);
-    } else if (mode === 'merge' && (k === 'templates' || k === 'custom_foods')) {
-      const existing = readJson(req.dataFiles[k], k === 'templates' ? [] : {});
-      if (Array.isArray(existing) && Array.isArray(incoming)) {
-        const seen = new Set(existing.map(x => x.id));
-        const combined = [...existing, ...incoming.filter(x => !seen.has(x.id))];
-        writeJson(req.dataFiles[k], combined);
-      } else if (typeof existing === 'object' && typeof incoming === 'object') {
-        writeJson(req.dataFiles[k], { ...existing, ...incoming });
+    await withFileLock(req.dataFiles[k], () => {
+      if (mode === 'merge' && k === 'log') {
+        // merge log: combine date-keyed entries (existing + incoming), dedupe by id
+        const existing = readJson(req.dataFiles.log, {});
+        for (const [date, entries] of Object.entries(incoming)) {
+          if (!existing[date]) existing[date] = [];
+          const seen = new Set(existing[date].map(e => e.id));
+          for (const e of entries) if (!seen.has(e.id)) existing[date].push(e);
+        }
+        writeJson(req.dataFiles.log, existing);
+      } else if (mode === 'merge' && k === 'weight') {
+        const existing = readJson(req.dataFiles.weight, []);
+        const byDate = {};
+        for (const w of existing) byDate[w.date] = w;
+        for (const w of incoming) byDate[w.date] = w; // incoming overrides for same date
+        const merged = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+        writeJson(req.dataFiles.weight, merged);
+      } else if (mode === 'merge' && (k === 'templates' || k === 'custom_foods')) {
+        const existing = readJson(req.dataFiles[k], k === 'templates' ? [] : {});
+        if (Array.isArray(existing) && Array.isArray(incoming)) {
+          const seen = new Set(existing.map(x => x.id));
+          const combined = [...existing, ...incoming.filter(x => !seen.has(x.id))];
+          writeJson(req.dataFiles[k], combined);
+        } else if (typeof existing === 'object' && typeof incoming === 'object') {
+          writeJson(req.dataFiles[k], { ...existing, ...incoming });
+        } else {
+          writeJson(req.dataFiles[k], incoming);
+        }
       } else {
+        // replace mode (or profile/water which are simpler — just overwrite)
         writeJson(req.dataFiles[k], incoming);
       }
-    } else {
-      // replace mode (or profile/water which are simpler — just overwrite)
-      writeJson(req.dataFiles[k], incoming);
-    }
+    });
     written.push(k);
   }
   res.json({ written, mode });
@@ -1237,8 +1326,8 @@ async function usdaSearch(name) {
     // USDA's dataType param expects multiple separate query keys, not comma-joined
     const dataTypeParams = ['Foundation', 'SR Legacy', 'Survey (FNDDS)']
       .map(t => `dataType=${encodeURIComponent(t)}`).join('&');
-    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&${dataTypeParams}&pageSize=10&api_key=${process.env.USDA_API_KEY}`;
-    const r = await fetch(url, { timeout: 6000 });
+    const url = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&${dataTypeParams}&pageSize=10`;
+    const r = await fetch(url, { timeout: 6000, headers: { 'X-Api-Key': process.env.USDA_API_KEY } });
     const j = await r.json();
     if (!j.foods || !j.foods.length) return null;
 
@@ -1392,6 +1481,189 @@ RULES:
 
 Output ONLY the JSON object. No markdown fences.`;
 
+// --- /api/parse helpers ---
+
+// AI-only initial finals + flagged baseline. Used as the starting point before custom/DB/sanity overrides.
+function initialFinals(item) {
+  return {
+    kcal: Math.round(item.kcal_total || 0),
+    protein: round1(item.protein_g),
+    fat: round1(item.fat_g),
+    carb: round1(item.carb_g),
+    fiber: round1(item.fiber_g),
+    source: 'ai-estimate',
+    confidence: item.confidence || 'medium',
+    usda: null,
+    flagged: null
+  };
+}
+
+// Apply a user-verified custom food match. qty=0 is honored as zero serving (only null/undefined falls back to 1).
+function applyCustomFood(custom, item, f) {
+  const qty = item.qty ?? 1;
+  f.kcal = Math.round(custom.kcal * qty);
+  f.protein = round1(custom.protein * qty);
+  f.fat = round1((custom.fat || 0) * qty);
+  f.carb = round1((custom.carb || 0) * qty);
+  f.fiber = round1((custom.fiber || 0) * qty);
+  f.source = 'custom';
+  f.confidence = 'high';
+}
+
+// Try USDA + FatSecret in parallel. Mutates `f` if a relevant match wins per the resolution rules.
+async function applyDbSources(item, category, f) {
+  const isGram = item.unit === 'g' || item.unit === 'ml';
+  const aiLow = item.kcal_low || f.kcal * 0.6;
+  const aiHigh = item.kcal_high || f.kcal * 1.4;
+  // USDA is only reliable for whole foods — branded items match wrong (e.g. "Emu, full rump" for beef steak)
+  const tryUsda = isGram && category === 'whole-food';
+  const dbQuery = item.search_name || item.name;
+
+  const [usdaResult, fsResult] = await Promise.all([
+    tryUsda ? usdaSearch(dbQuery).catch(() => null) : Promise.resolve(null),
+    fsSearch(dbQuery).catch(() => null)
+  ]);
+
+  // USDA branch: whole-food gram items, full macros including fiber
+  if (usdaResult && isRelevantMatch(item.name, usdaResult.name)) {
+    const usdaTotal = Math.round(usdaResult.kcal_100g * item.qty / 100);
+    const scaled = {
+      kcal: usdaTotal,
+      protein: round1(usdaResult.protein_100g * item.qty / 100),
+      fat: round1((usdaResult.fat_100g || 0) * item.qty / 100),
+      carb: round1((usdaResult.carb_100g || 0) * item.qty / 100),
+      fiber: round1((usdaResult.fiber_100g || 0) * item.qty / 100)
+    };
+    f.usda = {
+      name: usdaResult.name, kcal_100g: usdaResult.kcal_100g, protein_100g: usdaResult.protein_100g,
+      fat_100g: usdaResult.fat_100g, carb_100g: usdaResult.carb_100g, fiber_100g: usdaResult.fiber_100g,
+      total: usdaTotal
+    };
+    const inRange = usdaTotal >= aiLow * 0.5 && usdaTotal <= aiHigh * 1.5;
+    if (inRange) {
+      f.usda.status = 'confirmed';
+      Object.assign(f, scaled, { source: 'usda+ai', confidence: 'high' });
+    } else if (category === 'whole-food') {
+      // On conflict, trust USDA lab data for whole foods
+      f.usda.status = 'conflict';
+      Object.assign(f, scaled, { source: 'usda', confidence: 'high' });
+    } else {
+      // On conflict for branded/generic, USDA probably found wrong food — fall through to FatSecret
+      f.usda.status = 'conflict';
+    }
+  }
+
+  // FatSecret branch: runs only if USDA didn't resolve (or wasn't tried)
+  if (f.source !== 'ai-estimate' || !fsResult || !isRelevantMatch(item.name, fsResult.name)) return;
+  let fsKcal, fsProtein, fsFat, fsCarb;
+  if (isGram && fsResult.kcal_100g) {
+    fsKcal    = Math.round(fsResult.kcal_100g * item.qty / 100);
+    fsProtein = round1((fsResult.protein_100g || 0) * item.qty / 100);
+    fsFat     = round1((fsResult.fat_100g || 0) * item.qty / 100);
+    fsCarb    = round1((fsResult.carb_100g || 0) * item.qty / 100);
+  } else if (!isGram && !fsResult.serving_g) {
+    fsKcal    = Math.round(fsResult.kcal_per_serving * item.qty);
+    fsProtein = round1((fsResult.protein_per_serving || 0) * item.qty);
+    fsFat     = round1((fsResult.fat_per_serving || 0) * item.qty);
+    fsCarb    = round1((fsResult.carb_per_serving || 0) * item.qty);
+  }
+  if (fsKcal && fsKcal > 0) {
+    // fiber stays as AI estimate — FatSecret basic search doesn't provide it
+    Object.assign(f, { kcal: fsKcal, protein: fsProtein, fat: fsFat, carb: fsCarb, source: 'fatsecret' });
+    f.confidence = (fsKcal >= aiLow * 0.5 && fsKcal <= aiHigh * 1.5) ? 'high' : 'medium';
+  }
+}
+
+// Defensive caps for physically-impossible values from upstream sources.
+function applySanityCaps(item, f) {
+  if ((item.unit === 'g' || item.unit === 'ml') && item.qty > 0 && f.kcal / item.qty * 100 > 900) {
+    // Physically impossible — fall back to AI range midpoint
+    f.kcal = Math.round(((item.kcal_low || 0) + (item.kcal_high || item.kcal_total || 0)) / 2);
+    f.source = 'ai-estimate';
+    f.flagged = 'sanity-cap';
+  }
+  if (item.qty > 0 && f.kcal / item.qty > 1500) {
+    f.flagged = f.flagged || 'high-kcal';
+  }
+  // Protein cap: protein can't exceed 0.45× kcal (pure protein = 4 kcal/g)
+  if (f.kcal > 0 && f.protein > f.kcal * 0.45) {
+    f.protein = round1(f.kcal * 0.25);
+    f.flagged = f.flagged || 'protein-capped';
+  }
+}
+
+async function resolveItem(item, customs) {
+  const category = item.category || 'generic';
+  const f = initialFinals(item);
+
+  const custom = customLookup(customs, item.name);
+  if (custom) applyCustomFood(custom, item, f);
+  else await applyDbSources(item, category, f);
+
+  applySanityCaps(item, f);
+
+  return {
+    item: { name: item.name, qty: item.qty, unit: item.unit, kcal: f.kcal, protein: f.protein, fat: f.fat, carb: f.carb, fiber: f.fiber, source: f.source, confidence: f.confidence },
+    trace: {
+      name: item.name, qty: item.qty, unit: item.unit,
+      category, confidence: f.confidence, reasoning: item.reasoning || '',
+      ai_kcal_total: Math.round(item.kcal_total || 0),
+      ai_kcal_low: Math.round(item.kcal_low || 0),
+      ai_kcal_high: Math.round(item.kcal_high || 0),
+      ai_protein: round1(item.protein_g),
+      ai_fat: round1(item.fat_g),
+      ai_carb: round1(item.carb_g),
+      ai_fiber: round1(item.fiber_g),
+      usda: f.usda, source: f.source,
+      final_kcal: f.kcal, final_protein: f.protein, final_fat: f.fat, final_carb: f.carb, final_fiber: f.fiber,
+      flagged: f.flagged
+    }
+  };
+}
+
+// AI second-pass: reviews DB-sourced items only (pure AI estimates are already the AI's best guess —
+// re-asking just adds noise). Mutates `items` and `trace` in place on accepted corrections.
+async function verifyItems(items, trace) {
+  const verifyTargets = items.map((it, i) => ({ i, it })).filter(({ it }) =>
+    it.source === 'fatsecret' || it.source === 'usda' || it.source === 'usda+ai'
+  );
+  if (!openai || !verifyTargets.length) return;
+  try {
+    const verifyPrompt = verifyTargets.map(({ it }, n) =>
+      `Item ${n + 1}: "${it.name}" · ${it.qty} ${it.unit} · source: ${it.source}\n` +
+      `  ${it.kcal} kcal / ${it.protein}g P / ${it.fat}g F / ${it.carb}g C / ${it.fiber}g Fib`
+    ).join('\n\n');
+    const vResult = await aiJson('verify', VERIFY_SYSTEM, verifyPrompt, 8000);
+    const corrections = vResult.items || [];
+    verifyTargets.forEach(({ i }, n) => {
+      const c = corrections[n];
+      if (!c || c.ok !== false || !c.kcal) return;
+      items[i] = {
+        ...items[i],
+        kcal:    Math.round(c.kcal),
+        protein: round1(c.protein || items[i].protein),
+        fat:     round1(c.fat     || items[i].fat),
+        carb:    round1(c.carb    || items[i].carb),
+        fiber:   round1(c.fiber   || items[i].fiber),
+        source:  'ai-verified',
+        confidence: 'high'
+      };
+      if (trace[i]) {
+        trace[i].verify_note = c.note || '';
+        trace[i].source = 'ai-verified';
+        // Update trace's "Final" line to reflect post-verify values
+        trace[i].final_kcal    = items[i].kcal;
+        trace[i].final_protein = items[i].protein;
+        trace[i].final_fat     = items[i].fat;
+        trace[i].final_carb    = items[i].carb;
+        trace[i].final_fiber   = items[i].fiber;
+      }
+    });
+  } catch (e) {
+    console.warn('[parse] verify pass failed (non-fatal):', e.message);
+  }
+}
+
 app.post('/api/parse', async (req, res) => {
   if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
   const text = (req.body && req.body.text) || '';
@@ -1405,195 +1677,19 @@ app.post('/api/parse', async (req, res) => {
       return res.status(502).json({ error: 'AI parse failed: ' + e.message });
     }
 
-    // Load user's custom foods once for this request
     const customs = readJson(req.dataFiles.custom_foods, {});
-
-    const resolved = await Promise.all((parsed.items || []).map(async (item) => {
-      const category = item.category || 'generic';
-      let finalKcal = Math.round(item.kcal_total || 0);
-      let finalProtein = Math.round((item.protein_g || 0) * 10) / 10;
-      let finalFat = Math.round((item.fat_g || 0) * 10) / 10;
-      let finalCarb = Math.round((item.carb_g || 0) * 10) / 10;
-      let finalFiber = Math.round((item.fiber_g || 0) * 10) / 10;
-      let source = 'ai-estimate';
-      let confidence = item.confidence || 'medium';
-      let usda = null;
-      let flagged = null;
-
-      // 1. Custom foods first — user-verified, always wins
-      const custom = customLookup(customs, item.name);
-      if (custom) {
-        finalKcal = Math.round(custom.kcal * (item.qty || 1));
-        finalProtein = Math.round(custom.protein * (item.qty || 1) * 10) / 10;
-        finalFat = Math.round((custom.fat || 0) * (item.qty || 1) * 10) / 10;
-        finalCarb = Math.round((custom.carb || 0) * (item.qty || 1) * 10) / 10;
-        finalFiber = Math.round((custom.fiber || 0) * (item.qty || 1) * 10) / 10;
-        source = 'custom';
-        confidence = 'high';
-      } else {
-        // 2. USDA (gram items only — has fiber, lab-quality) + FatSecret (all units) in parallel
-        const isGram = item.unit === 'g' || item.unit === 'ml';
-        const aiLow = item.kcal_low || finalKcal * 0.6;
-        const aiHigh = item.kcal_high || finalKcal * 1.4;
-
-        // USDA is only reliable for whole foods — branded items get wrong matches (e.g. "Emu, full rump" for beef steak)
-        const tryUsda = isGram && category === 'whole-food';
-        // Use search_name (generic, brand-stripped) for better DB hit rates
-        const dbQuery = item.search_name || item.name;
-
-        const [usdaResult, fsResult] = await Promise.all([
-          tryUsda ? usdaSearch(dbQuery).catch(() => null) : Promise.resolve(null),
-          fsSearch(dbQuery).catch(() => null)
-        ]);
-
-        // USDA branch: whole-food gram items, full macros including fiber
-        if (usdaResult && isRelevantMatch(item.name, usdaResult.name)) {
-          const usdaTotal = Math.round(usdaResult.kcal_100g * item.qty / 100);
-          const usdaProtein = Math.round(usdaResult.protein_100g * item.qty / 100 * 10) / 10;
-          const usdaFat = Math.round((usdaResult.fat_100g || 0) * item.qty / 100 * 10) / 10;
-          const usdaCarb = Math.round((usdaResult.carb_100g || 0) * item.qty / 100 * 10) / 10;
-          const usdaFiber = Math.round((usdaResult.fiber_100g || 0) * item.qty / 100 * 10) / 10;
-          usda = { name: usdaResult.name, kcal_100g: usdaResult.kcal_100g, protein_100g: usdaResult.protein_100g, fat_100g: usdaResult.fat_100g, carb_100g: usdaResult.carb_100g, fiber_100g: usdaResult.fiber_100g, total: usdaTotal };
-          const inRange = usdaTotal >= aiLow * 0.5 && usdaTotal <= aiHigh * 1.5;
-          if (inRange) {
-            usda.status = 'confirmed';
-            finalKcal = usdaTotal; finalProtein = usdaProtein;
-            finalFat = usdaFat; finalCarb = usdaCarb; finalFiber = usdaFiber;
-            source = 'usda+ai'; confidence = 'high';
-          } else if (category === 'whole-food') {
-            // On conflict, trust USDA lab data for whole foods
-            usda.status = 'conflict';
-            finalKcal = usdaTotal; finalProtein = usdaProtein;
-            finalFat = usdaFat; finalCarb = usdaCarb; finalFiber = usdaFiber;
-            source = 'usda'; confidence = 'high';
-          } else {
-            // On conflict for branded/generic, USDA probably found wrong food — fall through to FatSecret
-            usda.status = 'conflict';
-          }
-        }
-
-        // FatSecret branch: runs if USDA didn't resolve (or wasn't tried for non-gram items)
-        if (source === 'ai-estimate' && fsResult && isRelevantMatch(item.name, fsResult.name)) {
-          let fsKcal, fsProtein, fsFat, fsCarb;
-          if (isGram && fsResult.kcal_100g) {
-            // per-100g scaling
-            fsKcal    = Math.round(fsResult.kcal_100g * item.qty / 100);
-            fsProtein = Math.round((fsResult.protein_100g || 0) * item.qty / 100 * 10) / 10;
-            fsFat     = Math.round((fsResult.fat_100g || 0) * item.qty / 100 * 10) / 10;
-            fsCarb    = Math.round((fsResult.carb_100g || 0) * item.qty / 100 * 10) / 10;
-          } else if (!isGram && !fsResult.serving_g) {
-            // per-serving × qty (piece/slice/cup units)
-            fsKcal    = Math.round(fsResult.kcal_per_serving * item.qty);
-            fsProtein = Math.round((fsResult.protein_per_serving || 0) * item.qty * 10) / 10;
-            fsFat     = Math.round((fsResult.fat_per_serving || 0) * item.qty * 10) / 10;
-            fsCarb    = Math.round((fsResult.carb_per_serving || 0) * item.qty * 10) / 10;
-          }
-          if (fsKcal && fsKcal > 0) {
-            finalKcal = fsKcal; finalProtein = fsProtein;
-            finalFat = fsFat; finalCarb = fsCarb;
-            // fiber stays as AI estimate — FatSecret basic search doesn't provide it
-            const inRange = fsKcal >= aiLow * 0.5 && fsKcal <= aiHigh * 1.5;
-            source = 'fatsecret';
-            confidence = inRange ? 'high' : 'medium';
-          }
-        }
-      }
-
-      // 3. Sanity caps
-      if ((item.unit === 'g' || item.unit === 'ml') && item.qty > 0) {
-        const per100 = finalKcal / item.qty * 100;
-        if (per100 > 900) {
-          // Physically impossible — fall back to AI range midpoint
-          finalKcal = Math.round(((item.kcal_low || 0) + (item.kcal_high || item.kcal_total || 0)) / 2);
-          source = 'ai-estimate';
-          flagged = 'sanity-cap';
-        }
-      }
-      if (item.qty > 0 && finalKcal / item.qty > 1500) {
-        flagged = flagged || 'high-kcal';
-      }
-      // Protein cap: protein can't exceed 0.45× kcal (pure protein = 4 kcal/g)
-      if (finalKcal > 0 && finalProtein > finalKcal * 0.45) {
-        finalProtein = Math.round(finalKcal * 0.25 * 10) / 10;
-        flagged = flagged || 'protein-capped';
-      }
-
-      return {
-        item: { name: item.name, qty: item.qty, unit: item.unit, kcal: finalKcal, protein: finalProtein, fat: finalFat, carb: finalCarb, fiber: finalFiber, source, confidence },
-        trace: {
-          name: item.name, qty: item.qty, unit: item.unit,
-          category,
-          confidence,
-          reasoning: item.reasoning || '',
-          ai_kcal_total: Math.round(item.kcal_total || 0),
-          ai_kcal_low: Math.round(item.kcal_low || 0),
-          ai_kcal_high: Math.round(item.kcal_high || 0),
-          ai_protein: Math.round((item.protein_g || 0) * 10) / 10,
-          ai_fat: Math.round((item.fat_g || 0) * 10) / 10,
-          ai_carb: Math.round((item.carb_g || 0) * 10) / 10,
-          ai_fiber: Math.round((item.fiber_g || 0) * 10) / 10,
-          usda,
-          source,
-          final_kcal: finalKcal,
-          final_protein: finalProtein,
-          final_fat: finalFat,
-          final_carb: finalCarb,
-          final_fiber: finalFiber,
-          flagged
-        }
-      };
-    }));
-
-    let items = resolved.map(r => r.item);
+    const resolved = await Promise.all((parsed.items || []).map(item => resolveItem(item, customs)));
+    const items = resolved.map(r => r.item);
     const trace = resolved.map(r => r.trace);
 
-    // Verification pass: AI reviews DB-sourced items only — pure AI estimates are already the AI's best guess
-    // and re-asking just introduces noise. Only verify fatsecret/usda results to catch bad DB matches.
-    const verifyTargets = items.map((it, i) => ({ i, it })).filter(({ it }) =>
-      it.source === 'fatsecret' || it.source === 'usda' || it.source === 'usda+ai'
-    );
-    if (openai && verifyTargets.length > 0) {
-      try {
-        const verifyPrompt = verifyTargets.map(({ it }, n) =>
-          `Item ${n + 1}: "${it.name}" · ${it.qty} ${it.unit} · source: ${it.source}\n` +
-          `  ${it.kcal} kcal / ${it.protein}g P / ${it.fat}g F / ${it.carb}g C / ${it.fiber}g Fib`
-        ).join('\n\n');
-        const vResult = await aiJson('verify', VERIFY_SYSTEM, verifyPrompt, 8000);
-        const corrections = vResult.items || [];
-        verifyTargets.forEach(({ i }, n) => {
-          const c = corrections[n];
-          if (c && c.ok === false && c.kcal) {
-            items[i] = {
-              ...items[i],
-              kcal:    Math.round(c.kcal),
-              protein: Math.round((c.protein || items[i].protein) * 10) / 10,
-              fat:     Math.round((c.fat     || items[i].fat)     * 10) / 10,
-              carb:    Math.round((c.carb    || items[i].carb)    * 10) / 10,
-              fiber:   Math.round((c.fiber   || items[i].fiber)   * 10) / 10,
-              source:  'ai-verified',
-              confidence: 'high'
-            };
-            if (trace[i]) {
-              trace[i].verify_note = c.note || '';
-              trace[i].source = 'ai-verified';
-              // Update trace's "Final" line to reflect post-verify values (was showing pre-verify before)
-              trace[i].final_kcal    = items[i].kcal;
-              trace[i].final_protein = items[i].protein;
-              trace[i].final_fat     = items[i].fat;
-              trace[i].final_carb    = items[i].carb;
-              trace[i].final_fiber   = items[i].fiber;
-            }
-          }
-        });
-      } catch (_) { /* verification failure is non-fatal */ }
-    }
+    await verifyItems(items, trace);
 
     const totals = items.reduce((a, i) => ({
       kcal: a.kcal + i.kcal,
       protein: a.protein + i.protein,
-      fat: Math.round((a.fat + i.fat) * 10) / 10,
-      carb: Math.round((a.carb + i.carb) * 10) / 10,
-      fiber: Math.round((a.fiber + i.fiber) * 10) / 10
+      fat: round1(a.fat + i.fat),
+      carb: round1(a.carb + i.carb),
+      fiber: round1(a.fiber + i.fiber)
     }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
     res.json({ items, totals, raw_text: text, trace, suggested_extras: parsed.suggested_extras || [] });
   } catch (e) {
@@ -1761,7 +1857,7 @@ app.get('/api/health', async (req, res) => {
   // USDA
   if (checks.usda.configured) {
     try {
-      const r = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?query=apple&pageSize=1&api_key=${process.env.USDA_API_KEY}`, { timeout: 4000 });
+      const r = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?query=apple&pageSize=1`, { timeout: 4000, headers: { 'X-Api-Key': process.env.USDA_API_KEY } });
       const j = await r.json();
       if (j.error) { checks.usda.status = 'error'; checks.usda.detail = j.error.message || JSON.stringify(j.error); }
       else if (j.foods && j.foods.length) { checks.usda.status = 'ok'; checks.usda.detail = 'Search returned results'; }
@@ -1816,8 +1912,8 @@ app.get('/api/usage', (req, res) => {
   });
 });
 
-app.delete('/api/usage', (req, res) => {
-  writeJson(USAGE_FILE, []);
+app.delete('/api/usage', async (req, res) => {
+  await withFileLock(USAGE_FILE, () => writeJson(USAGE_FILE, []));
   res.json({ ok: true });
 });
 
@@ -1829,29 +1925,45 @@ app.get('/api/water', (req, res) => {
   res.json({ date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
 
-app.post('/api/water', (req, res) => {
+app.post('/api/water', async (req, res) => {
   const date = req.body.date || todayStr();
   const ml = Number(req.body.ml) || 250;
-  const w = readJson(req.dataFiles.water, {});
-  if (!w[date]) w[date] = [];
-  const entry = { id: crypto.randomUUID(), ml, ts: new Date().toISOString() };
-  w[date].push(entry);
-  writeJson(req.dataFiles.water, w);
-  const entries = w[date];
+  const entries = await withFileLock(req.dataFiles.water, () => {
+    const w = readJson(req.dataFiles.water, {});
+    if (!w[date]) w[date] = [];
+    w[date].push({ id: crypto.randomUUID(), ml, ts: new Date().toISOString() });
+    writeJson(req.dataFiles.water, w);
+    return w[date];
+  });
   res.json({ ok: true, date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
 
-app.delete('/api/water/:id', (req, res) => {
+app.delete('/api/water/:id', async (req, res) => {
   const date = req.query.date || todayStr();
-  const w = readJson(req.dataFiles.water, {});
-  if (w[date]) w[date] = w[date].filter(e => e.id !== req.params.id);
-  writeJson(req.dataFiles.water, w);
-  const entries = w[date] || [];
+  const entries = await withFileLock(req.dataFiles.water, () => {
+    const w = readJson(req.dataFiles.water, {});
+    if (w[date]) w[date] = w[date].filter(e => e.id !== req.params.id);
+    writeJson(req.dataFiles.water, w);
+    return w[date] || [];
+  });
   res.json({ ok: true, date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
 
 // ---------- start ----------
-app.listen(PORT, () => {
-  console.log(`Calorie tracker running at http://localhost:${PORT}`);
-  console.log(`(or on your phone: http://<your-LAN-IP>:${PORT})`);
-});
+// Only listen when run directly (`node server.js`). When required from tests,
+// expose pure helpers so they can be unit-tested without booting the server.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Calorie tracker running at http://localhost:${PORT}`);
+    console.log(`(or on your phone: http://<your-LAN-IP>:${PORT})`);
+  });
+} else {
+  module.exports = {
+    app, createTestSession,
+    round1, fmtDate, todayStr,
+    readJson, writeJson, withFileLock,
+    normalizeFoodName, customLookup, isRelevantMatch,
+    initialFinals, applyCustomFood, applySanityCaps,
+    computeFavorites
+  };
+}

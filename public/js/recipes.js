@@ -385,18 +385,18 @@ $('#snackGo').addEventListener('click', async () => {
   try {
     const data = await api('/api/snack', { method: 'POST', body: { kcal_cap: Number($('#snackCap').value) || 200 } });
     if (data.error) { $('#snackOutput').innerHTML = `<div class="empty" style="color: var(--danger);">${data.error}</div>`; return; }
-    $('#snackOutput').innerHTML = data.snacks.map(s => `
+    $('#snackOutput').innerHTML = data.snacks.map((s, i) => `
       <div class="card" style="padding: 12px 14px;">
         <div style="display: flex; justify-content: space-between; align-items: baseline;">
           <strong>${escapeHtml(s.name)}</strong>
           <span style="color: var(--text-dim); font-size: 14px;">${s.kcal} kcal · ${s.protein_g}g</span>
         </div>
         <div style="color: var(--text-dim); font-size: 13px; margin-top: 4px;">${escapeHtml(s.why)}</div>
-        <button class="btn btn-secondary" style="margin-top: 8px; padding: 6px 12px; font-size: 13px;" data-snack='${JSON.stringify(s).replace(/'/g, "&apos;")}'>Log this</button>
+        <button class="btn btn-secondary" style="margin-top: 8px; padding: 6px 12px; font-size: 13px;" data-snack-idx="${i}">Log this</button>
       </div>
     `).join('');
-    $$('[data-snack]').forEach(btn => btn.addEventListener('click', async () => {
-      const s = JSON.parse(btn.dataset.snack.replace(/&apos;/g, "'"));
+    $$('[data-snack-idx]').forEach(btn => btn.addEventListener('click', async () => {
+      const s = data.snacks[Number(btn.dataset.snackIdx)];
       await api('/api/log', { method: 'POST', body: { name: s.name, kcal: s.kcal, protein: s.protein_g, fat: s.fat_g || 0, carb: s.carb_g || 0, fiber: s.fiber_g || 0, source: 'ai-estimate' } });
       showToast('Snack logged');
       loadToday();

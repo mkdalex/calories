@@ -239,9 +239,9 @@ function renderToday() {
     const fatTarget = data.stats.fat_g;
     const carbTarget = data.stats.carb_g;
     const fiberTarget = data.stats.fiber_g;
-    const fatPct = Math.min(fatTarget > 0 ? fatEaten / fatTarget * 100 : 0, 100).toFixed(1);
-    const carbPct = Math.min(carbTarget > 0 ? carbEaten / carbTarget * 100 : 0, 100).toFixed(1);
-    const fiberPct = Math.min(fiberTarget > 0 ? fiberEaten / fiberTarget * 100 : 0, 100).toFixed(1);
+    const fatPct = pctOf(fatEaten, fatTarget);
+    const carbPct = pctOf(carbEaten, carbTarget);
+    const fiberPct = pctOf(fiberEaten, fiberTarget);
     const macroFatOpen = localStorage.getItem('macroFatOpen') === '1';
     const macroCarbOpen = localStorage.getItem('macroCarbOpen') === '1';
     const macroFiberOpen = localStorage.getItem('macroFiberOpen') === '1';
