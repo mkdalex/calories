@@ -1,0 +1,67 @@
+/* ---------- Login screen ---------- */
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 32px;
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.login-emoji { font-size: 56px; line-height: 1; margin-bottom: 14px; }
+.login-card h1 { font-size: 28px; margin: 0 0 8px; font-weight: 700; }
+.login-card p { color: var(--text-dim); margin: 0 0 24px; font-size: 14px; line-height: 1.5; }
+.discord-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #5865F2;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  transition: background 0.15s;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+.discord-btn:hover { background: #4752c4; color: white; }
+.discord-btn svg { width: 22px; height: 22px; fill: currentColor; }
+.login-foot { color: var(--text-dim); font-size: 12px; margin-top: 18px; }
+
+/* ---------- User chip in top bar ---------- */
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 4px 4px 4px;
+  font-size: 13px;
+}
+.user-chip-avatar { width: 24px; height: 24px; border-radius: 50%; display: block; }
+.user-chip-name { color: var(--text); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-chip-logout {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 50%;
+}
+.user-chip-logout:hover { color: var(--danger); background: rgba(248,113,113,0.1); }

@@ -8,13 +8,12 @@ const OpenAI = require('openai');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.CALORIES_DATA_DIR || path.join(__dirname, 'data');
-const PROFILE_FILE = path.join(DATA_DIR, 'profile.json');
-const LOG_FILE = path.join(DATA_DIR, 'log.json');
-const WEIGHT_FILE = path.join(DATA_DIR, 'weight.json');
+const USERS_DIR = path.join(DATA_DIR, 'users');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
-const CUSTOM_FOODS_FILE = path.join(DATA_DIR, 'custom_foods.json');
-const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
-const WATER_FILE     = path.join(DATA_DIR, 'water.json');
+const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
+
+// Per-user data files are resolved per-request by attachUser middleware.
+// See req.dataFiles.{profile|log|weight|templates|custom_foods|water}
 
 // Pricing per 1M tokens
 const PRICING = {
@@ -118,6 +117,119 @@ async function aiJson(endpoint, systemPrompt, userPrompt, maxTokens = 4000) {
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+// ---------- Auth: Discord OAuth + signed cookie sessions ----------
+const cookieParser = require('cookie-parser');
+const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me-in-env-please';
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI;
+const ALLOWED_DISCORD_IDS = (process.env.ALLOWED_DISCORD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const SESSION_DAYS = 30;
+const SESSION_MS = SESSION_DAYS * 86400 * 1000;
+const COOKIE_NAME = 'calories_sid';
+
+app.use(cookieParser(SESSION_SECRET));
+
+// Sessions persisted to disk so they survive restarts (in-memory map for speed, file for durability)
+function loadSessions() { try { return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')); } catch { return {}; } }
+function saveSessions(s) { try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(s)); } catch (_) {} }
+const sessions = loadSessions();
+
+function newSessionId() { return crypto.randomBytes(24).toString('hex'); }
+function setSession(res, user) {
+  const sid = newSessionId();
+  sessions[sid] = { user, expires: Date.now() + SESSION_MS };
+  saveSessions(sessions);
+  res.cookie(COOKIE_NAME, sid, { signed: true, httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_MS });
+}
+function clearSession(res, req) {
+  const sid = req.signedCookies[COOKIE_NAME];
+  if (sid && sessions[sid]) { delete sessions[sid]; saveSessions(sessions); }
+  res.clearCookie(COOKIE_NAME);
+}
+function getSession(req) {
+  const sid = req.signedCookies[COOKIE_NAME];
+  if (!sid) return null;
+  const s = sessions[sid];
+  if (!s) return null;
+  if (s.expires < Date.now()) { delete sessions[sid]; saveSessions(sessions); return null; }
+  return s.user;
+}
+
+// ---------- Discord OAuth routes ----------
+app.get('/auth/discord', (req, res) => {
+  if (!DISCORD_CLIENT_ID || !DISCORD_REDIRECT_URI) return res.status(500).send('Discord OAuth not configured (set DISCORD_CLIENT_ID + DISCORD_REDIRECT_URI in .env)');
+  const params = new URLSearchParams({
+    client_id: DISCORD_CLIENT_ID,
+    redirect_uri: DISCORD_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'identify',
+    prompt: 'none'
+  });
+  res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
+});
+
+app.get('/auth/discord/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing code');
+  try {
+    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: String(code),
+        redirect_uri: DISCORD_REDIRECT_URI
+      }).toString()
+    });
+    const tokenJson = await tokenRes.json();
+    if (!tokenJson.access_token) return res.status(401).send('Discord token exchange failed');
+    const userRes = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokenJson.access_token}` }
+    });
+    const u = await userRes.json();
+    if (!u.id) return res.status(401).send('Could not load Discord profile');
+    if (!ALLOWED_DISCORD_IDS.includes(u.id)) {
+      return res.status(403).send(`<html><body style="font-family:system-ui;background:#0e1116;color:#e6edf3;padding:40px;text-align:center;"><h1 style="color:#f87171;">Not authorized</h1><p>Discord user <strong>${u.username}</strong> (id: ${u.id}) is not on the allow-list for this app.</p><p style="color:#8b949e;font-size:13px;">If you should have access, ask the owner to add your Discord ID.</p></body></html>`);
+    }
+    setSession(res, { id: u.id, username: u.username, global_name: u.global_name || u.username, avatar: u.avatar });
+    res.redirect('/');
+  } catch (e) {
+    console.error('Discord OAuth error:', e);
+    res.status(500).send('OAuth error: ' + e.message);
+  }
+});
+
+app.post('/auth/logout', (req, res) => { clearSession(res, req); res.json({ ok: true }); });
+
+// ---------- Auth middleware for all /api routes ----------
+function attachUser(req, res, next) {
+  const user = getSession(req);
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  req.user = user;
+  req.userId = user.id;
+  const userDir = path.join(USERS_DIR, req.userId);
+  if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+  req.dataFiles = {
+    profile:      path.join(userDir, 'profile.json'),
+    log:          path.join(userDir, 'log.json'),
+    weight:       path.join(userDir, 'weight.json'),
+    templates:    path.join(userDir, 'templates.json'),
+    custom_foods: path.join(userDir, 'custom_foods.json'),
+    water:        path.join(userDir, 'water.json')
+  };
+  next();
+}
+app.use('/api', attachUser);
+
+// /api/me — who is the current user
+app.get('/api/me', (req, res) => {
+  res.json({ id: req.user.id, username: req.user.username, global_name: req.user.global_name, avatar: req.user.avatar });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- JSON file helpers ----------
@@ -188,23 +300,23 @@ function computeStats(profile) {
 
 // ---------- /api/profile ----------
 app.get('/api/profile', (req, res) => {
-  const profile = readJson(PROFILE_FILE, null);
+  const profile = readJson(req.dataFiles.profile, null);
   res.json({ profile, stats: computeStats(profile), activity_options: ACTIVITY, goal_options: GOALS });
 });
 app.post('/api/profile', (req, res) => {
-  const existing = readJson(PROFILE_FILE, {}) || {};
+  const existing = readJson(req.dataFiles.profile, {}) || {};
   const profile = { ...existing, ...(req.body || {}) };
-  writeJson(PROFILE_FILE, profile);
+  writeJson(req.dataFiles.profile, profile);
   res.json({ profile, stats: computeStats(profile) });
 });
 
 app.get('/api/calibrate', (req, res) => {
-  const profile = readJson(PROFILE_FILE, null);
+  const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
   if (!stats) return res.json({ can_calibrate: false, reason: 'Set up your profile first.' });
 
-  const log = readJson(LOG_FILE, {});
-  const weights = readJson(WEIGHT_FILE, []);
+  const log = readJson(req.dataFiles.log, {});
+  const weights = readJson(req.dataFiles.weight, []);
   if (weights.length < 2) {
     return res.json({ can_calibrate: false, reason: 'Need at least 2 weight entries.', tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee, calibrated: stats.tdee_calibrated });
   }
@@ -304,7 +416,7 @@ function computeWeeklyAvg(log) {
 // ---------- /api/log ----------
 app.get('/api/log', (req, res) => {
   const date = req.query.date || todayStr();
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const entries = log[date] || [];
   const totals = entries.reduce((a, e) => ({
     kcal: a.kcal + (e.kcal || 0),
@@ -313,7 +425,7 @@ app.get('/api/log', (req, res) => {
     carb: a.carb + (e.carb || 0),
     fiber: a.fiber + (e.fiber || 0)
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
-  const profile = readJson(PROFILE_FILE, null);
+  const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
   const isToday = !req.query.date || req.query.date === todayStr();
   res.json({
@@ -335,7 +447,7 @@ app.post('/api/log', (req, res) => {
   const { name, kcal, protein, fat, carb, fiber, source, items, date, time } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   const d = date || todayStr();
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   if (!log[d]) log[d] = [];
   const entry = {
     id: newId(),
@@ -350,14 +462,14 @@ app.post('/api/log', (req, res) => {
     time: time || new Date().toISOString()
   };
   log[d].push(entry);
-  writeJson(LOG_FILE, log);
+  writeJson(req.dataFiles.log, log);
   res.json({ entry });
 });
 
 app.patch('/api/log/:date/:id', (req, res) => {
   const { date, id } = req.params;
   const { name, kcal, protein, fat, carb, fiber, time } = req.body || {};
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   if (!log[date]) return res.status(404).json({ error: 'date not found' });
   const idx = log[date].findIndex(e => e.id === id);
   if (idx < 0) return res.status(404).json({ error: 'entry not found' });
@@ -368,60 +480,60 @@ app.patch('/api/log/:date/:id', (req, res) => {
   if (carb !== undefined) log[date][idx].carb = Math.round((Number(carb) || 0) * 10) / 10;
   if (fiber !== undefined) log[date][idx].fiber = Math.round((Number(fiber) || 0) * 10) / 10;
   if (time !== undefined) log[date][idx].time = time;
-  writeJson(LOG_FILE, log);
+  writeJson(req.dataFiles.log, log);
   res.json({ entry: log[date][idx] });
 });
 
 app.delete('/api/log/:date/:id', (req, res) => {
   const { date, id } = req.params;
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   if (log[date]) {
     log[date] = log[date].filter(e => e.id !== id);
-    writeJson(LOG_FILE, log);
+    writeJson(req.dataFiles.log, log);
   }
   res.json({ ok: true });
 });
 
 // ---------- /api/weight ----------
 app.get('/api/weight', (req, res) => {
-  res.json(readJson(WEIGHT_FILE, []));
+  res.json(readJson(req.dataFiles.weight, []));
 });
 app.post('/api/weight', (req, res) => {
   const { kg, date } = req.body || {};
   if (!kg) return res.status(400).json({ error: 'kg required' });
-  const arr = readJson(WEIGHT_FILE, []);
+  const arr = readJson(req.dataFiles.weight, []);
   const d = date || todayStr();
   const existing = arr.findIndex(w => w.date === d);
   const entry = { date: d, kg: Number(kg) };
   if (existing >= 0) arr[existing] = entry;
   else arr.push(entry);
   arr.sort((a, b) => a.date.localeCompare(b.date));
-  writeJson(WEIGHT_FILE, arr);
+  writeJson(req.dataFiles.weight, arr);
   // Only push to profile if this is the most recent weight (don't break TDEE if user backfills an old entry)
-  const profile = readJson(PROFILE_FILE, null);
+  const profile = readJson(req.dataFiles.profile, null);
   if (profile && arr[arr.length - 1].date === d) {
     profile.weight_kg = Number(kg);
-    writeJson(PROFILE_FILE, profile);
+    writeJson(req.dataFiles.profile, profile);
   }
   res.json({ entry });
 });
 app.delete('/api/weight/:date', (req, res) => {
   const { date } = req.params;
-  const arr = readJson(WEIGHT_FILE, []);
+  const arr = readJson(req.dataFiles.weight, []);
   const filtered = arr.filter(w => w.date !== date);
-  writeJson(WEIGHT_FILE, filtered);
+  writeJson(req.dataFiles.weight, filtered);
   // If we deleted the latest weight, sync profile back to the new latest
-  const profile = readJson(PROFILE_FILE, null);
+  const profile = readJson(req.dataFiles.profile, null);
   if (profile && filtered.length) {
     profile.weight_kg = Number(filtered[filtered.length - 1].kg);
-    writeJson(PROFILE_FILE, profile);
+    writeJson(req.dataFiles.profile, profile);
   }
   res.json({ ok: true });
 });
 
 // ---------- /api/favorites ----------
 app.get('/api/favorites', (req, res) => {
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const counts = {};
   for (const [date, entries] of Object.entries(log).sort()) {
     for (const e of entries) {
@@ -470,8 +582,8 @@ app.get('/api/favorites', (req, res) => {
 app.get('/api/log-range', (req, res) => {
   const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: 'start and end required' });
-  const log = readJson(LOG_FILE, {});
-  const profile = readJson(PROFILE_FILE, null);
+  const log = readJson(req.dataFiles.log, {});
+  const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
   const goal = stats ? stats.kcal_goal : null;
   const result = {};
@@ -491,7 +603,7 @@ app.get('/api/log-range', (req, res) => {
 });
 
 app.get('/api/source-breakdown', (req, res) => {
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const start = req.query.start;
   const end = req.query.end || todayStr();
   const breakdown = {};
@@ -509,7 +621,7 @@ app.get('/api/source-breakdown', (req, res) => {
 });
 
 app.get('/api/logging-stats', (req, res) => {
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const today = todayStr();
   // Current streak — count back from today, allow today to be empty
   let streak = 0;
@@ -551,9 +663,9 @@ app.get('/api/logging-stats', (req, res) => {
 });
 
 app.get('/api/weekly-review', (req, res) => {
-  const log = readJson(LOG_FILE, {});
-  const weights = readJson(WEIGHT_FILE, []);
-  const profile = readJson(PROFILE_FILE, null);
+  const log = readJson(req.dataFiles.log, {});
+  const weights = readJson(req.dataFiles.weight, []);
+  const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
 
   const endStr = req.query.end || todayStr();
@@ -652,7 +764,7 @@ app.get('/api/weekly-review', (req, res) => {
 
 // ---------- /api/templates ----------
 app.get('/api/templates', (req, res) => {
-  res.json(readJson(TEMPLATES_FILE, []));
+  res.json(readJson(req.dataFiles.templates, []));
 });
 
 app.post('/api/templates', (req, res) => {
@@ -661,7 +773,7 @@ app.post('/api/templates', (req, res) => {
   let templateItems = items;
   let templateTotals = totals;
   if (from_log_entry_id && date) {
-    const log = readJson(LOG_FILE, {});
+    const log = readJson(req.dataFiles.log, {});
     const entry = (log[date] || []).find(e => e.id === from_log_entry_id);
     if (entry) {
       templateItems = entry.items && entry.items.length
@@ -671,38 +783,38 @@ app.post('/api/templates', (req, res) => {
     }
   }
   if (!templateItems || !templateItems.length) return res.status(400).json({ error: 'items required' });
-  const templates = readJson(TEMPLATES_FILE, []);
+  const templates = readJson(req.dataFiles.templates, []);
   const computed = templateTotals || templateItems.reduce((a, i) => ({
     kcal: a.kcal + (i.kcal || 0), protein: a.protein + (i.protein || 0),
     fat: a.fat + (i.fat || 0), carb: a.carb + (i.carb || 0), fiber: a.fiber + (i.fiber || 0)
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
   const tmpl = { id: newId(), name: String(name).trim().slice(0, 100), items: templateItems, totals: computed, created: new Date().toISOString() };
   templates.push(tmpl);
-  writeJson(TEMPLATES_FILE, templates);
+  writeJson(req.dataFiles.templates, templates);
   res.json(tmpl);
 });
 
 app.patch('/api/templates/:id', (req, res) => {
-  const templates = readJson(TEMPLATES_FILE, []);
+  const templates = readJson(req.dataFiles.templates, []);
   const idx = templates.findIndex(t => t.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'not found' });
   if (req.body.name) templates[idx].name = String(req.body.name).trim().slice(0, 100);
-  writeJson(TEMPLATES_FILE, templates);
+  writeJson(req.dataFiles.templates, templates);
   res.json(templates[idx]);
 });
 
 app.delete('/api/templates/:id', (req, res) => {
-  const templates = readJson(TEMPLATES_FILE, []);
-  writeJson(TEMPLATES_FILE, templates.filter(t => t.id !== req.params.id));
+  const templates = readJson(req.dataFiles.templates, []);
+  writeJson(req.dataFiles.templates, templates.filter(t => t.id !== req.params.id));
   res.json({ ok: true });
 });
 
 app.post('/api/log-template/:id', (req, res) => {
-  const templates = readJson(TEMPLATES_FILE, []);
+  const templates = readJson(req.dataFiles.templates, []);
   const tmpl = templates.find(t => t.id === req.params.id);
   if (!tmpl) return res.status(404).json({ error: 'template not found' });
   const d = req.query.date || todayStr();
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   if (!log[d]) log[d] = [];
   const now = new Date().toISOString();
   const entries = (tmpl.items || []).map(item => ({
@@ -717,7 +829,7 @@ app.post('/api/log-template/:id', (req, res) => {
     time: now
   }));
   log[d].push(...entries);
-  writeJson(LOG_FILE, log);
+  writeJson(req.dataFiles.log, log);
   res.json({ logged: entries.length, entries });
 });
 
@@ -728,7 +840,7 @@ app.get('/api/suggest', (req, res) => {
   const results = [];
   const seen = new Set();
 
-  const customs = readJson(CUSTOM_FOODS_FILE, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
   for (const food of Object.values(customs)) {
     if (food.name.toLowerCase().includes(q) && !seen.has(food.name.toLowerCase())) {
       seen.add(food.name.toLowerCase());
@@ -736,7 +848,7 @@ app.get('/api/suggest', (req, res) => {
     }
   }
 
-  const templates = readJson(TEMPLATES_FILE, []);
+  const templates = readJson(req.dataFiles.templates, []);
   for (const t of templates) {
     if (t.name.toLowerCase().includes(q) && !seen.has(t.name.toLowerCase())) {
       seen.add(t.name.toLowerCase());
@@ -744,7 +856,7 @@ app.get('/api/suggest', (req, res) => {
     }
   }
 
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
   const histMap = {};
@@ -834,18 +946,18 @@ function normalizeFoodName(name) {
 }
 
 function customLookup(name) {
-  const customs = readJson(CUSTOM_FOODS_FILE, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
   return customs[normalizeFoodName(name)] || null;
 }
 
 app.get('/api/custom-foods', (req, res) => {
-  res.json(readJson(CUSTOM_FOODS_FILE, {}));
+  res.json(readJson(req.dataFiles.custom_foods, {}));
 });
 
 app.post('/api/custom-foods', (req, res) => {
   const { name, kcal, protein, fat, carb, fiber } = req.body || {};
   if (!name || kcal == null) return res.status(400).json({ error: 'name and kcal required' });
-  const customs = readJson(CUSTOM_FOODS_FILE, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
   const key = normalizeFoodName(name);
   customs[key] = {
     name: String(name).trim(),
@@ -856,14 +968,14 @@ app.post('/api/custom-foods', (req, res) => {
     fiber: Math.round((Number(fiber) || 0) * 10) / 10,
     updated: todayStr()
   };
-  writeJson(CUSTOM_FOODS_FILE, customs);
+  writeJson(req.dataFiles.custom_foods, customs);
   res.json(customs[key]);
 });
 
 app.patch('/api/custom-foods/:key', (req, res) => {
   const key = decodeURIComponent(req.params.key);
   const { kcal, protein, fat, carb, fiber } = req.body || {};
-  const customs = readJson(CUSTOM_FOODS_FILE, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
   if (!customs[key]) return res.status(404).json({ error: 'not found' });
   if (kcal != null) customs[key].kcal = Math.round(Number(kcal));
   if (protein != null) customs[key].protein = Math.round((Number(protein) || 0) * 10) / 10;
@@ -871,21 +983,21 @@ app.patch('/api/custom-foods/:key', (req, res) => {
   if (carb != null) customs[key].carb = Math.round((Number(carb) || 0) * 10) / 10;
   if (fiber != null) customs[key].fiber = Math.round((Number(fiber) || 0) * 10) / 10;
   customs[key].updated = todayStr();
-  writeJson(CUSTOM_FOODS_FILE, customs);
+  writeJson(req.dataFiles.custom_foods, customs);
   res.json(customs[key]);
 });
 
 app.delete('/api/custom-foods/:key', (req, res) => {
   const key = decodeURIComponent(req.params.key);
-  const customs = readJson(CUSTOM_FOODS_FILE, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
   delete customs[key];
-  writeJson(CUSTOM_FOODS_FILE, customs);
+  writeJson(req.dataFiles.custom_foods, customs);
   res.json({ ok: true });
 });
 
 // ---------- /api/export/csv ----------
 app.get('/api/export/csv', (req, res) => {
-  const log = readJson(LOG_FILE, {});
+  const log = readJson(req.dataFiles.log, {});
   const rows = ['date,time,name,kcal,protein_g,fat_g,carb_g,fiber_g,source'];
   for (const [date, entries] of Object.entries(log).sort()) {
     for (const e of entries) {
@@ -1654,7 +1766,7 @@ app.delete('/api/usage', (req, res) => {
 // ---------- water ----------
 app.get('/api/water', (req, res) => {
   const date = req.query.date || todayStr();
-  const w = readJson(WATER_FILE, {});
+  const w = readJson(req.dataFiles.water, {});
   const entries = w[date] || [];
   res.json({ date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
@@ -1662,20 +1774,20 @@ app.get('/api/water', (req, res) => {
 app.post('/api/water', (req, res) => {
   const date = req.body.date || todayStr();
   const ml = Number(req.body.ml) || 250;
-  const w = readJson(WATER_FILE, {});
+  const w = readJson(req.dataFiles.water, {});
   if (!w[date]) w[date] = [];
   const entry = { id: crypto.randomUUID(), ml, ts: new Date().toISOString() };
   w[date].push(entry);
-  writeJson(WATER_FILE, w);
+  writeJson(req.dataFiles.water, w);
   const entries = w[date];
   res.json({ ok: true, date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
 
 app.delete('/api/water/:id', (req, res) => {
   const date = req.query.date || todayStr();
-  const w = readJson(WATER_FILE, {});
+  const w = readJson(req.dataFiles.water, {});
   if (w[date]) w[date] = w[date].filter(e => e.id !== req.params.id);
-  writeJson(WATER_FILE, w);
+  writeJson(req.dataFiles.water, w);
   const entries = w[date] || [];
   res.json({ ok: true, date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });

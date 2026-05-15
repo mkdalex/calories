@@ -18,5 +18,13 @@ $$('.nav button').forEach(btn => {
 });
 
 // ---------- INIT ----------
-loadToday();
-maybeShowOnboarding();
+(async () => {
+  const authed = await checkAuth();
+  if (!authed) {
+    showLoginScreen();
+    return; // stop — don't fire any /api calls if not logged in
+  }
+  renderUserChip();
+  loadToday();
+  maybeShowOnboarding();
+})();

@@ -21,7 +21,7 @@ function glossify(text) {
 }
 
 // ---------- State ----------
-let state = { profile: null, stats: null, today: null, water: null };
+let state = { profile: null, stats: null, today: null, water: null, user: null };
 
 // ---------- Helpers ----------
 function $(sel) { return document.querySelector(sel); }
