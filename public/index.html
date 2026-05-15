@@ -15,6 +15,9 @@
 <meta name="apple-mobile-web-app-title" content="Calories" />
 <meta name="mobile-web-app-capable" content="yes" />
 
+<!-- Apply the saved theme BEFORE any stylesheet loads so the user doesn't see a flash of the Classic palette. -->
+<script>(function(){try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;}catch(e){/* localStorage blocked in private mode etc. — fall through to Classic */}})();</script>
+
 <link rel="stylesheet" href="/styles.css" />
 <link rel="stylesheet" href="/css/ai-loaders.css" />
 <link rel="stylesheet" href="/css/onboarding.css" />
@@ -171,6 +174,13 @@
       <span style="font-size:12px;color:var(--text-dim);">Your verified calorie values</span>
     </div>
     <div id="myFoodsList" style="font-size:13px;color:var(--text-dim);">Loading...</div>
+  </div>
+  <div class="card" id="themeCard" style="margin-top:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <strong>Theme</strong>
+      <span style="font-size:12px;color:var(--text-dim);">App appearance</span>
+    </div>
+    <div id="themePicker" class="theme-picker"></div>
   </div>
   <div class="card" id="backupRestoreCard" style="margin-top:18px;"></div>
 </div>
