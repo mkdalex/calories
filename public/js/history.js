@@ -661,9 +661,15 @@ function renderCalendar() {
     else if (goal && entry.kcal < goal - 300) cls += ' under';
     else cls += ' over';
 
+    let proteinHtml = '';
+    if (entry && entry.protein !== undefined) {
+      const pg = entry.protein_goal;
+      const hit = pg ? entry.protein >= pg * 0.9 : false;
+      proteinHtml = `<div class="cal-day-protein ${hit ? 'hit' : 'miss'}">${Math.round(entry.protein)}p</div>`;
+    }
     html += `<div class="${cls}" data-date="${ds}">
       <div class="cal-day-num">${day}</div>
-      ${entry ? `<div class="cal-day-kcal">${entry.kcal.toLocaleString()}</div>` : ''}
+      ${entry ? `<div class="cal-day-kcal">${entry.kcal.toLocaleString()}</div>${proteinHtml}` : ''}
     </div>`;
   }
 

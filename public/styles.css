@@ -328,7 +328,11 @@
   .cal-cell.empty-log { background: var(--panel-2); }
   .cal-cell.selected { border-color: var(--accent) !important; }
   .cal-day-num { font-size: 11px; color: var(--text-dim); }
-  .cal-day-kcal { font-size: 11px; font-weight: 600; color: var(--text); margin-top: 4px; }
+  .cal-day-kcal { font-size: 11px; font-weight: 600; color: var(--text); margin-top: 3px; line-height: 1.1; }
+  .cal-day-protein { font-size: 10px; font-weight: 600; line-height: 1.1; margin-top: 1px; }
+  .cal-day-protein.hit  { color: var(--info); }
+  .cal-day-protein.miss { color: var(--text-dim); }
+  .cal-cell { min-height: 58px; }
   .cal-detail { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
 
   /* ---------- Kcal trend ---------- */

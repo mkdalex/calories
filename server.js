@@ -482,7 +482,8 @@ app.get('/api/log-range', (req, res) => {
     const entries = log[ds] || [];
     if (entries.length) {
       const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      result[ds] = { kcal, goal, entries_count: entries.length };
+      const protein = Math.round(entries.reduce((a, e) => a + (e.protein || 0), 0) * 10) / 10;
+      result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
     }
     d.setDate(d.getDate() + 1);
   }
