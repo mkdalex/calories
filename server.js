@@ -259,12 +259,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- JSON file helpers ----------
 function readJson(file, fallback) {
-  try {
-    if (!fs.existsSync(file)) return fallback;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { return fallback; }
 }
 function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
@@ -275,7 +271,12 @@ const fileLocks = new Map();
 function withFileLock(filePath, fn) {
   const prev = fileLocks.get(filePath) || Promise.resolve();
   const next = prev.then(() => fn(), () => fn());
-  fileLocks.set(filePath, next.catch(() => undefined));
+  const stored = next.catch(() => undefined);
+  fileLocks.set(filePath, stored);
+  // Clean up only if no later caller has appended to this path's chain.
+  stored.finally(() => {
+    if (fileLocks.get(filePath) === stored) fileLocks.delete(filePath);
+  });
   return next;
 }
 function todayStr() { return fmtDate(new Date()); }
@@ -639,7 +640,8 @@ function computeFavorites(log) {
 
 app.get('/api/favorites', (req, res) => {
   const logFile = req.dataFiles.log;
-  const mtimeMs = fs.existsSync(logFile) ? fs.statSync(logFile).mtimeMs : 0;
+  const stat = fs.statSync(logFile, { throwIfNoEntry: false });
+  const mtimeMs = stat ? stat.mtimeMs : 0;
   const cached = favoritesCache.get(req.userId);
   if (cached && cached.mtimeMs === mtimeMs) return res.json(cached.favs);
   const favs = computeFavorites(readJson(logFile, {}));
@@ -1511,7 +1513,8 @@ function applyCustomFood(custom, item, f) {
 }
 
 // Try USDA + FatSecret in parallel. Mutates `f` if a relevant match wins per the resolution rules.
-async function applyDbSources(item, category, f) {
+async function applyDbSources(item, f) {
+  const category = item.category || 'generic';
   const isGram = item.unit === 'g' || item.unit === 'ml';
   const aiLow = item.kcal_low || f.kcal * 0.6;
   const aiHigh = item.kcal_high || f.kcal * 1.4;
@@ -1593,12 +1596,11 @@ function applySanityCaps(item, f) {
 }
 
 async function resolveItem(item, customs) {
-  const category = item.category || 'generic';
   const f = initialFinals(item);
 
   const custom = customLookup(customs, item.name);
   if (custom) applyCustomFood(custom, item, f);
-  else await applyDbSources(item, category, f);
+  else await applyDbSources(item, f);
 
   applySanityCaps(item, f);
 
@@ -1606,7 +1608,7 @@ async function resolveItem(item, customs) {
     item: { name: item.name, qty: item.qty, unit: item.unit, kcal: f.kcal, protein: f.protein, fat: f.fat, carb: f.carb, fiber: f.fiber, source: f.source, confidence: f.confidence },
     trace: {
       name: item.name, qty: item.qty, unit: item.unit,
-      category, confidence: f.confidence, reasoning: item.reasoning || '',
+      category: item.category || 'generic', confidence: f.confidence, reasoning: item.reasoning || '',
       ai_kcal_total: Math.round(item.kcal_total || 0),
       ai_kcal_low: Math.round(item.kcal_low || 0),
       ai_kcal_high: Math.round(item.kcal_high || 0),

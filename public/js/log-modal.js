@@ -312,7 +312,7 @@ function renderTrace(trace) {
 function refreshParsedTotals() {
   if (!parsedCache) return;
   const t = parsedCache.totals;
-  const proteinR = Math.round((t.protein || 0) * 10) / 10;
+  const proteinR = round1(t.protein);
   const extras = (t.fat || t.carb || t.fiber) ? ` · ${t.fat||0}g F · ${t.carb||0}g C · ${t.fiber||0}g Fib` : '';
   $('#parsedTotals').innerHTML = `
     <div class="card" style="margin: 0; padding: 12px 14px;">
