@@ -18,6 +18,7 @@ A self-hosted calorie + protein tracker focused on the two metrics that actually
 ### Requirements
 - [Node.js](https://nodejs.org/) v18 or newer
 - An OpenAI API key (and optionally USDA + FatSecret keys for better food matching)
+- A Discord application for OAuth login. Free to create at <https://discord.com/developers/applications> — the app gates `/api/*` behind a signed-cookie session and an allow-list of Discord user IDs, so even when you self-host it stays private.
 
 ### Install
 
@@ -41,6 +42,15 @@ Then edit `.env`:
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5-nano
 
+# --- Discord OAuth (required to log in) ---
+DISCORD_CLIENT_ID=...
+DISCORD_CLIENT_SECRET=...
+DISCORD_REDIRECT_URI=https://YOUR-DOMAIN/auth/discord/callback
+# Generate with: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+SESSION_SECRET=...
+# Comma-separated list of Discord user IDs allowed to log in (yours, plus anyone else)
+ALLOWED_DISCORD_IDS=123456789012345678
+
 # Optional but recommended — improves food lookup accuracy and caches results
 USDA_API_KEY=...                    # free at https://fdc.nal.usda.gov/api-key-signup.html
 FATSECRET_CLIENT_ID=...              # free at https://platform.fatsecret.com/
@@ -54,6 +64,10 @@ DAILY_COST_CAP_USD=2
 AI_DISABLED=0
 ```
 
+**On the Discord developer portal**: create an application → OAuth2 → add the redirect URI exactly matching `DISCORD_REDIRECT_URI`. For local dev use `http://localhost:3000/auth/discord/callback`. Get your Discord user ID by enabling Developer Mode in Discord settings → right-click your name → Copy User ID.
+
+**In production**, the server refuses to start if `SESSION_SECRET` is unset (signed cookies must not fall back to a known default). Locally (no `NODE_ENV=production`), the fallback is allowed for convenience.
+
 ### Run
 
 ```bash
@@ -66,7 +80,9 @@ On Windows you can also double-click `restart.bat` to kill any old server on por
 
 ### First run
 
-The app shows a 4-step onboarding wizard the first time you open it: basics (height/weight/age/sex) → activity level → goal → summary with your calculated targets.
+You'll see a login screen. Click **Log in with Discord**, approve the OAuth prompt, and (if your Discord ID is in `ALLOWED_DISCORD_IDS`) you'll land on the main app. The first time you log in, a 4-step onboarding wizard runs: basics (height/weight/age/sex) → activity level → goal → summary with your calculated targets.
+
+Each Discord user gets their own data directory under `data/users/<discord_id>/` — multiple people on the allow-list never see each other's logs.
 
 ## Usage tips
 
@@ -86,7 +102,9 @@ Every AI call is logged to `data/ai_calls.log` (one JSON line per call) and prin
 
 ## Data storage
 
-Everything is local JSON files in `data/`:
+Everything is local JSON files in `data/`. Per-user files live under `data/users/<discord_id>/`; server-wide files live at the top of `data/`:
+
+**Per user** (`data/users/<discord_id>/`):
 
 - `log.json` — meal entries by date
 - `profile.json` — your stats
@@ -94,24 +112,39 @@ Everything is local JSON files in `data/`:
 - `templates.json` — saved meal combos
 - `custom_foods.json` — your verified food values
 - `water.json` — water tracking
-- `usage.json` — AI usage tracking (last 1000 calls)
+
+**Server-wide** (`data/`):
+
+- `sessions.json` — active login sessions (cleared on logout / expiry)
+- `usage.json` — AI usage tracking (last 1000 calls, trimmed)
 - `ai_calls.log` — append-only audit log of every AI call
 
-No external database, no cloud. Back up the `data/` folder if you want to keep your history.
+All read-modify-write access to these files is serialized through a per-path mutex so concurrent requests can't lose entries.
+
+No external database, no cloud. Back up the `data/` folder if you want to keep your history. The `/api/export/json` endpoint also bundles your data for download — see Backup/Restore below.
+
+### Backup & restore
+
+- `GET /api/export/json` → downloads `calories-backup-YYYY-MM-DD.json` containing all of your user's data.
+- `GET /api/export/csv` → flat CSV of your meal log.
+- `POST /api/import` accepts the JSON bundle back with `?mode=merge` (deduplicates by entry id) or `?mode=replace` (overwrites).
 
 ## Project structure
 
 ```
 calories/
 ├── server.js                 — Express server + all API endpoints
+├── electron/main.js          — optional desktop shell (loads localhost:3000)
 ├── public/
 │   ├── index.html            — single-page UI shell
-│   ├── styles.css            — main styles
+│   ├── styles.css            — main styles (uses CSS vars for colours + z-index scale)
 │   ├── css/
 │   │   ├── ai-loaders.css    — animated loading screens
+│   │   ├── login.css         — pre-auth login screen
 │   │   └── onboarding.css    — first-run wizard
 │   └── js/
-│       ├── helpers.js        — $, api(), state, glossify, refreshAfterChange
+│       ├── helpers.js        — $, api(), state, glossify, fmtDate, round1, pctOf
+│       ├── auth.js           — login screen + logout + session check
 │       ├── ai-loaders.js     — random animated loaders during AI waits
 │       ├── edu-content.js    — protein/fat/carb/fiber education content
 │       ├── water.js          — water tracking
@@ -124,8 +157,41 @@ calories/
 │       ├── dev.js            — health checks + usage stats
 │       ├── onboarding.js     — first-run wizard
 │       └── init.js           — boots loadToday() + nav handlers
+├── tests/                    — node:test suite (see Tests section)
+│   ├── helpers.test.js
+│   ├── parse-helpers.test.js
+│   ├── favorites.test.js
+│   ├── api.test.js
+│   └── startup.test.js
 └── data/                     — JSON storage (gitignored)
+    └── users/<discord_id>/   — per-user meal data
 ```
+
+## Tests
+
+```bash
+npm test
+```
+
+Uses Node's built-in test runner (`node --test`) — no extra dev dependencies. Requires Node 18+. The suite finishes in ~1.6s (the startup tests dominate; the rest is sub-100ms).
+
+The five test files cover the highest-risk surfaces from the codebase audit:
+
+- **[tests/helpers.test.js](tests/helpers.test.js)** — pure utility functions: `round1`, `fmtDate`, `todayStr`, `readJson`/`writeJson`, `normalizeFoodName`, `customLookup`, `isRelevantMatch`. Includes dedicated `withFileLock` tests asserting (a) serialization on the same path, (b) parallelism on different paths, (c) that a rejected operation doesn't poison the chain.
+- **[tests/parse-helpers.test.js](tests/parse-helpers.test.js)** — the decomposed `/api/parse` pipeline: `initialFinals`, `applyCustomFood`, `applySanityCaps`. Includes an explicit regression test for the `qty=0` bug (`?? 1` vs the old `|| 1`).
+- **[tests/favorites.test.js](tests/favorites.test.js)** — `computeFavorites`: frequency ranking, 8-item cap, case-insensitive grouping, kcal/protein averaging, `last_*` fields tracking the newest entry.
+- **[tests/api.test.js](tests/api.test.js)** — live HTTP integration. Boots the Express app on a random port (`app.listen(0)`), isolates writes into a tmpdir via `CALORIES_DATA_DIR`, mints a test session cookie that bypasses Discord OAuth, then exercises the auth gate, `/api/profile`, `/api/log` CRUD, `/api/templates`, `/api/custom-foods`, `/api/favorites` cache, and the export endpoints. Includes a **10-way concurrent POST to `/api/water`** as a regression test for the per-file mutex — all 10 entries must persist.
+- **[tests/startup.test.js](tests/startup.test.js)** — spawns `node server.js` as a subprocess. Verifies the production fail-fast: `NODE_ENV=production` with no `SESSION_SECRET` must exit non-zero with a clear message; with `SESSION_SECRET` set, the server boots and logs the startup banner; dev mode never fail-fasts.
+
+### Running a single file
+
+```bash
+node --test tests/api.test.js
+```
+
+### Why test isolation matters
+
+`tests/api.test.js` sets `process.env.CALORIES_DATA_DIR` to a fresh `os.tmpdir()` subdirectory **before** requiring `server.js`. That env var is captured at module load (see `DATA_DIR` in [server.js](server.js)), so tests can't write to your real `data/` folder. The tmpdir is removed in `test.after`.
 
 ## License
 
