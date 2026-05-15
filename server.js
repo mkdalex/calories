@@ -397,13 +397,26 @@ app.post('/api/weight', (req, res) => {
   else arr.push(entry);
   arr.sort((a, b) => a.date.localeCompare(b.date));
   writeJson(WEIGHT_FILE, arr);
-  // also push into profile so future TDEE math uses latest weight
+  // Only push to profile if this is the most recent weight (don't break TDEE if user backfills an old entry)
   const profile = readJson(PROFILE_FILE, null);
-  if (profile) {
+  if (profile && arr[arr.length - 1].date === d) {
     profile.weight_kg = Number(kg);
     writeJson(PROFILE_FILE, profile);
   }
   res.json({ entry });
+});
+app.delete('/api/weight/:date', (req, res) => {
+  const { date } = req.params;
+  const arr = readJson(WEIGHT_FILE, []);
+  const filtered = arr.filter(w => w.date !== date);
+  writeJson(WEIGHT_FILE, filtered);
+  // If we deleted the latest weight, sync profile back to the new latest
+  const profile = readJson(PROFILE_FILE, null);
+  if (profile && filtered.length) {
+    profile.weight_kg = Number(filtered[filtered.length - 1].kg);
+    writeJson(PROFILE_FILE, profile);
+  }
+  res.json({ ok: true });
 });
 
 // ---------- /api/favorites ----------
@@ -469,11 +482,71 @@ app.get('/api/log-range', (req, res) => {
     const entries = log[ds] || [];
     if (entries.length) {
       const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      result[ds] = { kcal, goal };
+      result[ds] = { kcal, goal, entries_count: entries.length };
     }
     d.setDate(d.getDate() + 1);
   }
   res.json(result);
+});
+
+app.get('/api/source-breakdown', (req, res) => {
+  const log = readJson(LOG_FILE, {});
+  const start = req.query.start;
+  const end = req.query.end || todayStr();
+  const breakdown = {};
+  Object.entries(log).forEach(([date, entries]) => {
+    if (start && date < start) return;
+    if (date > end) return;
+    entries.forEach(e => {
+      const src = e.source || 'manual';
+      if (!breakdown[src]) breakdown[src] = { count: 0, kcal: 0 };
+      breakdown[src].count += 1;
+      breakdown[src].kcal += (e.kcal || 0);
+    });
+  });
+  res.json(breakdown);
+});
+
+app.get('/api/logging-stats', (req, res) => {
+  const log = readJson(LOG_FILE, {});
+  const today = todayStr();
+  // Current streak — count back from today, allow today to be empty
+  let streak = 0;
+  let bestStreak = 0;
+  let curStreak = 0;
+  const sortedDates = Object.keys(log).filter(d => (log[d] || []).length > 0).sort();
+  // best streak ever
+  for (let i = 0; i < sortedDates.length; i++) {
+    if (i === 0) { curStreak = 1; }
+    else {
+      const prev = new Date(sortedDates[i-1] + 'T00:00:00');
+      const cur = new Date(sortedDates[i] + 'T00:00:00');
+      const dayDiff = Math.round((cur - prev) / 86400000);
+      if (dayDiff === 1) curStreak += 1;
+      else curStreak = 1;
+    }
+    if (curStreak > bestStreak) bestStreak = curStreak;
+  }
+  // current streak — walk back from today
+  const d = new Date(today + 'T00:00:00');
+  for (let i = 0; i < 365; i++) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const has = (log[ds] || []).length > 0;
+    if (!has) {
+      if (i === 0) { d.setDate(d.getDate() - 1); continue; } // today not logged yet is OK
+      break;
+    }
+    streak += 1;
+    d.setDate(d.getDate() - 1);
+  }
+  // meals per day (last 30 days that had any log)
+  const last30 = sortedDates.slice(-30);
+  let mealsTotal = 0;
+  last30.forEach(ds => mealsTotal += (log[ds] || []).length);
+  const mealsPerDay = last30.length ? Math.round((mealsTotal / last30.length) * 10) / 10 : 0;
+  // Total days logged ever
+  const totalDaysLogged = sortedDates.length;
+  res.json({ current_streak: streak, best_streak: bestStreak, meals_per_day: mealsPerDay, total_days_logged: totalDaysLogged });
 });
 
 app.get('/api/weekly-review', (req, res) => {
