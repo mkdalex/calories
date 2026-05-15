@@ -35,7 +35,7 @@ async function renderPredictedActual() {
   let unloggedDays = 0;
   for (let t = startD.getTime(); t <= endD.getTime(); t += dayMs) {
     const d = new Date(t);
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const dayData = rangeData[ds];
     const eaten = dayData ? dayData.kcal : null;
     if (eaten !== null) cumDeficit += (tdee - eaten);
@@ -145,9 +145,8 @@ async function renderPlateauBanner() {
   const change = recentAvg - priorAvg;
 
   // Was user actually in deficit during last 14 days?
-  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const startD = new Date(lastDate); startD.setDate(startD.getDate() - 13);
-  const rangeData = await api(`/api/log-range?start=${fmt(startD)}&end=${fmt(lastDate)}`);
+  const rangeData = await api(`/api/log-range?start=${fmtDate(startD)}&end=${fmtDate(lastDate)}`);
   const logged = Object.values(rangeData);
   if (!logged.length) return;
   const avgEaten = logged.reduce((a, d) => a + d.kcal, 0) / logged.length;
@@ -274,7 +273,7 @@ async function renderWeightCard() {
   const series = [];
   for (let t = firstD.getTime(); t <= lastD.getTime(); t += dayMs) {
     const d = new Date(t);
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     series.push({ date: ds, kg: byDate[ds] !== undefined ? byDate[ds] : null });
   }
   const avgSeries = series.map((p, i) => {
@@ -485,7 +484,6 @@ async function loadHistory() {
 
   // Kcal trend (last 30 days) + DoW pattern (last 60 days) + calendar (current month) — fetch range once
   const now = new Date();
-  const fmtDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const trendEnd = fmtDate(now);
   const trendStart = new Date(now); trendStart.setDate(trendStart.getDate() - 29);
   const trendStartStr = fmtDate(trendStart);
@@ -559,7 +557,7 @@ function renderKcalTrend(startStr, endStr, rangeData) {
   const d = new Date(startStr + 'T00:00:00');
   const end = new Date(endStr + 'T00:00:00');
   while (d <= end) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const ds = fmtDate(d);
     const entry = rangeData[ds];
     days.push({ date: ds, kcal: entry ? entry.kcal : null, goal: entry ? entry.goal : null });
     d.setDate(d.getDate() + 1);
@@ -631,7 +629,7 @@ function renderKcalTrend(startStr, endStr, rangeData) {
 
 function renderCalendar() {
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const todayStr = fmtDate(now);
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   $('#calMonthLabel').textContent = `${monthNames[calMonth]} ${calYear}`;
   $('#calPrev').disabled = false;
@@ -724,30 +722,22 @@ async function renderCalDetail(date) {
   });
 }
 
-$('#calPrev').addEventListener('click', async () => {
-  calMonth--;
+async function shiftCalendarMonth(delta) {
+  calMonth += delta;
   if (calMonth < 0) { calMonth = 11; calYear--; }
+  else if (calMonth > 11) { calMonth = 0; calYear++; }
   calSelectedDate = null;
   $('#calDetail').innerHTML = '';
-  const calStart = `${calYear}-${String(calMonth+1).padStart(2,'0')}-01`;
-  const lastDay = new Date(calYear, calMonth+1, 0).getDate();
-  const calEnd = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+  const mm = String(calMonth + 1).padStart(2, '0');
+  const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
+  const calStart = `${calYear}-${mm}-01`;
+  const calEnd = `${calYear}-${mm}-${String(lastDay).padStart(2, '0')}`;
   const newData = await api(`/api/log-range?start=${calStart}&end=${calEnd}`);
   Object.assign(calRangeData, newData);
   renderCalendar();
-});
-$('#calNext').addEventListener('click', async () => {
-  calMonth++;
-  if (calMonth > 11) { calMonth = 0; calYear++; }
-  calSelectedDate = null;
-  $('#calDetail').innerHTML = '';
-  const calStart = `${calYear}-${String(calMonth+1).padStart(2,'0')}-01`;
-  const lastDay = new Date(calYear, calMonth+1, 0).getDate();
-  const calEnd = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-  const newData = await api(`/api/log-range?start=${calStart}&end=${calEnd}`);
-  Object.assign(calRangeData, newData);
-  renderCalendar();
-});
+}
+$('#calPrev').addEventListener('click', () => shiftCalendarMonth(-1));
+$('#calNext').addEventListener('click', () => shiftCalendarMonth(1));
 
 $('#weightSave').addEventListener('click', async () => {
   const kg = Number($('#weightInput').value);

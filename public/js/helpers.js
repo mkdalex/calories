@@ -72,6 +72,14 @@ function fmtTime(iso) {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
+// Local-time yyyy-mm-dd. Don't use toISOString().slice(0,10) — that's UTC and shifts day in -ve TZs.
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Clamp eaten/target as a 0-100% string with 1 decimal. Zero or missing target → 0%.
+function pctOf(eaten, target) {
+  return Math.min(target > 0 ? eaten / target * 100 : 0, 100).toFixed(1);
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
