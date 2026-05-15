@@ -1011,6 +1011,62 @@ app.get('/api/export/csv', (req, res) => {
   res.send(rows.join('\n'));
 });
 
+// ---------- Backup / Restore ----------
+const BACKUP_KEYS = ['log', 'profile', 'weight', 'templates', 'water', 'custom_foods'];
+
+app.get('/api/export/json', (req, res) => {
+  const bundle = { exported_at: new Date().toISOString(), user_id: req.userId };
+  for (const k of BACKUP_KEYS) {
+    bundle[k] = readJson(req.dataFiles[k], null);
+  }
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="calories-backup-${todayStr()}.json"`);
+  res.send(JSON.stringify(bundle, null, 2));
+});
+
+app.post('/api/import', (req, res) => {
+  const body = req.body || {};
+  const mode = body.mode || 'replace'; // 'replace' | 'merge'
+  let written = [];
+  for (const k of BACKUP_KEYS) {
+    const incoming = body[k];
+    if (incoming === undefined || incoming === null) continue;
+    if (mode === 'merge' && k === 'log') {
+      // merge log: combine date-keyed entries (existing + incoming), dedupe by id
+      const existing = readJson(req.dataFiles.log, {});
+      for (const [date, entries] of Object.entries(incoming)) {
+        if (!existing[date]) existing[date] = [];
+        const seen = new Set(existing[date].map(e => e.id));
+        for (const e of entries) if (!seen.has(e.id)) existing[date].push(e);
+      }
+      writeJson(req.dataFiles.log, existing);
+    } else if (mode === 'merge' && k === 'weight') {
+      const existing = readJson(req.dataFiles.weight, []);
+      const byDate = {};
+      for (const w of existing) byDate[w.date] = w;
+      for (const w of incoming) byDate[w.date] = w; // incoming overrides for same date
+      const merged = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+      writeJson(req.dataFiles.weight, merged);
+    } else if (mode === 'merge' && (k === 'templates' || k === 'custom_foods')) {
+      const existing = readJson(req.dataFiles[k], k === 'templates' ? [] : {});
+      if (Array.isArray(existing) && Array.isArray(incoming)) {
+        const seen = new Set(existing.map(x => x.id));
+        const combined = [...existing, ...incoming.filter(x => !seen.has(x.id))];
+        writeJson(req.dataFiles[k], combined);
+      } else if (typeof existing === 'object' && typeof incoming === 'object') {
+        writeJson(req.dataFiles[k], { ...existing, ...incoming });
+      } else {
+        writeJson(req.dataFiles[k], incoming);
+      }
+    } else {
+      // replace mode (or profile/water which are simpler — just overwrite)
+      writeJson(req.dataFiles[k], incoming);
+    }
+    written.push(k);
+  }
+  res.json({ written, mode });
+});
+
 // ---------- Food data sources ----------
 
 // 1. Open Food Facts (uses v2 search API — more reliable than legacy cgi/search.pl)

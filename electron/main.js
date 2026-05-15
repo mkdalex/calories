@@ -1,64 +1,16 @@
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, session } = require('electron');
 const path = require('path');
-const net = require('net');
-const fs = require('fs');
 
-const APP_ROOT = path.join(__dirname, '..');
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-function waitForServer(port, timeoutMs = 10000) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const tryConnect = () => {
-      const sock = net.connect(port, '127.0.0.1');
-      sock.once('connect', () => { sock.end(); resolve(); });
-      sock.once('error', () => {
-        sock.destroy();
-        if (Date.now() - start > timeoutMs) return reject(new Error('Server did not start in time'));
-        setTimeout(tryConnect, 100);
-      });
-    };
-    tryConnect();
-  });
-}
-
-async function startEmbeddedServer() {
-  const port = await getFreePort();
-  process.env.PORT = String(port);
-
-  const dataDir = app.isPackaged
-    ? path.join(app.getPath('userData'), 'data')
-    : path.join(APP_ROOT, 'data');
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  process.env.CALORIES_DATA_DIR = dataDir;
-
-  const envPath = app.isPackaged
-    ? path.join(process.resourcesPath, '.env')
-    : path.join(APP_ROOT, '.env');
-  require('dotenv').config({ path: envPath });
-
-  require(path.join(APP_ROOT, 'server.js'));
-
-  await waitForServer(port);
-  return port;
-}
+// Calories Electron — thin wrapper around the live deployment.
+// The "app" is just a dedicated browser window pointed at the production URL,
+// so your data, login, and everything else stay in sync with the website + phone.
+//
+// Set CALORIES_URL in your environment to override the default URL.
+const CALORIES_URL = process.env.CALORIES_URL || 'https://calories.coolvps.net';
 
 let mainWindow;
 
-async function createWindow() {
-  const port = await startEmbeddedServer();
-
+function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 800,
@@ -66,34 +18,46 @@ async function createWindow() {
     minHeight: 600,
     title: 'Calories',
     autoHideMenuBar: true,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#0e1116',
     webPreferences: {
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Persist cookies/session in a named partition so Discord login survives restarts
+      partition: 'persist:calories'
     }
   });
 
   Menu.setApplicationMenu(null);
 
+  // Discord OAuth (and any external links) opens in the user's real browser, not in our window.
+  // That keeps the Discord auth flow working — Discord refuses to authenticate inside
+  // embedded/iframe-style browser sessions.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) {
-      return { action: 'allow' };
-    }
+    const u = new URL(url);
+    const hostHere = new URL(CALORIES_URL).host;
+    if (u.host === hostHere) return { action: 'allow' };
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  // Intercept top-level navigations that leave our domain (e.g. clicking a Discord login link)
+  // and send them to the external browser. After Discord auth completes, the browser redirects
+  // back to https://calories.coolvps.net/... — the Electron window picks up the session via cookie.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const u = new URL(url);
+    const hostHere = new URL(CALORIES_URL).host;
+    if (u.host !== hostHere) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  mainWindow.loadURL(CALORIES_URL);
 }
 
-app.whenReady().then(createWindow).catch((err) => {
-  console.error('Failed to start:', err);
-  app.quit();
-});
+app.whenReady().then(createWindow);
 
-app.on('window-all-closed', () => {
-  app.quit();
-});
+app.on('window-all-closed', () => { app.quit(); });
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -6,6 +6,7 @@ async function loadProfile() {
   loadMyFoods();
   loadMyTemplates();
   renderCalibrate();
+  renderBackupRestore();
 
   // Populate dropdowns
   $('#pActivity').innerHTML = Object.entries(data.activity_options).map(([k, v]) =>
@@ -163,3 +164,115 @@ $('#profileSave').addEventListener('click', async () => {
   renderExplainer();
   showToast('Profile saved');
 });
+
+// ---------- Backup / Restore ----------
+const BACKUP_FILE_KEYS = ['log', 'profile', 'weight', 'templates', 'water', 'custom_foods'];
+
+function renderBackupRestore() {
+  const card = $('#backupRestoreCard');
+  if (!card) return;
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <strong>Backup &amp; Restore</strong>
+      <span style="font-size:12px;color:var(--text-dim);">Export, import, or migrate old data</span>
+    </div>
+
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.55;margin-bottom:14px;">
+      <strong style="color:var(--text);">Backup</strong>: download all your meals, weights, profile, templates as one JSON file. Keep it somewhere safe (Google Drive, etc.). You can restore it later.
+    </div>
+    <button class="btn btn-secondary" id="backupExport">Download backup (.json)</button>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.55;margin-bottom:14px;">
+      <strong style="color:var(--text);">Restore / migrate</strong>: import data from an exported backup, or from your old Electron app.
+      <ul style="margin:8px 0 0;padding-left:18px;">
+        <li><strong>Backup file</strong> (from this app): select the single <code>calories-backup-*.json</code> file.</li>
+        <li><strong>Old Electron data</strong>: navigate to <code>%APPDATA%\\Calories\\data\\</code> (Windows) and select <code>log.json</code>, <code>profile.json</code>, <code>weight.json</code>, <code>templates.json</code>, <code>water.json</code>, <code>custom_foods.json</code> — pick all that exist with Ctrl-click.</li>
+      </ul>
+    </div>
+
+    <div class="field">
+      <label>Files to import</label>
+      <input type="file" id="restoreFiles" multiple accept=".json,application/json" />
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="radio" name="restoreMode" value="replace" checked style="width:auto;" /> Replace — overwrite everything (use for first migration)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+        <input type="radio" name="restoreMode" value="merge" style="width:auto;" /> Merge — keep what you have, add anything new (use for second device)
+      </label>
+    </div>
+    <div id="restorePreview" style="font-size:12px;color:var(--text-dim);margin:8px 0;"></div>
+    <button class="btn" id="backupImport" disabled>Import</button>
+  `;
+
+  $('#backupExport').addEventListener('click', () => {
+    // Trigger a real file download via a regular link
+    const a = document.createElement('a');
+    a.href = '/api/export/json';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
+  const fileInput = $('#restoreFiles');
+  let stagedBundle = null;
+  fileInput.addEventListener('change', async () => {
+    const files = Array.from(fileInput.files || []);
+    if (!files.length) { stagedBundle = null; $('#restorePreview').textContent = ''; $('#backupImport').disabled = true; return; }
+    stagedBundle = {};
+    const summary = [];
+    for (const f of files) {
+      try {
+        const txt = await f.text();
+        const parsed = JSON.parse(txt);
+        // Detect bundle vs individual file by name
+        const baseName = f.name.toLowerCase().replace(/\.json$/, '');
+        if (baseName.startsWith('calories-backup')) {
+          // Single bundle exported from this app
+          for (const k of BACKUP_FILE_KEYS) {
+            if (parsed[k] !== undefined) {
+              stagedBundle[k] = parsed[k];
+              summary.push(`${k} ✓ (from bundle)`);
+            }
+          }
+        } else if (BACKUP_FILE_KEYS.includes(baseName)) {
+          stagedBundle[baseName] = parsed;
+          summary.push(`${baseName}.json ✓`);
+        } else {
+          summary.push(`${f.name} — skipped (unknown file)`);
+        }
+      } catch (e) {
+        summary.push(`${f.name} — invalid JSON (skipped)`);
+      }
+    }
+    $('#restorePreview').innerHTML = summary.map(s => `<div>· ${escapeHtml(s)}</div>`).join('');
+    $('#backupImport').disabled = !Object.keys(stagedBundle).length;
+  });
+
+  $('#backupImport').addEventListener('click', async () => {
+    if (!stagedBundle) return;
+    const mode = document.querySelector('input[name="restoreMode"]:checked').value;
+    if (mode === 'replace' && !confirm('Replace mode will OVERWRITE your current cloud data with the files you selected. Continue?')) return;
+    $('#backupImport').disabled = true;
+    $('#backupImport').textContent = 'Importing…';
+    try {
+      const res = await api('/api/import', { method: 'POST', body: { ...stagedBundle, mode } });
+      showToast(`Imported: ${res.written.join(', ')}`);
+      stagedBundle = null;
+      fileInput.value = '';
+      $('#restorePreview').textContent = '';
+      $('#backupImport').textContent = 'Import';
+      // Reload everything to reflect new data
+      loadProfile();
+      if (typeof loadToday === 'function') loadToday();
+    } catch (e) {
+      showToast('Import failed: ' + e.message);
+      $('#backupImport').disabled = false;
+      $('#backupImport').textContent = 'Import';
+    }
+  });
+}
