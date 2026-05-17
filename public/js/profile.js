@@ -1,38 +1,19 @@
 // ---------- THEME PICKER ----------
 const THEMES = [
-  { id: 'night', name: 'Night', tag: 'Deep slate dark, emerald accent', swatch: ['#0a0e14', '#10b981', '#f4f6fa'] },
-  { id: 'day',   name: 'Day',   tag: 'Fresh greens, kale + teal',       swatch: ['#f1f5ee', '#16a34a', '#14271c'] }
+  { id: 'day',     name: 'Day',      tag: 'Fresh greens, kale + teal',         swatch: ['#f1f5ee', '#16a34a', '#14271c'] },
+  { id: 'night',   name: 'Night',    tag: 'Deep slate dark, true emerald',       swatch: ['#0a0e14', '#10b981', '#f4f6fa'] },
+  { id: 'classic', name: 'Classic',  tag: 'Default green dark',          swatch: ['#0e1116', '#4ade80', '#e6edf3'] },
+  { id: 'bmw',     name: 'BMW',      tag: 'Black + M Red, sharp edges',  swatch: ['#000000', '#e22718', '#1c69d4'] },
+  { id: 'posthog', name: 'PostHog',  tag: 'Cream canvas, yellow pill',   swatch: ['#eeefe9', '#f7a501', '#23251d'] },
+  { id: 'resend',  name: 'Resend',   tag: 'True black, white pill',      swatch: ['#000000', '#fcfdff', '#3b9eff'] }
 ];
-const DEFAULT_THEME = 'night';
-const THEME_IDS = new Set(THEMES.map(t => t.id));
 
 function getTheme() {
-  try {
-    const stored = localStorage.getItem('theme');
-    return stored && THEME_IDS.has(stored) ? stored : DEFAULT_THEME;
-  } catch { return DEFAULT_THEME; }
+  try { return localStorage.getItem('theme') || 'classic'; } catch { return 'classic'; }
 }
 function setTheme(id) {
-  if (!THEME_IDS.has(id)) id = DEFAULT_THEME;
   document.documentElement.dataset.theme = id;
   try { localStorage.setItem('theme', id); } catch { /* private mode — selection won't persist */ }
-  // Refresh any visible theme UI (picker in Profile, toggle in top bar)
-  if (typeof renderThemePicker === 'function') renderThemePicker();
-  if (typeof renderThemeToggle === 'function') renderThemeToggle();
-}
-
-function toggleTheme() {
-  setTheme(getTheme() === 'night' ? 'day' : 'night');
-}
-
-function renderThemeToggle() {
-  const btn = $('#themeToggle');
-  if (!btn) return;
-  const cur = getTheme();
-  // Show the icon for what you'd SWITCH TO (Discord/macOS convention)
-  btn.textContent = cur === 'night' ? '☀️' : '🌙';
-  btn.setAttribute('aria-label', cur === 'night' ? 'Switch to Day theme' : 'Switch to Night theme');
-  btn.title = cur === 'night' ? 'Switch to Day' : 'Switch to Night';
 }
 
 function renderThemePicker() {
@@ -51,7 +32,10 @@ function renderThemePicker() {
     </button>
   `).join('');
   host.querySelectorAll('.theme-option').forEach(btn => {
-    btn.addEventListener('click', () => setTheme(btn.dataset.theme));
+    btn.addEventListener('click', () => {
+      setTheme(btn.dataset.theme);
+      renderThemePicker();
+    });
   });
 }
 

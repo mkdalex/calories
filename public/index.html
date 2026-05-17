@@ -1,307 +1,524 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0e1116" />
-<title>Calories</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0e1116" />
+    <title>Calories</title>
 
-<!-- PWA -->
-<link rel="manifest" href="/manifest.json" />
-<link rel="icon" type="image/svg+xml" href="/icon.svg" />
-<link rel="apple-touch-icon" href="/icon-180.png" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Calories" />
-<meta name="mobile-web-app-capable" content="yes" />
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Calories" />
+    <meta name="mobile-web-app-capable" content="yes" />
 
-<!-- Apply the saved theme BEFORE any stylesheet loads so the user doesn't see a flash of the wrong palette. -->
-<script>(function(){try{var t=localStorage.getItem('theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t;}catch(e){/* localStorage blocked in private mode etc. — fall through to Night default */}})();</script>
+    <!-- Apply the saved theme BEFORE any stylesheet loads so the user doesn't see a flash of the Classic palette. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t) document.documentElement.dataset.theme = t;
+        } catch (e) {
+          /* localStorage blocked in private mode etc. — fall through to Classic */
+        }
+      })();
+    </script>
 
-<link rel="stylesheet" href="/styles.css" />
-<link rel="stylesheet" href="/css/ai-loaders.css" />
-<link rel="stylesheet" href="/css/onboarding.css" />
-<link rel="stylesheet" href="/css/login.css" />
-</head>
-<body>
+    <!-- Preload Manrope (used by Day/Night themes) before any stylesheet so it's ready when CSS parses. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
 
-<!-- ========== LOGIN SCREEN (hidden by default; auth.js shows if no session) ========== -->
-<div class="login-screen hidden" id="loginScreen">
-  <div class="login-card">
-    <div class="login-emoji">🍎</div>
-    <h1>Calories</h1>
-    <p>Sign in with Discord to track your meals.</p>
-    <a href="/auth/discord" class="discord-btn">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
-      Login with Discord
-    </a>
-    <div class="login-foot">Only allow-listed Discord users can access.</div>
-  </div>
-</div>
-
-<div class="topbar">
-  <h1>Calories</h1>
-  <div style="display:flex;align-items:center;gap:10px;">
-    <div class="date" id="todayDate"></div>
-    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" type="button">🌙</button>
-    <div class="user-chip" id="userChip"></div>
-  </div>
-</div>
-
-<!-- ========== TODAY VIEW ========== -->
-<div class="view" id="view-today">
-  <div id="setupBanner"></div>
-  <div class="ring-row-wrap">
-    <div class="ring-wrap" id="ringWrap"></div>
-    <div id="waterWrap"></div>
-  </div>
-  <div id="streakWrap"></div>
-  <div id="proteinWrap"></div>
-  <div id="macroWrap"></div>
-  <div id="narrativeWrap"></div>
-  <div id="dayStatusWrap"></div>
-  <div id="zoneWrap"></div>
-  <div id="gapFillWrap"></div>
-  <h3 style="color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 0 8px;">Today's meals</h3>
-  <div id="templateWrap"></div>
-  <div id="favWrap"></div>
-  <div class="meal-list" id="mealList"></div>
-</div>
-
-<!-- ========== RECIPES VIEW ========== -->
-<div class="view hidden" id="view-recipes">
-  <div class="card recipe-builder">
-    <div class="rb-header">
-      <div class="rb-step-pips" id="rbPips"></div>
-      <h2 id="rbStepTitle" style="margin:8px 0 4px;">What do you have?</h2>
-      <div class="rb-subtitle" id="rbSubtitle"></div>
-    </div>
-    <div id="rbStepContent"></div>
-    <div id="rbStepNav" class="rb-nav"></div>
-  </div>
-  <div id="recipeOutput"></div>
-
-  <div class="card">
-    <h2>Quick snack</h2>
-    <div class="field">
-      <label>Max kcal</label>
-      <input id="snackCap" type="number" value="200" />
-    </div>
-    <button class="btn btn-secondary" id="snackGo">Suggest 3 snacks</button>
-  </div>
-  <div id="snackOutput"></div>
-</div>
-
-<!-- ========== HISTORY VIEW ========== -->
-<div class="view hidden" id="view-history">
-  <div id="plateauBannerWrap"></div>
-  <div class="card" id="weeklyReviewCard"></div>
-  <div class="card">
-    <div class="cal-header">
-      <button class="cal-nav-btn" id="calPrev">&#8249;</button>
-      <span class="cal-month-label" id="calMonthLabel"></span>
-      <button class="cal-nav-btn" id="calNext">&#8250;</button>
-    </div>
-    <div class="cal-grid" id="calGrid"></div>
-    <div id="calDetail"></div>
-  </div>
-  <div class="card">
-    <h2>Weight</h2>
-    <div class="field">
-      <label>Today's weight (kg)</label>
-      <div style="display: flex; gap: 8px;">
-        <input id="weightInput" type="number" step="0.1" placeholder="85.0" />
-        <button class="btn" id="weightSave">Log</button>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/css/ai-loaders.css" />
+    <link rel="stylesheet" href="/css/onboarding.css" />
+    <link rel="stylesheet" href="/css/login.css" />
+  </head>
+  <body>
+    <!-- ========== LOGIN SCREEN (hidden by default; auth.js shows if no session) ========== -->
+    <div class="login-screen hidden" id="loginScreen">
+      <div class="login-card">
+        <div class="login-emoji">🍎</div>
+        <h1>Calories</h1>
+        <p>Sign in with Discord to track your meals.</p>
+        <a href="/auth/discord" class="discord-btn">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"
+            />
+          </svg>
+          Login with Discord
+        </a>
+        <div class="login-foot">
+          Only allow-listed Discord users can access.
+        </div>
       </div>
     </div>
-    <div id="weightHistory"></div>
-  </div>
-  <div class="card" id="predictedActualCard"></div>
-  <div class="card" id="kcalTrendCard">
-    <h2>Calorie trend — 30 days</h2>
-    <div id="kcalTrendStats" class="kcal-trend-stats"></div>
-    <div id="kcalTrendChart"></div>
-  </div>
-  <div class="card" id="dowPatternCard"></div>
-  <div class="card" id="sourceQualityCard"></div>
-</div>
 
-<!-- ========== PROFILE VIEW ========== -->
-<div class="view hidden" id="view-profile">
-  <div class="card">
-    <h2>Your profile</h2>
-    <div class="row2">
-      <div class="field">
-        <label>Height (cm)</label>
-        <input id="pHeight" type="number" />
+    <div class="topbar">
+      <h1>Calories</h1>
+      <div style="display: flex; align-items: center; gap: 12px">
+        <div class="date" id="todayDate"></div>
+        <button
+          class="theme-toggle"
+          id="themeToggle"
+          type="button"
+          aria-label="Toggle day/night theme"
+          title="Toggle theme"
+        >
+          <svg
+            class="th-sun"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path
+              d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+            />
+          </svg>
+          <svg
+            class="th-moon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+        <div class="user-chip" id="userChip"></div>
       </div>
-      <div class="field">
-        <label>Weight (kg)</label>
-        <input id="pWeight" type="number" step="0.1" />
+    </div>
+
+    <!-- ========== TODAY VIEW ========== -->
+    <div class="view" id="view-today">
+      <div id="setupBanner"></div>
+      <div class="ring-row-wrap">
+        <div class="ring-wrap" id="ringWrap"></div>
+        <div id="waterWrap"></div>
+      </div>
+      <div id="streakWrap"></div>
+      <div id="proteinWrap"></div>
+      <div id="macroWrap"></div>
+      <div id="narrativeWrap"></div>
+      <div id="dayStatusWrap"></div>
+      <div id="zoneWrap"></div>
+      <div id="gapFillWrap"></div>
+      <h3
+        style="
+          color: var(--text-dim);
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin: 16px 0 8px;
+        "
+      >
+        Today's meals
+      </h3>
+      <div id="templateWrap"></div>
+      <div id="favWrap"></div>
+      <div class="meal-list" id="mealList"></div>
+    </div>
+
+    <!-- ========== RECIPES VIEW ========== -->
+    <div class="view hidden" id="view-recipes">
+      <div class="card recipe-builder">
+        <div class="rb-header">
+          <div class="rb-step-pips" id="rbPips"></div>
+          <h2 id="rbStepTitle" style="margin: 8px 0 4px">What do you have?</h2>
+          <div class="rb-subtitle" id="rbSubtitle"></div>
+        </div>
+        <div id="rbStepContent"></div>
+        <div id="rbStepNav" class="rb-nav"></div>
+      </div>
+      <div id="recipeOutput"></div>
+
+      <div class="card">
+        <h2>Quick snack</h2>
+        <div class="field">
+          <label>Max kcal</label>
+          <input id="snackCap" type="number" value="200" />
+        </div>
+        <button class="btn btn-secondary" id="snackGo">Suggest 3 snacks</button>
+      </div>
+      <div id="snackOutput"></div>
+    </div>
+
+    <!-- ========== HISTORY VIEW ========== -->
+    <div class="view hidden" id="view-history">
+      <div id="plateauBannerWrap"></div>
+      <div class="card" id="weeklyReviewCard"></div>
+      <div class="card">
+        <div class="cal-header">
+          <button class="cal-nav-btn" id="calPrev">&#8249;</button>
+          <span class="cal-month-label" id="calMonthLabel"></span>
+          <button class="cal-nav-btn" id="calNext">&#8250;</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div id="calDetail"></div>
+      </div>
+      <div class="card">
+        <h2>Weight</h2>
+        <div class="field">
+          <label>Today's weight (kg)</label>
+          <div style="display: flex; gap: 8px">
+            <input
+              id="weightInput"
+              type="number"
+              step="0.1"
+              placeholder="85.0"
+            />
+            <button class="btn" id="weightSave">Log</button>
+          </div>
+        </div>
+        <div id="weightHistory"></div>
+      </div>
+      <div class="card" id="predictedActualCard"></div>
+      <div class="card" id="kcalTrendCard">
+        <h2>Calorie trend — 30 days</h2>
+        <div id="kcalTrendStats" class="kcal-trend-stats"></div>
+        <div id="kcalTrendChart"></div>
+      </div>
+      <div class="card" id="dowPatternCard"></div>
+      <div class="card" id="sourceQualityCard"></div>
+    </div>
+
+    <!-- ========== PROFILE VIEW ========== -->
+    <div class="view hidden" id="view-profile">
+      <div class="card">
+        <h2>Your profile</h2>
+        <div class="row2">
+          <div class="field">
+            <label>Height (cm)</label>
+            <input id="pHeight" type="number" />
+          </div>
+          <div class="field">
+            <label>Weight (kg)</label>
+            <input id="pWeight" type="number" step="0.1" />
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Age</label>
+            <input id="pAge" type="number" />
+          </div>
+          <div class="field">
+            <label>Sex</label>
+            <select id="pSex">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Activity level</label>
+          <select id="pActivity"></select>
+        </div>
+        <div class="field">
+          <label>Goal</label>
+          <select id="pGoal"></select>
+        </div>
+        <button class="btn" id="profileSave">Save profile</button>
+      </div>
+      <div id="profileExplainer"></div>
+
+      <div class="card" style="margin-top: 18px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+          "
+        >
+          <strong>My Templates</strong>
+          <span style="font-size: 12px; color: var(--text-dim)"
+            >Saved meal combos</span
+          >
+        </div>
+        <div
+          id="myTemplatesList"
+          style="font-size: 13px; color: var(--text-dim)"
+        >
+          Loading...
+        </div>
+      </div>
+      <div class="card" style="margin-top: 18px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+          "
+        >
+          <strong>My Foods</strong>
+          <span style="font-size: 12px; color: var(--text-dim)"
+            >Your verified calorie values</span
+          >
+        </div>
+        <div id="myFoodsList" style="font-size: 13px; color: var(--text-dim)">
+          Loading...
+        </div>
+      </div>
+      <div class="card" id="themeCard" style="margin-top: 18px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+          "
+        >
+          <strong>Theme</strong>
+          <span style="font-size: 12px; color: var(--text-dim)"
+            >App appearance</span
+          >
+        </div>
+        <div id="themePicker" class="theme-picker"></div>
+      </div>
+      <div class="card" id="backupRestoreCard" style="margin-top: 18px"></div>
+    </div>
+
+    <!-- ========== FAB ========== -->
+    <button class="fab" id="fab">+ Log meal</button>
+
+    <!-- ========== LOG MEAL MODAL ========== -->
+    <div class="modal-bg hidden" id="logModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Log a meal</h2>
+          <button class="modal-close" id="logClose">×</button>
+        </div>
+        <div
+          id="logDateBanner"
+          class="hidden"
+          style="
+            background: rgba(96, 165, 250, 0.1);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: var(--info);
+          "
+        ></div>
+        <div class="field suggest-wrap">
+          <label>What did you eat?</label>
+          <textarea
+            id="logText"
+            placeholder="e.g. 2 eggs scrambled with butter and a slice of sourdough toast"
+          ></textarea>
+          <div class="suggest-dropdown hidden" id="suggestDropdown"></div>
+        </div>
+        <button class="btn" id="logParse">Parse with AI</button>
+        <div id="parsedItems" style="margin-top: 16px"></div>
+        <div id="parsedTotals" style="margin-top: 12px"></div>
+        <div id="extrasWrap" style="margin-top: 8px"></div>
+        <div id="parsedSave" style="margin-top: 12px"></div>
+
+        <h3
+          style="
+            color: var(--text-dim);
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-top: 24px;
+          "
+        >
+          Or type it manually
+        </h3>
+        <div class="row2">
+          <div class="field"><label>Name</label><input id="manName" /></div>
+          <div class="field">
+            <label>kcal</label><input id="manKcal" type="number" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Protein (g)</label
+          ><input id="manProtein" type="number" step="0.1" />
+        </div>
+        <button class="btn btn-secondary" id="manSave">
+          Save manual entry
+        </button>
       </div>
     </div>
-    <div class="row2">
-      <div class="field">
-        <label>Age</label>
-        <input id="pAge" type="number" />
+
+    <!-- ========== EDIT MEAL MODAL ========== -->
+    <div class="modal-bg hidden" id="editModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Edit meal</h2>
+          <button class="modal-close" id="editClose">×</button>
+        </div>
+        <div class="field"><label>Name</label><input id="editName" /></div>
+        <div class="row2">
+          <div class="field">
+            <label>kcal</label><input id="editKcal" type="number" />
+          </div>
+          <div class="field">
+            <label>Protein (g)</label
+            ><input id="editProtein" type="number" step="0.1" />
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Fat (g)</label
+            ><input id="editFat" type="number" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Carbs (g)</label
+            ><input id="editCarb" type="number" step="0.1" />
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Fiber (g)</label
+            ><input id="editFiber" type="number" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Time</label><input id="editTime" type="time" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 4px">
+          <button class="btn" id="editSave" style="flex: 1">
+            Save changes
+          </button>
+          <button class="btn btn-danger" id="editDelete">Delete</button>
+        </div>
       </div>
-      <div class="field">
-        <label>Sex</label>
-        <select id="pSex"><option value="male">Male</option><option value="female">Female</option></select>
+    </div>
+
+    <!-- ========== DEV VIEW ========== -->
+    <div class="view hidden" id="view-dev">
+      <div class="card" style="padding: 12px 16px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <div>
+            <div style="font-weight: 600; margin-bottom: 2px">Export data</div>
+            <div style="color: var(--text-dim); font-size: 12px">
+              Download full calorie log as CSV
+            </div>
+          </div>
+          <a
+            href="/api/export/csv"
+            download
+            class="btn btn-secondary"
+            style="padding: 8px 14px; font-size: 13px; text-decoration: none"
+            >Download CSV</a
+          >
+        </div>
+      </div>
+
+      <div class="card">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <h2 style="margin: 0">API Status</h2>
+          <button
+            class="btn btn-secondary"
+            id="healthRefresh"
+            style="padding: 6px 12px; font-size: 13px"
+          >
+            Test all
+          </button>
+        </div>
+        <div id="healthList" style="margin-top: 12px"></div>
+        <div
+          id="healthIp"
+          style="color: var(--text-dim); font-size: 12px; margin-top: 8px"
+        ></div>
+      </div>
+
+      <div class="card">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <h2 style="margin: 0">Usage & Cost</h2>
+          <button
+            class="btn btn-danger"
+            id="usageReset"
+            style="padding: 6px 10px; font-size: 12px"
+          >
+            Reset
+          </button>
+        </div>
+        <div id="usageStats" style="margin-top: 12px"></div>
+        <h3>By endpoint</h3>
+        <div id="usageEndpoints"></div>
+        <h3>Recent calls</h3>
+        <div
+          id="usageRecent"
+          style="font-family: ui-monospace, monospace; font-size: 11px"
+        ></div>
       </div>
     </div>
-    <div class="field">
-      <label>Activity level</label>
-      <select id="pActivity"></select>
-    </div>
-    <div class="field">
-      <label>Goal</label>
-      <select id="pGoal"></select>
-    </div>
-    <button class="btn" id="profileSave">Save profile</button>
-  </div>
-  <div id="profileExplainer"></div>
 
-  <div class="card" style="margin-top:18px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <strong>My Templates</strong>
-      <span style="font-size:12px;color:var(--text-dim);">Saved meal combos</span>
+    <!-- ========== NAV ========== -->
+    <div class="nav">
+      <button data-view="today" class="active">
+        <span class="icon">●</span><span>Today</span>
+      </button>
+      <button data-view="recipes">
+        <span class="icon">▣</span><span>Recipes</span>
+      </button>
+      <button data-view="history">
+        <span class="icon">▤</span><span>History</span>
+      </button>
+      <button data-view="profile">
+        <span class="icon">◐</span><span>Profile</span>
+      </button>
+      <button data-view="dev">
+        <span class="icon">⚙</span><span>Dev</span>
+      </button>
     </div>
-    <div id="myTemplatesList" style="font-size:13px;color:var(--text-dim);">Loading...</div>
-  </div>
-  <div class="card" style="margin-top:18px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <strong>My Foods</strong>
-      <span style="font-size:12px;color:var(--text-dim);">Your verified calorie values</span>
-    </div>
-    <div id="myFoodsList" style="font-size:13px;color:var(--text-dim);">Loading...</div>
-  </div>
-  <div class="card" id="themeCard" style="margin-top:18px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <strong>Theme</strong>
-      <span style="font-size:12px;color:var(--text-dim);">App appearance</span>
-    </div>
-    <div id="themePicker" class="theme-picker"></div>
-  </div>
-  <div class="card" id="backupRestoreCard" style="margin-top:18px;"></div>
-</div>
 
-<!-- ========== FAB ========== -->
-<button class="fab" id="fab">+ Log meal</button>
-
-<!-- ========== LOG MEAL MODAL ========== -->
-<div class="modal-bg hidden" id="logModal">
-  <div class="modal">
-    <div class="modal-header">
-      <h2>Log a meal</h2>
-      <button class="modal-close" id="logClose">×</button>
-    </div>
-    <div id="logDateBanner" class="hidden" style="background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--info);"></div>
-    <div class="field suggest-wrap">
-      <label>What did you eat?</label>
-      <textarea id="logText" placeholder="e.g. 2 eggs scrambled with butter and a slice of sourdough toast"></textarea>
-      <div class="suggest-dropdown hidden" id="suggestDropdown"></div>
-    </div>
-    <button class="btn" id="logParse">Parse with AI</button>
-    <div id="parsedItems" style="margin-top: 16px;"></div>
-    <div id="parsedTotals" style="margin-top: 12px;"></div>
-    <div id="extrasWrap" style="margin-top: 8px;"></div>
-    <div id="parsedSave" style="margin-top: 12px;"></div>
-
-    <h3 style="color: var(--text-dim); font-size: 12px; text-transform: uppercase; margin-top: 24px;">Or type it manually</h3>
-    <div class="row2">
-      <div class="field"><label>Name</label><input id="manName" /></div>
-      <div class="field"><label>kcal</label><input id="manKcal" type="number" /></div>
-    </div>
-    <div class="field"><label>Protein (g)</label><input id="manProtein" type="number" step="0.1" /></div>
-    <button class="btn btn-secondary" id="manSave">Save manual entry</button>
-  </div>
-</div>
-
-<!-- ========== EDIT MEAL MODAL ========== -->
-<div class="modal-bg hidden" id="editModal">
-  <div class="modal">
-    <div class="modal-header">
-      <h2>Edit meal</h2>
-      <button class="modal-close" id="editClose">×</button>
-    </div>
-    <div class="field"><label>Name</label><input id="editName" /></div>
-    <div class="row2">
-      <div class="field"><label>kcal</label><input id="editKcal" type="number" /></div>
-      <div class="field"><label>Protein (g)</label><input id="editProtein" type="number" step="0.1" /></div>
-    </div>
-    <div class="row2">
-      <div class="field"><label>Fat (g)</label><input id="editFat" type="number" step="0.1" /></div>
-      <div class="field"><label>Carbs (g)</label><input id="editCarb" type="number" step="0.1" /></div>
-    </div>
-    <div class="row2">
-      <div class="field"><label>Fiber (g)</label><input id="editFiber" type="number" step="0.1" /></div>
-      <div class="field"><label>Time</label><input id="editTime" type="time" /></div>
-    </div>
-    <div style="display: flex; gap: 8px; margin-top: 4px;">
-      <button class="btn" id="editSave" style="flex: 1;">Save changes</button>
-      <button class="btn btn-danger" id="editDelete">Delete</button>
-    </div>
-  </div>
-</div>
-
-<!-- ========== DEV VIEW ========== -->
-<div class="view hidden" id="view-dev">
-  <div class="card" style="padding: 12px 16px;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <div>
-        <div style="font-weight: 600; margin-bottom: 2px;">Export data</div>
-        <div style="color: var(--text-dim); font-size: 12px;">Download full calorie log as CSV</div>
-      </div>
-      <a href="/api/export/csv" download class="btn btn-secondary" style="padding: 8px 14px; font-size: 13px; text-decoration: none;">Download CSV</a>
-    </div>
-  </div>
-
-  <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <h2 style="margin: 0;">API Status</h2>
-      <button class="btn btn-secondary" id="healthRefresh" style="padding: 6px 12px; font-size: 13px;">Test all</button>
-    </div>
-    <div id="healthList" style="margin-top: 12px;"></div>
-    <div id="healthIp" style="color: var(--text-dim); font-size: 12px; margin-top: 8px;"></div>
-  </div>
-
-  <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <h2 style="margin: 0;">Usage & Cost</h2>
-      <button class="btn btn-danger" id="usageReset" style="padding: 6px 10px; font-size: 12px;">Reset</button>
-    </div>
-    <div id="usageStats" style="margin-top: 12px;"></div>
-    <h3>By endpoint</h3>
-    <div id="usageEndpoints"></div>
-    <h3>Recent calls</h3>
-    <div id="usageRecent" style="font-family: ui-monospace, monospace; font-size: 11px;"></div>
-  </div>
-</div>
-
-<!-- ========== NAV ========== -->
-<div class="nav">
-  <button data-view="today" class="active"><span class="icon">●</span><span>Today</span></button>
-  <button data-view="recipes"><span class="icon">▣</span><span>Recipes</span></button>
-  <button data-view="history"><span class="icon">▤</span><span>History</span></button>
-  <button data-view="profile"><span class="icon">◐</span><span>Profile</span></button>
-  <button data-view="dev"><span class="icon">⚙</span><span>Dev</span></button>
-</div>
-
-<!-- Load order matters: helpers first, then content/state, then features, init last -->
-<script src="/js/helpers.js"></script>
-<script src="/js/auth.js"></script>
-<script src="/js/ai-loaders.js"></script>
-<script src="/js/edu-content.js"></script>
-<script src="/js/water.js"></script>
-<script src="/js/log-modal.js"></script>
-<script src="/js/templates-favorites.js"></script>
-<script src="/js/today.js"></script>
-<script src="/js/recipes.js"></script>
-<script src="/js/profile.js"></script>
-<script src="/js/history.js"></script>
-<script src="/js/dev.js"></script>
-<script src="/js/onboarding.js"></script>
-<script src="/js/init.js"></script>
-</body>
+    <!-- Load order matters: helpers first, then content/state, then features, init last -->
+    <script src="/js/helpers.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/ai-loaders.js"></script>
+    <script src="/js/edu-content.js"></script>
+    <script src="/js/water.js"></script>
+    <script src="/js/log-modal.js"></script>
+    <script src="/js/templates-favorites.js"></script>
+    <script src="/js/today.js"></script>
+    <script src="/js/recipes.js"></script>
+    <script src="/js/profile.js"></script>
+    <script src="/js/history.js"></script>
+    <script src="/js/dev.js"></script>
+    <script src="/js/onboarding.js"></script>
+    <script src="/js/init.js"></script>
+  </body>
 </html>
