@@ -279,7 +279,17 @@ function withFileLock(filePath, fn) {
   });
   return next;
 }
-function todayStr() { return fmtDate(new Date()); }
+function todayStr(req) {
+  // Prefer the client's IANA timezone (e.g. "Australia/Sydney") so "today" is the
+  // user's calendar day, not the server's UTC day. Falls back to server-local time.
+  const tz = req && req.headers && req.headers['x-client-tz'];
+  if (tz) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch (_) { /* invalid TZ — fall through */ }
+  }
+  return fmtDate(new Date());
+}
 function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -463,7 +473,7 @@ function computeWeeklyAvg(log) {
 
 // ---------- /api/log ----------
 app.get('/api/log', (req, res) => {
-  const date = req.query.date || todayStr();
+  const date = req.query.date || todayStr(req);
   const log = readJson(req.dataFiles.log, {});
   const entries = log[date] || [];
   const totals = entries.reduce((a, e) => ({
@@ -475,7 +485,7 @@ app.get('/api/log', (req, res) => {
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
-  const isToday = !req.query.date || req.query.date === todayStr();
+  const isToday = !req.query.date || req.query.date === todayStr(req);
   res.json({
     date,
     entries,
@@ -494,7 +504,7 @@ app.get('/api/log', (req, res) => {
 app.post('/api/log', async (req, res) => {
   const { name, kcal, protein, fat, carb, fiber, source, items, date, time } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
-  const d = date || todayStr();
+  const d = date || todayStr(req);
   const entry = await withFileLock(req.dataFiles.log, () => {
     const log = readJson(req.dataFiles.log, {});
     if (!log[d]) log[d] = [];
@@ -558,7 +568,7 @@ app.get('/api/weight', (req, res) => {
 app.post('/api/weight', async (req, res) => {
   const { kg, date } = req.body || {};
   if (!kg) return res.status(400).json({ error: 'kg required' });
-  const d = date || todayStr();
+  const d = date || todayStr(req);
   const entry = { date: d, kg: Number(kg) };
   const isLatest = await withFileLock(req.dataFiles.weight, () => {
     const arr = readJson(req.dataFiles.weight, []);
@@ -671,7 +681,7 @@ app.get('/api/log-range', (req, res) => {
 app.get('/api/source-breakdown', (req, res) => {
   const log = readJson(req.dataFiles.log, {});
   const start = req.query.start;
-  const end = req.query.end || todayStr();
+  const end = req.query.end || todayStr(req);
   const breakdown = {};
   Object.entries(log).forEach(([date, entries]) => {
     if (start && date < start) return;
@@ -688,7 +698,7 @@ app.get('/api/source-breakdown', (req, res) => {
 
 app.get('/api/logging-stats', (req, res) => {
   const log = readJson(req.dataFiles.log, {});
-  const today = todayStr();
+  const today = todayStr(req);
   // Current streak — count back from today, allow today to be empty
   let streak = 0;
   let bestStreak = 0;
@@ -734,7 +744,7 @@ app.get('/api/weekly-review', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
 
-  const endStr = req.query.end || todayStr();
+  const endStr = req.query.end || todayStr(req);
   const endD = new Date(endStr + 'T00:00:00');
   const startD = new Date(endD); startD.setDate(startD.getDate() - 6);
   const startStr = fmtDate(startD);
@@ -882,7 +892,7 @@ app.post('/api/log-template/:id', async (req, res) => {
   const templates = readJson(req.dataFiles.templates, []);
   const tmpl = templates.find(t => t.id === req.params.id);
   if (!tmpl) return res.status(404).json({ error: 'template not found' });
-  const d = req.query.date || todayStr();
+  const d = req.query.date || todayStr(req);
   const now = new Date().toISOString();
   const entries = (tmpl.items || []).map(item => ({
     id: newId(),
@@ -1096,7 +1106,7 @@ app.get('/api/export/json', (req, res) => {
     bundle[k] = readJson(req.dataFiles[k], null);
   }
   res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Disposition', `attachment; filename="calories-backup-${todayStr()}.json"`);
+  res.setHeader('Content-Disposition', `attachment; filename="calories-backup-${todayStr(req)}.json"`);
   res.send(JSON.stringify(bundle, null, 2));
 });
 
@@ -1689,7 +1699,7 @@ async function fetchPublicIp() {
 // ---------- /api/usage ----------
 app.get('/api/usage', (req, res) => {
   const arr = readJson(USAGE_FILE, []);
-  const today = todayStr();
+  const today = todayStr(req);
   const weekAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString().slice(0, 10);
 
   const sum = (filter) => {
@@ -1729,14 +1739,14 @@ app.delete('/api/usage', async (req, res) => {
 
 // ---------- water ----------
 app.get('/api/water', (req, res) => {
-  const date = req.query.date || todayStr();
+  const date = req.query.date || todayStr(req);
   const w = readJson(req.dataFiles.water, {});
   const entries = w[date] || [];
   res.json({ date, entries, total_ml: entries.reduce((s, e) => s + e.ml, 0) });
 });
 
 app.post('/api/water', async (req, res) => {
-  const date = req.body.date || todayStr();
+  const date = req.body.date || todayStr(req);
   const ml = Number(req.body.ml) || 250;
   const entries = await withFileLock(req.dataFiles.water, () => {
     const w = readJson(req.dataFiles.water, {});
@@ -1749,7 +1759,7 @@ app.post('/api/water', async (req, res) => {
 });
 
 app.delete('/api/water/:id', async (req, res) => {
-  const date = req.query.date || todayStr();
+  const date = req.query.date || todayStr(req);
   const entries = await withFileLock(req.dataFiles.water, () => {
     const w = readJson(req.dataFiles.water, {});
     if (w[date]) w[date] = w[date].filter(e => e.id !== req.params.id);

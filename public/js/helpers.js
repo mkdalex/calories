@@ -60,10 +60,17 @@ function animateNumber(el, from, to, duration = 600, prefix = '') {
   }
   requestAnimationFrame(tick);
 }
+// Cached once — the browser doesn't change timezone mid-session.
+const CLIENT_TZ = (() => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+  catch (_) { return ''; }
+})();
 async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (CLIENT_TZ) headers['X-Client-TZ'] = CLIENT_TZ;
   const r = await fetch(path, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   return r.json();
