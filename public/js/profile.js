@@ -1,3 +1,42 @@
+// ---------- THEME PICKER ----------
+const THEMES = [
+  { id: 'classic', name: 'Classic',  tag: 'Default green dark',          swatch: ['#0e1116', '#4ade80', '#e6edf3'] },
+  { id: 'bmw',     name: 'BMW',      tag: 'Black + M Red, sharp edges',  swatch: ['#000000', '#e22718', '#1c69d4'] },
+  { id: 'posthog', name: 'PostHog',  tag: 'Cream canvas, yellow pill',   swatch: ['#eeefe9', '#f7a501', '#23251d'] },
+  { id: 'resend',  name: 'Resend',   tag: 'True black, white pill',      swatch: ['#000000', '#fcfdff', '#3b9eff'] }
+];
+
+function getTheme() {
+  try { return localStorage.getItem('theme') || 'classic'; } catch { return 'classic'; }
+}
+function setTheme(id) {
+  document.documentElement.dataset.theme = id;
+  try { localStorage.setItem('theme', id); } catch { /* private mode — selection won't persist */ }
+}
+
+function renderThemePicker() {
+  const host = $('#themePicker');
+  if (!host) return;
+  const current = getTheme();
+  host.innerHTML = THEMES.map(t => `
+    <button class="theme-option ${t.id === current ? 'active' : ''}" data-theme="${t.id}" type="button">
+      <span class="theme-swatch" aria-hidden="true">
+        ${t.swatch.map(c => `<span style="background:${c};"></span>`).join('')}
+      </span>
+      <span>
+        <span class="t-name">${t.name}</span>
+        <span class="t-tag">${t.tag}</span>
+      </span>
+    </button>
+  `).join('');
+  host.querySelectorAll('.theme-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setTheme(btn.dataset.theme);
+      renderThemePicker();
+    });
+  });
+}
+
 // ---------- PROFILE ----------
 async function loadProfile() {
   const data = await api('/api/profile');
@@ -7,6 +46,7 @@ async function loadProfile() {
   loadMyTemplates();
   renderCalibrate();
   renderBackupRestore();
+  renderThemePicker();
 
   // Populate dropdowns
   $('#pActivity').innerHTML = Object.entries(data.activity_options).map(([k, v]) =>
