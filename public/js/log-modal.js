@@ -235,6 +235,78 @@ $('#logText').addEventListener('input', () => {
 $('#logText').addEventListener('blur', () => { setTimeout(() => $('#suggestDropdown').classList.add('hidden'), 200); });
 
 let parsedCache = null;
+
+// ---------- HISTORY PICKER ----------
+function fmtRelDate(ds) {
+  if (!ds) return '';
+  const d = new Date(ds + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((today - d) / 86400000);
+  if (diff === 0) return 'today';
+  if (diff === 1) return 'yesterday';
+  if (diff < 7) return `${diff}d ago`;
+  if (diff < 30) return `${Math.round(diff/7)}w ago`;
+  return `${Math.round(diff/30)}mo ago`;
+}
+
+$('#logHistory').addEventListener('click', async () => {
+  const panel = $('#historyPanel');
+  if (!panel.classList.contains('hidden')) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<div class="empty" style="padding:12px;">Loading…</div>';
+  try {
+    const favs = await api('/api/favorites?limit=30');
+    if (!favs.length) {
+      panel.innerHTML = '<div class="empty" style="padding:12px;">No past meals yet — log a few and they\'ll show up here.</div>';
+      return;
+    }
+    panel.innerHTML = `
+      <div class="history-list">
+        ${favs.map((f, i) => `
+          <div class="history-item" data-idx="${i}">
+            <div class="hi-main">
+              <span class="hi-name">${escapeHtml(f.last_text || f.name)}</span>
+              <span class="hi-meta">${f.last_kcal} kcal · ${round1(f.last_protein)}g P</span>
+            </div>
+            <div class="hi-sub">
+              <span>${f.count}× · ${fmtRelDate(f.last_date)}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    panel.querySelectorAll('.history-item').forEach(row => {
+      row.addEventListener('click', () => {
+        const f = favs[Number(row.dataset.idx)];
+        $('#logText').value = f.last_text || f.name;
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        const fakeResult = {
+          items: [{
+            name: f.last_text || f.name, qty: 1, unit: 'serving',
+            kcal: f.last_kcal, protein: f.last_protein,
+            fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0,
+            source: 'history', confidence: 'high'
+          }],
+          totals: {
+            kcal: f.last_kcal, protein: f.last_protein,
+            fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0
+          },
+          trace: [], suggested_extras: []
+        };
+        parsedCache = fakeResult;
+        renderParsed(fakeResult);
+      });
+    });
+  } catch (e) {
+    panel.innerHTML = `<div class="empty" style="padding:12px;color:var(--danger);">Failed to load: ${escapeHtml(e.message)}</div>`;
+  }
+});
+
 $('#logParse').addEventListener('click', async () => {
   const text = $('#logText').value.trim();
   if (!text) return;

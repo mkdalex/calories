@@ -332,7 +332,17 @@
           ></textarea>
           <div class="suggest-dropdown hidden" id="suggestDropdown"></div>
         </div>
-        <button class="btn" id="logParse">Parse with AI</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn" id="logParse">Parse with AI</button>
+          <button class="btn btn-secondary" id="logHistory" title="Pick from your past meals">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:6px;">
+              <path d="M3 3v5h5"/>
+              <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
+              <path d="M12 7v5l3 2"/>
+            </svg>History
+          </button>
+        </div>
+        <div id="historyPanel" class="hidden" style="margin-top: 12px"></div>
         <div id="parsedItems" style="margin-top: 16px"></div>
         <div id="parsedTotals" style="margin-top: 12px"></div>
         <div id="extrasWrap" style="margin-top: 8px"></div>

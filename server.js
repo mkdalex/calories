@@ -603,19 +603,19 @@ const FAV_MACROS = ['kcal', 'protein', 'fat', 'carb', 'fiber'];
 function computeFavorites(log) {
   const counts = {};
   // Iterate dates oldest-first so `c.last` ends up holding the newest entry.
-  for (const [, entries] of Object.entries(log).sort()) {
+  for (const [date, entries] of Object.entries(log).sort()) {
     for (const e of entries) {
       if (!e.name) continue;
       const key = e.name.trim().toLowerCase();
-      const c = counts[key] ??= { name: e.name, count: 0, sums: { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 }, last: e };
+      const c = counts[key] ??= { name: e.name, count: 0, sums: { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 }, last: e, last_date: date };
       c.count++;
       for (const m of FAV_MACROS) c.sums[m] += e[m] || 0;
       c.last = e;
+      c.last_date = date;
     }
   }
   return Object.values(counts)
     .sort((a, b) => b.count - a.count)
-    .slice(0, 8)
     .map(f => ({
       name: f.name,
       count: f.count,
@@ -626,19 +626,25 @@ function computeFavorites(log) {
       last_fat: f.last.fat || 0,
       last_carb: f.last.carb || 0,
       last_fiber: f.last.fiber || 0,
-      last_text: f.last.name
+      last_text: f.last.name,
+      last_date: f.last_date
     }));
 }
 
 app.get('/api/favorites', (req, res) => {
+  const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 8));
   const logFile = req.dataFiles.log;
   const stat = fs.statSync(logFile, { throwIfNoEntry: false });
   const mtimeMs = stat ? stat.mtimeMs : 0;
   const cached = favoritesCache.get(req.userId);
-  if (cached && cached.mtimeMs === mtimeMs) return res.json(cached.favs);
-  const favs = computeFavorites(readJson(logFile, {}));
-  favoritesCache.set(req.userId, { mtimeMs, favs });
-  res.json(favs);
+  let favs;
+  if (cached && cached.mtimeMs === mtimeMs) {
+    favs = cached.favs;
+  } else {
+    favs = computeFavorites(readJson(logFile, {}));
+    favoritesCache.set(req.userId, { mtimeMs, favs });
+  }
+  res.json(favs.slice(0, limit));
 });
 
 // ---------- /api/log-range ----------
