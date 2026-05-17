@@ -153,7 +153,7 @@
   body { padding-bottom: 80px; }
 
   /* ---------- Top bar ---------- */
-  .topbar { padding: 16px 20px 12px; display: flex; justify-content: space-between; align-items: baseline; }
+  .topbar { padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 12px calc(20px + env(safe-area-inset-left)); display: flex; justify-content: space-between; align-items: baseline; }
   .topbar h1 { font-size: 20px; margin: 0; font-weight: 600; }
   .topbar .date { color: var(--text-dim); font-size: 13px; }
 
@@ -234,7 +234,7 @@
   .empty { text-align: center; color: var(--text-dim); padding: 40px 20px; font-size: 14px; }
 
   /* ---------- FAB ---------- */
-  .fab { position: fixed; bottom: 90px; right: 20px; background: var(--accent); color: var(--accent-fg); border: none; border-radius: 28px; padding: 14px 20px; font-size: 15px; font-weight: var(--font-weight-heading); text-transform: var(--text-transform-label); letter-spacing: var(--letter-tracking-label); cursor: pointer; box-shadow: var(--shadow); display: flex; align-items: center; gap: 6px; z-index: var(--z-fab); }
+  .fab { position: fixed; bottom: calc(90px + env(safe-area-inset-bottom)); right: calc(20px + env(safe-area-inset-right)); background: var(--accent); color: var(--accent-fg); border: none; border-radius: 28px; padding: 14px 20px; font-size: 15px; font-weight: var(--font-weight-heading); text-transform: var(--text-transform-label); letter-spacing: var(--letter-tracking-label); cursor: pointer; box-shadow: var(--shadow); display: flex; align-items: center; gap: 6px; z-index: var(--z-fab); }
   /* BMW's sharp-rectangle aesthetic — override the FAB pill */
   [data-theme="bmw"] .fab { border-radius: 0; }
   .fab:active { transform: scale(0.96); }
