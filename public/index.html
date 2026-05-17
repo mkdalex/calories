@@ -21,15 +21,15 @@
     <meta name="apple-mobile-web-app-title" content="Calories" />
     <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- Apply the saved theme BEFORE any stylesheet loads so the user doesn't see a flash of the Classic palette. -->
+    <!-- Apply the saved theme BEFORE any stylesheet loads so the user doesn't see a flash of the wrong palette. -->
     <script>
       (function () {
+        var t = 'night';
         try {
-          var t = localStorage.getItem("theme");
-          if (t) document.documentElement.dataset.theme = t;
-        } catch (e) {
-          /* localStorage blocked in private mode etc. — fall through to Classic */
-        }
+          var stored = localStorage.getItem('theme');
+          if (stored === 'day' || stored === 'night') t = stored;
+        } catch (e) { /* private mode — defaults below */ }
+        document.documentElement.dataset.theme = t;
       })();
     </script>
 

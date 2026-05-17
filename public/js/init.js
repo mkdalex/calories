@@ -38,14 +38,4 @@ $$(".nav button").forEach((btn) => {
   renderUserChip();
   loadToday();
   maybeShowOnboarding();
-
-  document.getElementById("themeToggle")?.addEventListener("click", () => {
-    const current = document.documentElement.dataset.theme || "night";
-    const next = current === "day" ? "night" : "day";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("theme", next);
-    } catch {}
-    if (typeof renderThemePicker === "function") renderThemePicker();
-  });
 })();
