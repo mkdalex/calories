@@ -1,5 +1,7 @@
 // ---------- THEME PICKER ----------
 const THEMES = [
+  { id: 'day',     name: 'Day',      tag: 'Warm paper, terracotta accent',  swatch: ['#f3ede0', '#c2552c', '#2a221b'] },
+  { id: 'night',   name: 'Night',    tag: 'Warm dark, amber accent',         swatch: ['#15130f', '#e8a14a', '#f1ebdf'] },
   { id: 'classic', name: 'Classic',  tag: 'Default green dark',          swatch: ['#0e1116', '#4ade80', '#e6edf3'] },
   { id: 'bmw',     name: 'BMW',      tag: 'Black + M Red, sharp edges',  swatch: ['#000000', '#e22718', '#1c69d4'] },
   { id: 'posthog', name: 'PostHog',  tag: 'Cream canvas, yellow pill',   swatch: ['#eeefe9', '#f7a501', '#23251d'] },

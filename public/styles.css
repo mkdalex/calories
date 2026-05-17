@@ -118,6 +118,70 @@
     --radius-button: 9999px;
   }
 
+  /* ---------- Day theme — warm cream canvas, terracotta accent, editorial ---------- */
+  [data-theme="day"] {
+    --bg: #f3ede0;
+    --panel: #fbf7ec;
+    --panel-2: #f0e8d5;
+    --panel-deep: #ece4cf;
+    --panel-deeper: #e6dcc1;
+    --border: #ddd1b8;
+    --text: #2a221b;
+    --text-dim: #7a6c5d;
+    --accent: #c2552c;
+    --accent-dim: #8a3a1d;
+    --accent-fg: #fbf7ec;
+    --green: #5f7a3a;
+    --info: #3d6e91;
+    --info-light: #5a89aa;
+    --info-soft: #dbe4ec;
+    --purple: #8a6396;
+    --warn: #b07a26;
+    --danger: #9c3a2a;
+    --danger-bright: #b84a35;
+    --shadow: 0 4px 18px rgba(42,34,27,0.10);
+    --backdrop: rgba(42,34,27,0.40);
+    --font-body: "Inter", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    --font-weight-body: 400;
+    --font-weight-heading: 600;
+    --letter-tracking-label: normal;
+    --text-transform-label: none;
+    --radius-card: 14px;
+    --radius-button: 10px;
+  }
+
+  /* ---------- Night theme — warm near-black, single amber accent, calmer ---------- */
+  [data-theme="night"] {
+    --bg: #15130f;
+    --panel: #1e1a14;
+    --panel-2: #261f17;
+    --panel-deep: #100e0a;
+    --panel-deeper: #0c0a07;
+    --border: #2f291f;
+    --text: #f1ebdf;
+    --text-dim: #a39682;
+    --accent: #e8a14a;
+    --accent-dim: #a4682a;
+    --accent-fg: #1c1812;
+    --green: #a5c97a;
+    --info: #7ba8d4;
+    --info-light: #9bbce0;
+    --info-soft: rgba(123,168,212,0.15);
+    --purple: #b094d8;
+    --warn: #e8a14a;
+    --danger: #e8775a;
+    --danger-bright: #f4866a;
+    --shadow: 0 8px 28px rgba(0,0,0,0.55);
+    --backdrop: rgba(8,6,4,0.70);
+    --font-body: "Inter", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    --font-weight-body: 400;
+    --font-weight-heading: 600;
+    --letter-tracking-label: normal;
+    --text-transform-label: none;
+    --radius-card: 14px;
+    --radius-button: 10px;
+  }
+
   /* ---------- Resend theme — true-black canvas, white-pill CTA, Inter UI ---------- */
   [data-theme="resend"] {
     --bg: #000000;
