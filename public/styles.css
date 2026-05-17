@@ -1,30 +1,30 @@
   /* Coach's Ledger — Fraunces display + Newsreader body + IBM Plex Mono numerics */
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400..900,0..100,0..1;1,9..144,400..900,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
-  /* ---------- Night (default) — oiled leather notebook by candle ---------- */
+  /* ---------- Night (default) — forest floor at dusk, sage-coded ---------- */
   :root, [data-theme="night"] {
-    --bg:           #1a140e;
-    --panel:        #221b13;
-    --panel-2:      #2d251a;
-    --panel-deep:   #14100b;
-    --panel-deeper: #0e0a07;
-    --border:       #3a3122;
-    --text:         #f3e5c2;
-    --text-dim:     #a39379;
-    --accent:       #e87c3a;
-    --accent-dim:   #b85a1f;
-    --accent-fg:    #1a140e;
-    --green:        #87a85f;
-    --info:         #6b9bd1;
-    --info-light:   #87b3e0;
-    --info-soft:    rgba(107,155,209,0.18);
-    --purple:       #9e80c7;
+    --bg:           #141a17;
+    --panel:        #1b2320;
+    --panel-2:      #232c28;
+    --panel-deep:   #0f1413;
+    --panel-deeper: #0a0e0c;
+    --border:       #2e3833;
+    --text:         #e8ede6;
+    --text-dim:     #8b9990;
+    --accent:       #93b96e;
+    --accent-dim:   #5d7d3f;
+    --accent-fg:    #0f1413;
+    --green:        #93b96e;
+    --info:         #7ba3c9;
+    --info-light:   #9cbed9;
+    --info-soft:    rgba(123,163,201,0.16);
+    --purple:       #a08fc7;
     --warn:         #d4a04e;
-    --danger:       #c4544a;
-    --danger-bright: #d96a5e;
-    --rule:         rgba(243,229,194,0.07);
-    --shadow:       0 12px 36px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45);
-    --backdrop:     rgba(10,7,4,0.78);
+    --danger:       #b86b54;
+    --danger-bright: #c87c64;
+    --rule:         rgba(232,237,230,0.04);
+    --shadow:       0 12px 36px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.35);
+    --backdrop:     rgba(8,12,10,0.78);
     /* Type system */
     --font-body:    "Newsreader", "Iowan Old Style", Charter, Georgia, serif;
     --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
@@ -60,30 +60,30 @@
     --z-toast: 200;
   }
 
-  /* ---------- Day — aged paper notebook ---------- */
+  /* ---------- Day — herbarium / greenhouse linen ---------- */
   [data-theme="day"] {
-    --bg:           #f1ebd9;
-    --panel:        #fdf7e3;
-    --panel-2:      #ebe3cc;
-    --panel-deep:   #e3d9bf;
-    --panel-deeper: #d9cea4;
-    --border:       #c7b78c;
-    --text:         #1c1812;
-    --text-dim:     #6b5d49;
-    --accent:       #b8410e;
-    --accent-dim:   #8a2f08;
-    --accent-fg:    #fdf7e3;
-    --green:        #2d4a1f;
-    --info:         #3a5e80;
-    --info-light:   #547ba1;
-    --info-soft:    rgba(58,94,128,0.15);
+    --bg:           #f4f1e6;
+    --panel:        #fcfaf1;
+    --panel-2:      #ebe7d6;
+    --panel-deep:   #e3deca;
+    --panel-deeper: #d8d2ba;
+    --border:       #cdc6ab;
+    --text:         #1f2a22;
+    --text-dim:     #6a7569;
+    --accent:       #4f7547;
+    --accent-dim:   #355231;
+    --accent-fg:    #fcfaf1;
+    --green:        #4f7547;
+    --info:         #46708e;
+    --info-light:   #6488a3;
+    --info-soft:    rgba(70,112,142,0.13);
     --purple:       #6e4a8c;
     --warn:         #b87614;
-    --danger:       #7a1a0a;
-    --danger-bright: #9c2818;
-    --rule:         rgba(28,24,18,0.10);
-    --shadow:       0 4px 18px rgba(28,24,18,0.12);
-    --backdrop:     rgba(28,24,18,0.45);
+    --danger:       #8c3424;
+    --danger-bright: #a14130;
+    --rule:         rgba(31,42,34,0.06);
+    --shadow:       0 4px 18px rgba(31,42,34,0.08);
+    --backdrop:     rgba(31,42,34,0.40);
   }
 
 
@@ -229,14 +229,16 @@
   .topbar { padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 12px calc(20px + env(safe-area-inset-left)); display: flex; justify-content: space-between; align-items: baseline; }
   .topbar h1 {
     font-family: var(--font-display);
-    font-size: 26px;
+    font-size: 24px;
     font-style: italic;
-    font-weight: 700;
-    font-variation-settings: "opsz" 144, "SOFT" 50, "WONK" 1;
+    font-weight: 600;
+    font-variation-settings: "opsz" 144, "SOFT" 40, "WONK" 0;
     margin: 0;
-    letter-spacing: -0.02em;
-    color: var(--accent);
+    letter-spacing: -0.015em;
+    color: var(--text);
   }
+  /* The first letter is the only place the accent peeks through — like a printer's mark */
+  .topbar h1::first-letter { color: var(--accent); }
   .topbar .date { color: var(--text-dim); font-size: 13px; }
 
   /* ---------- Bottom nav ---------- */

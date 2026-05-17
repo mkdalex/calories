@@ -1,7 +1,7 @@
 // ---------- THEME PICKER ----------
 const THEMES = [
-  { id: 'night', name: 'Night', tag: 'Oiled leather, copper ink',  swatch: ['#1a140e', '#e87c3a', '#f3e5c2'] },
-  { id: 'day',   name: 'Day',   tag: 'Aged paper, red pen accents', swatch: ['#f1ebd9', '#b8410e', '#1c1812'] }
+  { id: 'night', name: 'Night', tag: 'Forest dusk, sage tones', swatch: ['#141a17', '#93b96e', '#e8ede6'] },
+  { id: 'day',   name: 'Day',   tag: 'Herbarium linen, deep sage', swatch: ['#f4f1e6', '#4f7547', '#1f2a22'] }
 ];
 const DEFAULT_THEME = 'night';
 const THEME_IDS = new Set(THEMES.map(t => t.id));
