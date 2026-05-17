@@ -59,9 +59,15 @@
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 14px;
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 4px;
   border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
 }
+.user-chip-logout svg { width: 14px; height: 14px; display: block; }
 .user-chip-logout:hover { color: var(--danger); background: rgba(248,113,113,0.1); }
