@@ -1,52 +1,52 @@
-  /* Inter (Resend) + IBM Plex Sans (PostHog) + Manrope (Day/Night). BMW Type Next is proprietary — falls back to system sans. */
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+  /* Manrope — used by both Day and Night themes */
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
-  :root, [data-theme="classic"] {
-    --bg: #0e1116;
-    --panel: #161b22;
-    --panel-2: #1d242e;
-    --panel-deep: #0c1018;
-    --panel-deeper: #0a0d11;
-    --border: #2a323d;
-    --text: #e6edf3;
-    --text-dim: #8b949e;
-    --accent: #4ade80;
-    --accent-dim: #166534;
-    --accent-fg: #052e16;
-    --green: #4ade80;
+  /* ---------- Night (default) — deep slate dark, luminous text, vivid emerald accent ---------- */
+  :root, [data-theme="night"] {
+    --bg: #0a0e14;
+    --panel: #161c25;
+    --panel-2: #1f2733;
+    --panel-deep: #060a10;
+    --panel-deeper: #04070b;
+    --border: #2a3340;
+    --text: #f4f6fa;
+    --text-dim: #8b95a3;
+    --accent: #10b981;
+    --accent-dim: #047857;
+    --accent-fg: #03261a;
+    --green: #10b981;
     --info: #60a5fa;
     --info-light: #93c5fd;
-    --info-soft: #d6e3f5;
+    --info-soft: rgba(96,165,250,0.14);
     --purple: #c084fc;
     --warn: #fbbf24;
-    --danger: #f87171;
-    --danger-bright: #e05;
-    --shadow: 0 4px 16px rgba(0,0,0,0.4);
-    --backdrop: rgba(0,0,0,0.7);
-    --font-body: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-    --font-weight-body: 400;
-    --font-weight-heading: 600;
-    --letter-tracking-label: normal;
+    --danger: #fb7185;
+    --danger-bright: #f87171;
+    --shadow: 0 10px 32px rgba(0,0,0,0.60), 0 2px 8px rgba(0,0,0,0.40);
+    --backdrop: rgba(4,7,11,0.75);
+    --font-body: "Manrope", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    --font-weight-body: 500;
+    --font-weight-heading: 700;
+    --letter-tracking-label: -0.01em;
     --text-transform-label: none;
-    --radius-card: 12px;
-    --radius-button: 8px;
-    /* Surface tints derived from the theme's color tokens via color-mix so every theme
-       (BMW red, PostHog yellow, Resend white) adapts automatically. */
-    --tint-info-bg:      color-mix(in srgb, var(--info)    8%, transparent);
-    --tint-info-bg-soft: color-mix(in srgb, var(--info)    5%, transparent);
-    --tint-info-border:  color-mix(in srgb, var(--info)   25%, transparent);
-    --tint-info-border-soft: color-mix(in srgb, var(--info) 15%, transparent);
-    --tint-accent-bg:    color-mix(in srgb, var(--accent) 10%, transparent);
-    --tint-accent-bg-soft: color-mix(in srgb, var(--accent) 6%, transparent);
-    --tint-accent-border: color-mix(in srgb, var(--accent) 25%, transparent);
-    --tint-warn-bg:      color-mix(in srgb, var(--warn)   10%, transparent);
-    --tint-warn-bg-soft: color-mix(in srgb, var(--warn)    8%, transparent);
-    --tint-warn-border:  color-mix(in srgb, var(--warn)   30%, transparent);
-    --tint-danger-bg:    color-mix(in srgb, var(--danger)  8%, transparent);
-    --tint-danger-border: color-mix(in srgb, var(--danger) 25%, transparent);
-    --tint-purple-bg:    color-mix(in srgb, var(--purple) 15%, transparent);
-    --tint-muted-bg:     color-mix(in srgb, var(--text-dim) 12%, transparent);
-    /* z-index stacking — keep ordered and named so nothing fights for the same plane */
+    --radius-card: 16px;
+    --radius-button: 12px;
+    /* Surface tints derived from theme tokens — both palettes adapt automatically. */
+    --tint-info-bg:          color-mix(in srgb, var(--info)     12%, transparent);
+    --tint-info-bg-soft:     color-mix(in srgb, var(--info)      6%, transparent);
+    --tint-info-border:      color-mix(in srgb, var(--info)     28%, transparent);
+    --tint-info-border-soft: color-mix(in srgb, var(--info)     16%, transparent);
+    --tint-accent-bg:        color-mix(in srgb, var(--accent)   12%, transparent);
+    --tint-accent-bg-soft:   color-mix(in srgb, var(--accent)    7%, transparent);
+    --tint-accent-border:    color-mix(in srgb, var(--accent)   28%, transparent);
+    --tint-warn-bg:          color-mix(in srgb, var(--warn)     12%, transparent);
+    --tint-warn-bg-soft:     color-mix(in srgb, var(--warn)      8%, transparent);
+    --tint-warn-border:      color-mix(in srgb, var(--warn)     30%, transparent);
+    --tint-danger-bg:        color-mix(in srgb, var(--danger)   10%, transparent);
+    --tint-danger-border:    color-mix(in srgb, var(--danger)   28%, transparent);
+    --tint-purple-bg:        color-mix(in srgb, var(--purple)   18%, transparent);
+    --tint-muted-bg:         color-mix(in srgb, var(--text-dim) 14%, transparent);
+    /* z-index stacking */
     --z-tooltip: 10;
     --z-fab: 40;
     --z-nav: 50;
@@ -56,69 +56,7 @@
     --z-toast: 200;
   }
 
-  /* ---------- BMW M theme — pure-black canvas, M Red accent, heavy/light type contrast ---------- */
-  [data-theme="bmw"] {
-    --bg: #000000;
-    --panel: #1a1a1a;
-    --panel-2: #262626;
-    --panel-deep: #0d0d0d;
-    --panel-deeper: #0a0a0a;
-    --border: #3c3c3c;
-    --text: #e6e6e6;
-    --text-dim: #7e7e7e;
-    --accent: #e22718;
-    --accent-dim: #8a1810;
-    --accent-fg: #ffffff;
-    --green: #0fa336;
-    --info: #1c69d4;
-    --info-light: #4a87de;
-    --info-soft: #c8d8f0;
-    --purple: #8b6cf7;
-    --warn: #f4b400;
-    --danger: #e22718;
-    --danger-bright: #ff3b2e;
-    --shadow: 0 4px 18px rgba(226,39,24,0.18);
-    --font-body: "BMW Type Next Latin", -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif;
-    --font-weight-body: 300;
-    --font-weight-heading: 700;
-    --letter-tracking-label: 1.5px;
-    --text-transform-label: uppercase;
-    --radius-card: 0;
-    --radius-button: 0;
-  }
-
-  /* ---------- PostHog theme — warm cream canvas, yellow CTA, IBM Plex ---------- */
-  [data-theme="posthog"] {
-    --bg: #eeefe9;
-    --panel: #ffffff;
-    --panel-2: #fcfcfa;
-    --panel-deep: #e5e7e0;
-    --panel-deeper: #f4f5ef;
-    --border: #bfc1b7;
-    --text: #23251d;
-    --text-dim: #6c6e63;
-    --accent: #f7a501;
-    --accent-dim: #b17816;
-    --accent-fg: #23251d;
-    --green: #2c8c66;
-    --info: #1d4ed8;
-    --info-light: #2c84e0;
-    --info-soft: #dceaf6;
-    --purple: #7c44a6;
-    --warn: #b17816;
-    --danger: #cd4239;
-    --danger-bright: #cd4239;
-    --shadow: 0 1px 2px rgba(35,37,29,0.08);
-    --font-body: "IBM Plex Sans", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-    --font-weight-body: 400;
-    --font-weight-heading: 700;
-    --letter-tracking-label: normal;
-    --text-transform-label: none;
-    --radius-card: 6px;
-    --radius-button: 9999px;
-  }
-
-  /* ---------- Day theme — Garden: off-white with green tint, fresh kale green, healthy ---------- */
+  /* ---------- Day — Garden: off-white with green tint, fresh kale green, healthy ---------- */
   [data-theme="day"] {
     --bg: #f1f5ee;
     --panel: #ffffff;
@@ -141,38 +79,6 @@
     --danger-bright: #db4860;
     --shadow: 0 4px 20px rgba(20,39,28,0.10);
     --backdrop: rgba(20,39,28,0.45);
-    --font-body: "Manrope", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-    --font-weight-body: 500;
-    --font-weight-heading: 700;
-    --letter-tracking-label: -0.01em;
-    --text-transform-label: none;
-    --radius-card: 16px;
-    --radius-button: 12px;
-  }
-
-  /* ---------- Night theme — deep slate dark, luminous text, vivid emerald accent ---------- */
-  [data-theme="night"] {
-    --bg: #0a0e14;
-    --panel: #161c25;
-    --panel-2: #1f2733;
-    --panel-deep: #060a10;
-    --panel-deeper: #04070b;
-    --border: #2a3340;
-    --text: #f4f6fa;
-    --text-dim: #8b95a3;
-    --accent: #10b981;
-    --accent-dim: #047857;
-    --accent-fg: #03261a;
-    --green: #10b981;
-    --info: #60a5fa;
-    --info-light: #93c5fd;
-    --info-soft: rgba(96,165,250,0.14);
-    --purple: #c084fc;
-    --warn: #fbbf24;
-    --danger: #fb7185;
-    --danger-bright: #f87171;
-    --shadow: 0 10px 32px rgba(0,0,0,0.60), 0 2px 8px rgba(0,0,0,0.40);
-    --backdrop: rgba(4,7,11,0.75);
     --font-body: "Manrope", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
     --font-weight-body: 500;
     --font-weight-heading: 700;
@@ -212,44 +118,17 @@
     letter-spacing: -0.02em;
   }
 
-  /* ---------- Resend theme — true-black canvas, white-pill CTA, Inter UI ---------- */
-  [data-theme="resend"] {
-    --bg: #000000;
-    --panel: #0a0a0c;
-    --panel-2: #101012;
-    --panel-deep: #06060a;
-    --panel-deeper: #050507;
-    --border: rgba(255,255,255,0.06);
-    --text: #fcfdff;
-    --text-dim: #888e90;
-    --accent: #fcfdff;
-    --accent-dim: rgba(252,253,255,0.86);
-    --accent-fg: #000000;
-    --green: #11ff99;
-    --info: #3b9eff;
-    --info-light: #5fb0ff;
-    --info-soft: rgba(59,158,255,0.12);
-    --purple: #a47cff;
-    --warn: #ffc53d;
-    --danger: #ff2047;
-    --danger-bright: #ff2047;
-    --shadow: 0 0 0 1px rgba(255,255,255,0.14);
-    --font-body: "Inter", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
-    --font-weight-body: 400;
-    --font-weight-heading: 500;
-    --letter-tracking-label: -0.01em;
-    --text-transform-label: none;
-    --radius-card: 12px;
-    --radius-button: 9999px;
-  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); font-weight: var(--font-weight-body); font-size: 16px; line-height: 1.5; min-height: 100vh; overscroll-behavior-y: none; }
   body { padding-bottom: 80px; }
 
   /* ---------- Top bar ---------- */
-  .topbar { padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 12px calc(20px + env(safe-area-inset-left)); display: flex; justify-content: space-between; align-items: baseline; }
+  .topbar { padding: calc(16px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) 12px calc(20px + env(safe-area-inset-left)); display: flex; justify-content: space-between; align-items: center; }
   .topbar h1 { font-size: 20px; margin: 0; font-weight: 600; }
   .topbar .date { color: var(--text-dim); font-size: 13px; }
+  .theme-toggle { background: var(--panel); border: 1px solid var(--border); border-radius: 50%; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; transition: transform 0.15s ease, border-color 0.15s ease; }
+  .theme-toggle:hover { border-color: var(--accent); transform: rotate(15deg); }
+  .theme-toggle:active { transform: scale(0.92); }
 
   /* ---------- Bottom nav ---------- */
   .nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); z-index: var(--z-nav); }
@@ -329,8 +208,6 @@
 
   /* ---------- FAB ---------- */
   .fab { position: fixed; bottom: calc(90px + env(safe-area-inset-bottom)); right: calc(20px + env(safe-area-inset-right)); background: var(--accent); color: var(--accent-fg); border: none; border-radius: 28px; padding: 14px 20px; font-size: 15px; font-weight: var(--font-weight-heading); text-transform: var(--text-transform-label); letter-spacing: var(--letter-tracking-label); cursor: pointer; box-shadow: var(--shadow); display: flex; align-items: center; gap: 6px; z-index: var(--z-fab); }
-  /* BMW's sharp-rectangle aesthetic — override the FAB pill */
-  [data-theme="bmw"] .fab { border-radius: 0; }
   .fab:active { transform: scale(0.96); }
 
   /* ---------- Forms / inputs ---------- */

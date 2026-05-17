@@ -2,6 +2,11 @@
 const today = new Date();
 $('#todayDate').textContent = today.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
+// ---------- Theme toggle (top bar) — works regardless of auth state ----------
+if (typeof renderThemeToggle === 'function') renderThemeToggle();
+const themeToggleBtn = $('#themeToggle');
+if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => toggleTheme());
+
 // ---------- Nav ----------
 $$('.nav button').forEach(btn => {
   btn.addEventListener('click', () => {
