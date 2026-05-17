@@ -23,8 +23,6 @@ $$(".nav button").forEach((btn) => {
     if (btn.dataset.view === "history") loadHistory();
     if (btn.dataset.view === "profile") loadProfile();
     if (btn.dataset.view === "dev") loadDev();
-    if (btn.dataset.view === "recipes" && !$("#rbStepContent").innerHTML)
-      startRecipeBuilder();
   });
 });
 

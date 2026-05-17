@@ -9,7 +9,6 @@ A self-hosted calorie + protein tracker focused on the two metrics that actually
 - **Today view** — kcal ring, protein bar, water bottle, day-of-day pacing, meal-period grouping (breakfast/lunch/dinner)
 - **History** — calendar grid, 30-day kcal trend, day-of-week pattern chart, last-7-days review card
 - **TDEE calibration** — auto-corrects your maintenance calories based on observed weight + intake
-- **Recipes** — guided recipe builder (pick ingredients → effort level → 3 ideas → full recipe)
 - **Templates + favorites** — one-tap log meals you eat often
 - **Cost-capped** — daily token + dollar caps prevent runaway AI spend
 
@@ -96,7 +95,7 @@ Each Discord user gets their own data directory under `data/users/<discord_id>/`
 
 Built around `gpt-5-nano` ($0.05 / $0.40 per million tokens) by default. With the daily caps in place the most you can spend per day is what `DAILY_COST_CAP_USD` is set to (default: $2).
 
-Real-world usage on a normal 3-meal day is around 3 cents. Heavy use (lots of recipe generation, rescans) tops out around 30 cents.
+Real-world usage on a normal 3-meal day is around 3 cents. Heavy use (lots of rescans, suggestions) tops out around 30 cents.
 
 Every AI call is logged to `data/ai_calls.log` (one JSON line per call) and printed to the server console with model name + token counts, so you can see exactly what's being charged.
 
@@ -151,7 +150,6 @@ calories/
 │       ├── log-modal.js      — meal logging + edit + parse + rescan
 │       ├── templates-favorites.js  — template + favorite UI
 │       ├── today.js          — Today view (the big one)
-│       ├── recipes.js        — recipe builder + snack
 │       ├── profile.js        — profile form + TDEE calibration card
 │       ├── history.js        — calendar + trends + day-of-week + weekly review
 │       ├── dev.js            — health checks + usage stats

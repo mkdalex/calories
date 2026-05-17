@@ -1,7 +1,7 @@
 {
   "name": "calories",
   "version": "1.0.0",
-  "description": "Personal calorie tracker with AI-generated baby-step recipes",
+  "description": "Personal calorie tracker with AI-assisted meal parsing",
   "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",

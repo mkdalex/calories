@@ -141,30 +141,6 @@
       <div class="meal-list" id="mealList"></div>
     </div>
 
-    <!-- ========== RECIPES VIEW ========== -->
-    <div class="view hidden" id="view-recipes">
-      <div class="card recipe-builder">
-        <div class="rb-header">
-          <div class="rb-step-pips" id="rbPips"></div>
-          <h2 id="rbStepTitle" style="margin: 8px 0 4px">What do you have?</h2>
-          <div class="rb-subtitle" id="rbSubtitle"></div>
-        </div>
-        <div id="rbStepContent"></div>
-        <div id="rbStepNav" class="rb-nav"></div>
-      </div>
-      <div id="recipeOutput"></div>
-
-      <div class="card">
-        <h2>Quick snack</h2>
-        <div class="field">
-          <label>Max kcal</label>
-          <input id="snackCap" type="number" value="200" />
-        </div>
-        <button class="btn btn-secondary" id="snackGo">Suggest 3 snacks</button>
-      </div>
-      <div id="snackOutput"></div>
-    </div>
-
     <!-- ========== HISTORY VIEW ========== -->
     <div class="view hidden" id="view-history">
       <div id="plateauBannerWrap"></div>
@@ -502,9 +478,6 @@
       <button data-view="today" class="active">
         <span class="icon">●</span><span>Today</span>
       </button>
-      <button data-view="recipes">
-        <span class="icon">▣</span><span>Recipes</span>
-      </button>
       <button data-view="history">
         <span class="icon">▤</span><span>History</span>
       </button>
@@ -525,7 +498,6 @@
     <script src="/js/log-modal.js"></script>
     <script src="/js/templates-favorites.js"></script>
     <script src="/js/today.js"></script>
-    <script src="/js/recipes.js"></script>
     <script src="/js/profile.js"></script>
     <script src="/js/history.js"></script>
     <script src="/js/dev.js"></script>
