@@ -1,16 +1,15 @@
 // ---------- THEME PICKER ----------
 const THEMES = [
-  { id: 'night', name: 'Night', tag: 'Warm dark, amber accent',       swatch: ['#15130f', '#e8a14a', '#f1ebdf'] },
-  { id: 'day',   name: 'Day',   tag: 'Warm paper, terracotta accent', swatch: ['#f3ede0', '#c2552c', '#2a221b'] }
+  { id: 'day',     name: 'Day',      tag: 'Fresh greens, kale + teal',         swatch: ['#f1f5ee', '#16a34a', '#14271c'] },
+  { id: 'night',   name: 'Night',    tag: 'Deep slate dark, true emerald',       swatch: ['#0a0e14', '#10b981', '#f4f6fa'] },
+  { id: 'classic', name: 'Classic',  tag: 'Default green dark',          swatch: ['#0e1116', '#4ade80', '#e6edf3'] },
+  { id: 'bmw',     name: 'BMW',      tag: 'Black + M Red, sharp edges',  swatch: ['#000000', '#e22718', '#1c69d4'] },
+  { id: 'posthog', name: 'PostHog',  tag: 'Cream canvas, yellow pill',   swatch: ['#eeefe9', '#f7a501', '#23251d'] },
+  { id: 'resend',  name: 'Resend',   tag: 'True black, white pill',      swatch: ['#000000', '#fcfdff', '#3b9eff'] }
 ];
-const DEFAULT_THEME = 'night';
-const THEME_IDS = new Set(THEMES.map(t => t.id));
 
 function getTheme() {
-  try {
-    const stored = localStorage.getItem('theme');
-    return stored && THEME_IDS.has(stored) ? stored : DEFAULT_THEME;
-  } catch { return DEFAULT_THEME; }
+  try { return localStorage.getItem('theme') || 'classic'; } catch { return 'classic'; }
 }
 function setTheme(id) {
   document.documentElement.dataset.theme = id;
