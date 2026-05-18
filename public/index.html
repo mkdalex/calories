@@ -211,9 +211,15 @@
           <label>Activity level</label>
           <select id="pActivity"></select>
         </div>
-        <div class="field">
-          <label>Goal</label>
-          <select id="pGoal"></select>
+        <div class="row2">
+          <div class="field">
+            <label>Goal</label>
+            <select id="pGoal"></select>
+          </div>
+          <div class="field">
+            <label>Goal weight (kg) <span style="color:var(--text-dim);font-size:11px;">— optional</span></label>
+            <input id="pGoalWeight" type="number" step="0.1" placeholder="e.g. 75" />
+          </div>
         </div>
         <button class="btn" id="profileSave">Save profile</button>
       </div>

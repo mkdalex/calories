@@ -244,7 +244,13 @@ async function renderSourceQuality() {
 async function renderWeightCard() {
   const wrap = $('#weightHistory');
   if (!wrap) return;
-  const weights = await api('/api/weight');
+  const [weights, profileData] = await Promise.all([
+    api('/api/weight'),
+    api('/api/profile').catch(() => null)
+  ]);
+  const goalKg = profileData && profileData.profile && profileData.profile.goal_weight_kg
+    ? Number(profileData.profile.goal_weight_kg)
+    : null;
   const inputEl = $('#weightInput');
 
   if (!weights.length) {
@@ -289,19 +295,21 @@ async function renderWeightCard() {
   const chartW = W - PAD.l - PAD.r;
   const chartH = H - PAD.t - PAD.b;
   const allKg = weights.map(w => w.kg);
-  const yMin = Math.min(...allKg) - 0.5;
-  const yMax = Math.max(...allKg) + 0.5;
+  // Expand y-axis to include goal weight if it would otherwise sit off-chart.
+  const yMin = Math.min(...allKg, goalKg || Infinity) - 0.5;
+  const yMax = Math.max(...allKg, goalKg || -Infinity) + 0.5;
   const yRange = Math.max(0.5, yMax - yMin);
   const xOf = i => PAD.l + (series.length > 1 ? (i / (series.length - 1)) * chartW : chartW / 2);
   const yOf = kg => PAD.t + ((yMax - kg) / yRange) * chartH;
 
-  // Daily points polyline (gaps for missing days)
-  let dailyPath = '';
+  // Daily weigh-ins rendered as dots so isolated points are always visible
+  // (the old polyline collapsed to nothing for orphan days surrounded by gaps).
+  let dailyDots = '';
   series.forEach((p, i) => {
     if (p.kg === null) return;
-    const cmd = dailyPath === '' || series[i - 1]?.kg === null ? 'M' : 'L';
-    dailyPath += `${cmd}${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
+    dailyDots += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(p.kg).toFixed(1)}" r="2.2" fill="rgba(255,255,255,0.55)"/>`;
   });
+
   let avgPath = '';
   avgSeries.forEach((p, i) => {
     if (p.kg === null) return;
@@ -326,6 +334,29 @@ async function renderWeightCard() {
   const paceColor = kgPerWeek < -1 ? 'var(--warn)' : kgPerWeek < 0 ? 'var(--accent)' : kgPerWeek > 0 ? 'var(--danger)' : 'var(--text-dim)';
   const paceSign  = kgPerWeek > 0 ? '+' : '';
 
+  // Goal weight line + ETA computation
+  let goalLine = '';
+  let etaHtml = '';
+  if (goalKg) {
+    const gy = yOf(goalKg).toFixed(1);
+    goalLine = `<line x1="${PAD.l}" y1="${gy}" x2="${W - PAD.r}" y2="${gy}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.8"/>
+                <text x="${W - PAD.r - 4}" y="${(parseFloat(gy) - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)" font-size="9" font-family="sans-serif">goal ${goalKg}</text>`;
+    const kgToGo = Math.round((last.kg - goalKg) * 100) / 100;
+    const goingRightWay = (goalKg < last.kg && kgPerWeek < 0) || (goalKg > last.kg && kgPerWeek > 0);
+    if (Math.abs(kgToGo) < 0.1) {
+      etaHtml = `<div class="weight-eta hit"><strong>You're at your goal weight.</strong> Switch to maintenance in Profile?</div>`;
+    } else if (!goingRightWay || Math.abs(kgPerWeek) < 0.05) {
+      const direction = goalKg < last.kg ? 'lose' : 'gain';
+      etaHtml = `<div class="weight-eta neutral"><strong>${Math.abs(kgToGo)} kg to go</strong> to reach ${goalKg} kg. Not moving toward it yet — current pace is ${kgPerWeek > 0 ? '+' : ''}${kgPerWeek} kg/week, you need to ${direction}.</div>`;
+    } else {
+      const weeksToGoal = Math.abs(kgToGo / kgPerWeek);
+      const eta = new Date(lastD.getTime() + weeksToGoal * 7 * dayMs);
+      const etaStr = eta.toLocaleDateString([], { month: 'long', day: 'numeric', year: eta.getFullYear() !== lastD.getFullYear() ? 'numeric' : undefined });
+      const weeksRounded = Math.round(weeksToGoal * 10) / 10;
+      etaHtml = `<div class="weight-eta on-pace"><strong>${Math.abs(kgToGo)} kg to go.</strong> At ${kgPerWeek > 0 ? '+' : ''}${kgPerWeek} kg/week, you hit <strong>${goalKg} kg around ${etaStr}</strong> (~${weeksRounded} week${weeksRounded === 1 ? '' : 's'}).</div>`;
+    }
+  }
+
   // Recent entries (last 8)
   const recent = [...weights].reverse().slice(0, 8);
 
@@ -348,17 +379,20 @@ async function renderWeightCard() {
     <div class="weight-chart">
       <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">
         ${yTickLabels}
-        ${dailyPath ? `<path d="${dailyPath}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.5"/>` : ''}
+        ${goalLine}
         ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="2.5" stroke-linecap="round"/>` : ''}
+        ${dailyDots}
         ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="4" fill="var(--info)" stroke="var(--bg)" stroke-width="2"/>` : ''}
         <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${first.date}</text>
         <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${last.date}</text>
       </svg>
       <div class="weight-legend">
-        <span><span class="leg-swatch daily"></span> daily</span>
+        <span><span class="leg-swatch daily-dot"></span> daily weigh-in</span>
         <span><span class="leg-swatch avg"></span> 7-day average</span>
+        ${goalKg ? `<span><span class="leg-swatch goal"></span> goal (${goalKg} kg)</span>` : ''}
       </div>
     </div>
+    ${etaHtml}
 
     <div class="weight-recent">
       <div class="weight-recent-hdr">Recent weigh-ins</div>
@@ -415,17 +449,33 @@ async function renderWeeklyReview() {
     card.innerHTML = `<h2>Last 7 days</h2><div class="empty" style="padding:12px 0;">Nothing logged in the last 7 days.</div>`;
     return;
   }
+  const prev = r.previous;
+  // Format a "vs prev week" delta as a small inline chip.
+  // direction: 'lower-is-better' (kcal vs goal, weight) or 'higher-is-better' (days hit, days logged)
+  const wowChip = (curVal, prevVal, opts = {}) => {
+    if (prev == null || prevVal == null || curVal == null) return '';
+    const diff = curVal - prevVal;
+    if (Math.abs(diff) < (opts.threshold || 0.001)) return ` <span class="wow-chip">±0 vs prev</span>`;
+    const sign = diff > 0 ? '+' : '';
+    const good = opts.higherIsBetter ? diff > 0 : diff < 0;
+    const cls = good ? 'wow-chip good' : 'wow-chip bad';
+    const fmt = opts.format || (v => v.toLocaleString());
+    return ` <span class="${cls}">${sign}${fmt(diff)} vs prev</span>`;
+  };
+
   const goalRow = r.goal_kcal
-    ? `<div class="wr-stat"><div class="wr-num">${r.days_hit_goal}/${r.days_logged}</div><div class="wr-lbl">days within goal</div></div>`
+    ? `<div class="wr-stat"><div class="wr-num">${r.days_hit_goal}/${r.days_logged}</div><div class="wr-lbl">days within goal${wowChip(r.days_hit_goal, prev?.days_hit_goal, { higherIsBetter: true, threshold: 0.5 })}</div></div>`
     : '';
   const avgVsGoal = r.goal_kcal ? r.avg_kcal - r.goal_kcal : null;
   const avgClr = avgVsGoal === null ? 'var(--text)' : avgVsGoal > 100 ? 'var(--danger)' : avgVsGoal < -200 ? 'var(--warn)' : 'var(--accent)';
+  const avgKcalDelta = wowChip(r.avg_kcal, prev?.avg_kcal, { threshold: 25 });
 
   let weightLine = '';
   if (r.weight_delta_kg !== null) {
     const sign = r.weight_delta_kg < 0 ? '−' : '+';
     const clr = r.weight_delta_kg < 0 ? 'var(--accent)' : r.weight_delta_kg > 0 ? 'var(--danger)' : 'var(--text-dim)';
-    weightLine = `<div style="font-size:13px;margin-top:8px;">Weight: <strong style="color:${clr};">${sign}${Math.abs(r.weight_delta_kg).toFixed(2)} kg</strong> · ${r.weight_start} → ${r.weight_end} kg</div>`;
+    const wDelta = wowChip(r.weight_delta_kg, prev?.weight_delta_kg, { threshold: 0.05, format: v => v.toFixed(2) + ' kg' });
+    weightLine = `<div style="font-size:13px;margin-top:8px;">Weight: <strong style="color:${clr};">${sign}${Math.abs(r.weight_delta_kg).toFixed(2)} kg</strong> · ${r.weight_start} → ${r.weight_end} kg${wDelta}</div>`;
   }
 
   const macroChips = Object.entries(r.macro_hit_days || {}).map(([k, v]) => {
@@ -458,7 +508,7 @@ async function renderWeeklyReview() {
     <h2>Last 7 days <span style="font-size:11px;color:var(--text-dim);font-weight:400;">${r.start} → ${r.end}</span></h2>
     ${streakLine}
     <div class="wr-stat-grid">
-      <div class="wr-stat"><div class="wr-num" style="color:${avgClr};">${r.avg_kcal.toLocaleString()}</div><div class="wr-lbl">avg kcal/day${avgVsGoal !== null ? ` · ${avgVsGoal > 0 ? '+' : ''}${avgVsGoal} vs goal` : ''}</div></div>
+      <div class="wr-stat"><div class="wr-num" style="color:${avgClr};">${r.avg_kcal.toLocaleString()}</div><div class="wr-lbl">avg kcal/day${avgVsGoal !== null ? ` · ${avgVsGoal > 0 ? '+' : ''}${avgVsGoal} vs goal` : ''}${avgKcalDelta}</div></div>
       ${goalRow}
       <div class="wr-stat"><div class="wr-num">${r.days_logged}/7</div><div class="wr-lbl">days logged</div></div>
     </div>

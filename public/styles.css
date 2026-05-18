@@ -533,10 +533,15 @@
 
   .weight-chart { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
   .weight-chart svg { display: block; max-height: 200px; }
-  .weight-legend { display: flex; justify-content: center; gap: 18px; font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+  .weight-legend { display: flex; justify-content: center; gap: 18px; font-size: 11px; color: var(--text-dim); margin-top: 6px; flex-wrap: wrap; }
   .weight-legend .leg-swatch { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 4px; }
-  .weight-legend .leg-swatch.daily { background: var(--text-dim); opacity: 0.6; }
+  .weight-legend .leg-swatch.daily-dot { background: rgba(255,255,255,0.55); width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
   .weight-legend .leg-swatch.avg { background: var(--info); height: 3px; border-radius: 2px; }
+  .weight-legend .leg-swatch.goal { width: 16px; height: 0; border-top: 2px dashed var(--accent); margin-right: 6px; }
+
+  .weight-eta { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; background: var(--panel-2); border-left: 3px solid var(--accent); }
+  .weight-eta.neutral { border-left-color: var(--warn); }
+  .weight-eta.hit { border-left-color: var(--info); background: color-mix(in srgb, var(--info) 10%, var(--panel-2)); }
 
   .weight-recent { border-top: 1px solid var(--border); padding-top: 12px; }
   .weight-recent-hdr { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; }
@@ -602,6 +607,9 @@
   .wr-chip.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: var(--tint-accent-bg-soft); }
   .wr-chip.mid  { color: var(--warn);   border-color: var(--tint-warn-border); background: var(--tint-warn-bg-soft); }
   .wr-chip.bad  { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, transparent); background: color-mix(in srgb, var(--danger) 6%, transparent); }
+  .wow-chip { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 4px; vertical-align: 1px; background: var(--panel); color: var(--text-dim); border: 1px solid var(--border); }
+  .wow-chip.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .wow-chip.bad  { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 
   /* ---------- Day-of-week pattern ---------- */
   .dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-items: end; margin: 8px 0 12px; }

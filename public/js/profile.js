@@ -79,6 +79,7 @@ async function loadProfile() {
     $('#pSex').value = data.profile.sex || 'male';
     $('#pActivity').value = data.profile.activity || 'moderate';
     $('#pGoal').value = data.profile.goal || 'steady';
+    $('#pGoalWeight').value = data.profile.goal_weight_kg || '';
   }
   renderExplainer();
 }
@@ -205,13 +206,15 @@ async function deleteCustomFood(key) {
 }
 
 $('#profileSave').addEventListener('click', async () => {
+  const gwRaw = $('#pGoalWeight').value;
   const profile = {
     height_cm: Number($('#pHeight').value),
     weight_kg: Number($('#pWeight').value),
     age: Number($('#pAge').value),
     sex: $('#pSex').value,
     activity: $('#pActivity').value,
-    goal: $('#pGoal').value
+    goal: $('#pGoal').value,
+    goal_weight_kg: gwRaw === '' ? null : Number(gwRaw)
   };
   if (!profile.height_cm || !profile.weight_kg || !profile.age) {
     return showToast('Fill in height, weight, age');

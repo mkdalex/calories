@@ -738,19 +738,10 @@ app.get('/api/logging-stats', (req, res) => {
   res.json({ current_streak: streak, best_streak: bestStreak, meals_per_day: mealsPerDay, total_days_logged: totalDaysLogged });
 });
 
-app.get('/api/weekly-review', (req, res) => {
-  const log = readJson(req.dataFiles.log, {});
-  const weights = readJson(req.dataFiles.weight, []);
-  const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
-
-  const endStr = req.query.end || todayStr(req);
+function compute7DayBlock(log, weights, stats, startStr, endStr) {
+  const startD = new Date(startStr + 'T00:00:00');
   const endD = new Date(endStr + 'T00:00:00');
-  const startD = new Date(endD); startD.setDate(startD.getDate() - 6);
-  const startStr = fmtDate(startD);
-
-  // Walk dates in window
-  const dayTotals = []; // { date, kcal, protein, fat, carb, fiber, entries }
+  const dayTotals = [];
   forEachDateInRange(startD, endD, ds => {
     const entries = log[ds] || [];
     if (!entries.length) return;
@@ -763,8 +754,53 @@ app.get('/api/weekly-review', (req, res) => {
     }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
     dayTotals.push({ date: ds, ...t, entries });
   });
+  if (!dayTotals.length) return { days_logged: 0, empty: true };
 
-  if (!dayTotals.length) {
+  const goal = stats ? stats.kcal_goal : null;
+  const proteinT = stats ? stats.protein_g : null;
+  const totalK = dayTotals.reduce((a, d) => a + d.kcal, 0);
+  const totalP = dayTotals.reduce((a, d) => a + d.protein, 0);
+  const daysHitGoal = goal ? dayTotals.filter(d => d.kcal >= goal - 200 && d.kcal <= goal + 200).length : 0;
+
+  const weightsInWindow = weights.filter(w => w.date >= startStr && w.date <= endStr);
+  const weight_start = weightsInWindow[0] ? weightsInWindow[0].kg : null;
+  const weight_end = weightsInWindow.length ? weightsInWindow[weightsInWindow.length - 1].kg : null;
+  const weight_delta = weight_start !== null && weight_end !== null && weightsInWindow.length >= 2
+    ? Math.round((weight_end - weight_start) * 100) / 100
+    : null;
+
+  return {
+    days_logged: dayTotals.length,
+    avg_kcal: Math.round(totalK / dayTotals.length),
+    avg_protein: round1(totalP / dayTotals.length),
+    days_hit_goal: daysHitGoal,
+    weight_delta_kg: weight_delta,
+    weight_start,
+    weight_end,
+    dayTotals
+  };
+}
+
+app.get('/api/weekly-review', (req, res) => {
+  const log = readJson(req.dataFiles.log, {});
+  const weights = readJson(req.dataFiles.weight, []);
+  const profile = readJson(req.dataFiles.profile, null);
+  const stats = computeStats(profile);
+
+  const endStr = req.query.end || todayStr(req);
+  const endD = new Date(endStr + 'T00:00:00');
+  const startD = new Date(endD); startD.setDate(startD.getDate() - 6);
+  const startStr = fmtDate(startD);
+  // Previous 7-day window for comparison
+  const prevEndD = new Date(startD); prevEndD.setDate(prevEndD.getDate() - 1);
+  const prevStartD = new Date(prevEndD); prevStartD.setDate(prevStartD.getDate() - 6);
+  const prevStartStr = fmtDate(prevStartD);
+  const prevEndStr = fmtDate(prevEndD);
+
+  const current = compute7DayBlock(log, weights, stats, startStr, endStr);
+  const previous = compute7DayBlock(log, weights, stats, prevStartStr, prevEndStr);
+
+  if (current.empty) {
     return res.json({ start: startStr, end: endStr, days_logged: 0, empty: true });
   }
 
@@ -774,21 +810,17 @@ app.get('/api/weekly-review', (req, res) => {
   const carbT = stats ? stats.carb_g : null;
   const fiberT = stats ? stats.fiber_g : null;
 
-  const totalK = dayTotals.reduce((a, d) => a + d.kcal, 0);
-  const avgK = Math.round(totalK / dayTotals.length);
-  const daysHitGoal = goal ? dayTotals.filter(d => d.kcal >= goal - 200 && d.kcal <= goal + 200).length : 0;
-
   const inRange = (val, target) => target && val >= target * 0.8 && val <= target * 1.2;
   const macro_hit_days = {
-    protein: proteinT ? dayTotals.filter(d => inRange(d.protein, proteinT)).length : 0,
-    fat: fatT ? dayTotals.filter(d => inRange(d.fat, fatT)).length : 0,
-    carb: carbT ? dayTotals.filter(d => inRange(d.carb, carbT)).length : 0,
-    fiber: fiberT ? dayTotals.filter(d => d.fiber >= fiberT * 0.8).length : 0
+    protein: proteinT ? current.dayTotals.filter(d => inRange(d.protein, proteinT)).length : 0,
+    fat: fatT ? current.dayTotals.filter(d => inRange(d.fat, fatT)).length : 0,
+    carb: carbT ? current.dayTotals.filter(d => inRange(d.carb, carbT)).length : 0,
+    fiber: fiberT ? current.dayTotals.filter(d => d.fiber >= fiberT * 0.8).length : 0
   };
 
   // Top foods (most logged by name, normalized)
   const foodCounts = {};
-  dayTotals.forEach(d => d.entries.forEach(e => {
+  current.dayTotals.forEach(d => d.entries.forEach(e => {
     const key = String(e.name || '').toLowerCase().trim().slice(0, 60);
     if (!key) return;
     if (!foodCounts[key]) foodCounts[key] = { name: e.name, count: 0, total_kcal: 0 };
@@ -801,35 +833,35 @@ app.get('/api/weekly-review', (req, res) => {
     .slice(0, 3)
     .map(f => ({ name: f.name, count: f.count, avg_kcal: Math.round(f.total_kcal / f.count) }));
 
-  // Weight delta in window
-  const weightsInWindow = weights.filter(w => w.date >= startStr && w.date <= endStr);
-  const weight_start = weightsInWindow[0] ? weightsInWindow[0].kg : null;
-  const weight_end = weightsInWindow.length ? weightsInWindow[weightsInWindow.length - 1].kg : null;
-  const weight_delta = weight_start !== null && weight_end !== null && weightsInWindow.length >= 2
-    ? Math.round((weight_end - weight_start) * 100) / 100
-    : null;
-
   // Best/worst day
-  const sorted = [...dayTotals].sort((a, b) => a.kcal - b.kcal);
+  const sorted = [...current.dayTotals].sort((a, b) => a.kcal - b.kcal);
   const lightestDay = sorted[0];
   const heaviestDay = sorted[sorted.length - 1];
 
   res.json({
     start: startStr,
     end: endStr,
-    days_logged: dayTotals.length,
-    avg_kcal: avgK,
-    total_kcal: totalK,
+    days_logged: current.days_logged,
+    avg_kcal: current.avg_kcal,
+    avg_protein: current.avg_protein,
+    total_kcal: current.dayTotals.reduce((a, d) => a + d.kcal, 0),
     goal_kcal: goal,
-    days_hit_goal: daysHitGoal,
+    days_hit_goal: current.days_hit_goal,
     macro_hit_days,
     macro_targets: { protein: proteinT, fat: fatT, carb: carbT, fiber: fiberT },
     top_foods,
-    weight_delta_kg: weight_delta,
-    weight_start,
-    weight_end,
+    weight_delta_kg: current.weight_delta_kg,
+    weight_start: current.weight_start,
+    weight_end: current.weight_end,
     lightest_day: { date: lightestDay.date, kcal: lightestDay.kcal },
-    heaviest_day: { date: heaviestDay.date, kcal: heaviestDay.kcal }
+    heaviest_day: { date: heaviestDay.date, kcal: heaviestDay.kcal },
+    previous: previous.empty ? null : {
+      days_logged: previous.days_logged,
+      avg_kcal: previous.avg_kcal,
+      avg_protein: previous.avg_protein,
+      days_hit_goal: previous.days_hit_goal,
+      weight_delta_kg: previous.weight_delta_kg
+    }
   });
 });
 
