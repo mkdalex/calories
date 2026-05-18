@@ -691,35 +691,39 @@ function renderCalendar() {
 }
 
 async function renderCalDetail(date) {
-  $('#calDetail').innerHTML = '<div style="padding:8px 0;color:var(--text-dim);font-size:13px;">Loading…</div>';
+  $('#calDetail').innerHTML = `<div class="cal-detail-drawer"><div class="cal-detail-empty">Loading…</div></div>`;
   const data = await api('/api/log?date=' + date);
   const niceDate = new Date(date + 'T00:00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const totals = data.entries.length
+    ? `<span class="totals">— ${data.totals.kcal} kcal · ${Math.round(data.totals.protein)}g P</span>`
+    : '';
   const header = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
-      <div style="font-size:13px;font-weight:600;">${niceDate}${data.entries.length ? ` — ${data.totals.kcal} kcal · ${Math.round(data.totals.protein)}g P` : ''}</div>
+    <div class="cal-detail-header">
+      <div class="cal-detail-title">${niceDate}${totals}</div>
       <button class="btn btn-secondary" id="calAddMeal" style="padding:6px 12px;font-size:12px;white-space:nowrap;">+ Add meal</button>
     </div>`;
   let body;
   if (!data.entries.length) {
-    body = '<div style="padding:8px 0;color:var(--text-dim);font-size:13px;">Nothing logged this day. Tap + Add meal to backfill.</div>';
+    body = '<div class="cal-detail-empty">Nothing logged this day. Tap + Add meal to backfill.</div>';
   } else {
     body = data.entries.map(e => `
-      <div class="cal-entry-row" data-eid="${e.id}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;border-radius:4px;">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px;">${escapeHtml(e.name)}</span>
-        <span style="color:var(--text-dim);white-space:nowrap;">${e.kcal} kcal · ${e.protein}g P</span>
+      <div class="cal-entry-row" data-eid="${e.id}">
+        <span class="ce-name">${escapeHtml(e.name)}</span>
+        <span class="ce-meta">${e.kcal} kcal · ${e.protein}g P</span>
       </div>
     `).join('');
   }
-  $('#calDetail').innerHTML = `<div style="padding:8px 0;">${header}${body}</div>`;
+  $('#calDetail').innerHTML = `<div class="cal-detail-drawer">${header}${body}</div>`;
   $('#calAddMeal').addEventListener('click', () => openLogModal(date));
   $$('#calDetail .cal-entry-row').forEach(row => {
-    row.addEventListener('mouseenter', () => row.style.background = 'var(--panel-2)');
-    row.addEventListener('mouseleave', () => row.style.background = '');
     row.addEventListener('click', () => {
       const e = data.entries.find(en => en.id === row.dataset.eid);
       if (e) openEditModal(e, date);
     });
   });
+  // Bring the drawer + selected cell into view so it's obvious something opened.
+  const drawer = $('#calDetail').querySelector('.cal-detail-drawer');
+  if (drawer) drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function shiftCalendarMonth(delta) {
