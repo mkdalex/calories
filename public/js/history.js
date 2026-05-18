@@ -317,16 +317,64 @@ async function renderWeightCard() {
     avgPath += `${cmd}${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
   });
 
-  // Y-axis labels (3 ticks)
-  const yTicks = [yMax, (yMax + yMin) / 2, yMin].map(v => Math.round(v * 10) / 10);
+  // Y-axis ticks rounded to whole kg, deduped (handles tight ranges).
+  const yTicksRaw = [Math.ceil(yMax), Math.round((yMax + yMin) / 2), Math.floor(yMin)];
+  const yTicks = [...new Set(yTicksRaw)];
   const yTickLabels = yTicks.map(v => `
     <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${v}</text>
     <line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" stroke-dasharray="2 4" opacity="0.4"/>
   `).join('');
 
-  // Dot on latest point
+  // Determine fill mode for the area under the trend line:
+  //   - has goal weight  → fill from trend line toward goal line ("ground covered")
+  //   - cutting goal but no target weight → soft fill above the line (going down = good)
+  //   - else → subtle ambient fill above the line
+  const profileGoal = profileData && profileData.profile && profileData.profile.goal;
+  const cuttingProfile = profileGoal && profileGoal !== 'maintain' && profileGoal !== 'gain';
+  let fillMode = 'ambient';
+  if (goalKg) fillMode = 'to-goal';
+  else if (cuttingProfile) fillMode = 'above-line';
+
+  // Build the trend-line top edge of the area path
+  const firstAvgIdx = avgSeries.findIndex(p => p.kg !== null);
+  const lastAvgIdx = (() => {
+    for (let i = avgSeries.length - 1; i >= 0; i--) if (avgSeries[i].kg !== null) return i;
+    return -1;
+  })();
+  let areaPath = '';
+  if (firstAvgIdx !== -1 && lastAvgIdx !== -1 && lastAvgIdx > firstAvgIdx) {
+    let top = '';
+    for (let i = firstAvgIdx; i <= lastAvgIdx; i++) {
+      const p = avgSeries[i];
+      if (p.kg === null) continue;
+      top += (top ? 'L' : 'M') + `${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
+    }
+    const xL = xOf(firstAvgIdx).toFixed(1);
+    const xR = xOf(lastAvgIdx).toFixed(1);
+    if (fillMode === 'to-goal') {
+      const yG = yOf(goalKg).toFixed(1);
+      areaPath = `${top}L${xR},${yG} L${xL},${yG} Z`;
+    } else {
+      const yT = PAD.t.toFixed(1);
+      areaPath = `${top}L${xR},${yT} L${xL},${yT} Z`;
+    }
+  }
+
+  // Dot on latest point + big "you are here" callout
   const lastIdx = series.length - 1;
   const lastPt = series[lastIdx];
+  let latestCallout = '';
+  if (lastPt && lastPt.kg !== null) {
+    const cx = xOf(lastIdx);
+    const cy = yOf(lastPt.kg);
+    // Place label above-left of the dot so it doesn't clip the right edge.
+    const labelX = (cx - 10).toFixed(1);
+    const labelY = (cy - 10).toFixed(1);
+    latestCallout = `<text x="${labelX}" y="${labelY}" text-anchor="end" fill="var(--info)" font-size="13" font-weight="700" font-family="sans-serif">${lastPt.kg.toFixed(1)} kg</text>`;
+  }
+
+  // Friendly date labels (e.g. "Apr 27" instead of "2026-04-27").
+  const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
 
   // Stats card colours
   const dColor = totalDelta < 0 ? 'var(--accent)' : totalDelta > 0 ? 'var(--danger)' : 'var(--text-dim)';
@@ -357,6 +405,85 @@ async function renderWeightCard() {
     }
   }
 
+  // Progress bar (only when goal is set + we have at least 2 weigh-ins to define a "start")
+  let progressHtml = '';
+  if (goalKg && weights.length >= 2) {
+    const startKg = first.kg;
+    const totalMoved = startKg - last.kg;            // positive when losing toward a lower goal
+    const targetMove = startKg - goalKg;             // positive when goal is below start
+    const pct = targetMove !== 0
+      ? Math.max(0, Math.min(100, (totalMoved / targetMove) * 100))
+      : 0;
+    const remaining = Math.abs(last.kg - goalKg);
+    const movedAbs = Math.abs(totalMoved).toFixed(2);
+    const movedLabel = totalMoved > 0 ? `−${movedAbs}` : totalMoved < 0 ? `+${movedAbs}` : '0.00';
+    progressHtml = `
+      <div class="wt-progress">
+        <div class="wt-prog-head">
+          <span><span class="wt-prog-side">Start</span> <strong>${startKg.toFixed(1)}</strong></span>
+          <span class="wt-prog-pct"><strong>${pct.toFixed(0)}%</strong> there <span style="color:var(--text-dim);font-weight:400;">· ${movedLabel} kg moved · ${remaining.toFixed(1)} to go</span></span>
+          <span><span class="wt-prog-side">Goal</span> <strong>${goalKg.toFixed(1)}</strong></span>
+        </div>
+        <div class="wt-prog-track">
+          <div class="wt-prog-fill" style="width:${pct.toFixed(1)}%;"></div>
+          <div class="wt-prog-marker" style="left:${pct.toFixed(1)}%;" data-kg="${last.kg.toFixed(1)} kg"></div>
+        </div>
+      </div>`;
+  }
+
+  // Milestones — tiered so something fires whether or not a goal is set.
+  const milestones = [];
+  if (weights.length >= 2) {
+    const startKg = first.kg;
+    const totalMoved = startKg - last.kg;
+    const allKgVals = weights.map(w => w.kg);
+    const allTimeLow = Math.min(...allKgVals);
+    const sinceCutoff = days => {
+      const cutoff = new Date(lastD); cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = fmtDate(cutoff);
+      return weights.filter(w => w.date >= cutoffStr).map(w => w.kg);
+    };
+    const within = (a, b) => Math.abs(a - b) < 0.05;
+
+    // Goal-based (most rewarding, listed first)
+    if (goalKg) {
+      if (within(last.kg, goalKg) || (totalMoved > 0 && last.kg <= goalKg)) {
+        milestones.push({ emoji: '🎯', label: 'Goal reached', tone: 'gold' });
+      } else if (Math.abs(last.kg - goalKg) < 1) {
+        milestones.push({ emoji: '🔥', label: 'Within 1 kg of goal', tone: 'green' });
+      } else {
+        const targetMove = startKg - goalKg;
+        if (targetMove > 0 && totalMoved / targetMove >= 0.5 && totalMoved / targetMove < 1) {
+          milestones.push({ emoji: '🎯', label: 'Halfway to goal', tone: 'green' });
+        }
+      }
+    }
+    // Personal bests — most impressive only
+    if (within(last.kg, allTimeLow)) {
+      milestones.push({ emoji: '🏆', label: 'All-time low', tone: 'gold' });
+    } else {
+      for (const days of [90, 60, 30]) {
+        const win = sinceCutoff(days);
+        if (win.length < 3) continue;
+        if (within(last.kg, Math.min(...win))) {
+          milestones.push({ emoji: '📉', label: `Lowest in ${days} days`, tone: 'green' });
+          break;
+        }
+      }
+    }
+    // Round number crossed from start
+    if (Math.abs(totalMoved) >= 1) {
+      const n = Math.floor(Math.abs(totalMoved));
+      const sign = totalMoved > 0 ? '−' : '+';
+      milestones.push({ emoji: totalMoved > 0 ? '✓' : '↗', label: `${sign}${n} kg from start`, tone: 'soft' });
+    }
+  }
+  const milestonesHtml = milestones.length
+    ? `<div class="wt-milestones">${milestones.slice(0, 3).map(m =>
+        `<span class="wt-milestone ${m.tone}">${m.emoji} ${m.label}</span>`
+      ).join('')}</div>`
+    : '';
+
   // Recent entries (last 8)
   const recent = [...weights].reverse().slice(0, 8);
 
@@ -376,15 +503,25 @@ async function renderWeightCard() {
       </div>
     </div>
 
+    ${progressHtml}
+    ${milestonesHtml}
     <div class="weight-chart">
       <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">
+        <defs>
+          <linearGradient id="wt-area-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--info)" stop-opacity="${fillMode === 'to-goal' ? 0.28 : 0.18}"/>
+            <stop offset="100%" stop-color="var(--info)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
         ${yTickLabels}
+        ${areaPath ? `<path d="${areaPath}" fill="url(#wt-area-grad)" class="wt-area-fill"/>` : ''}
         ${goalLine}
-        ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="2.5" stroke-linecap="round"/>` : ''}
+        ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="2.5" stroke-linecap="round" class="wt-trend-line" pathLength="1"/>` : ''}
         ${dailyDots}
-        ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="4" fill="var(--info)" stroke="var(--bg)" stroke-width="2"/>` : ''}
-        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${first.date}</text>
-        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${last.date}</text>
+        ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="5" fill="var(--info)" stroke="var(--bg)" stroke-width="2" class="wt-latest-dot"/>` : ''}
+        ${latestCallout}
+        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="10" font-family="sans-serif">${niceDate(first.date)}</text>
+        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="sans-serif">${niceDate(last.date)}</text>
       </svg>
       <div class="weight-legend">
         <span><span class="leg-swatch daily-dot"></span> daily weigh-in</span>

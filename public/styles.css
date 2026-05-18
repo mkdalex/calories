@@ -543,6 +543,103 @@
   .weight-eta.neutral { border-left-color: var(--warn); }
   .weight-eta.hit { border-left-color: var(--info); background: color-mix(in srgb, var(--info) 10%, var(--panel-2)); }
 
+  /* ---------- Weight progress bar (start → now → goal) ---------- */
+  .wt-progress { margin: 14px 0 10px; padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
+  .wt-prog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; margin-bottom: 10px; flex-wrap: wrap; }
+  .wt-prog-head .wt-prog-side { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 4px; }
+  .wt-prog-head .wt-prog-pct { color: var(--accent); font-size: 13px; }
+  .wt-prog-track { position: relative; height: 10px; background: var(--panel); border-radius: 6px; margin-bottom: 22px; }
+  .wt-prog-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, transparent), var(--accent));
+    border-radius: 6px;
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
+    transform-origin: left center;
+    animation: wt-prog-fill-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .wt-prog-marker {
+    position: absolute; top: -3px; height: 16px; width: 16px;
+    background: var(--info); border: 2px solid var(--bg); border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--info) 60%, transparent);
+    color: transparent;
+    font-size: 0;
+  }
+  .wt-prog-marker::after {
+    content: attr(data-kg);
+    position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: var(--info); font-weight: 600; white-space: nowrap;
+  }
+  @keyframes wt-prog-fill-in {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+  }
+
+  /* ---------- Milestone chips ---------- */
+  .wt-milestones { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+  .wt-milestone {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; padding: 4px 10px; border-radius: 12px;
+    border: 1px solid var(--border); background: var(--panel-2);
+    animation: wt-milestone-in 0.5s ease-out both;
+  }
+  .wt-milestone.green {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: var(--tint-accent-bg-soft);
+  }
+  .wt-milestone.gold {
+    color: #facc15;
+    border-color: color-mix(in srgb, #facc15 40%, transparent);
+    background: color-mix(in srgb, #facc15 8%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, #facc15 25%, transparent);
+  }
+  .wt-milestone.soft { color: var(--text-dim); }
+  .wt-milestone:nth-child(2) { animation-delay: 0.12s; }
+  .wt-milestone:nth-child(3) { animation-delay: 0.24s; }
+  @keyframes wt-milestone-in {
+    from { opacity: 0; transform: translateY(4px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+
+  /* ---------- Chart animations + pulse on latest dot ---------- */
+  .wt-trend-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: wt-line-draw 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes wt-line-draw {
+    to { stroke-dashoffset: 0; }
+  }
+  .wt-area-fill {
+    opacity: 0;
+    animation: wt-area-fade 0.6s ease-out 0.5s forwards;
+  }
+  @keyframes wt-area-fade {
+    to { opacity: 1; }
+  }
+  .wt-latest-dot {
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: wt-dot-pop 0.4s ease-out 0.8s both, wt-dot-pulse 2.6s ease-in-out 1.4s infinite;
+  }
+  @keyframes wt-dot-pop {
+    0%   { opacity: 0; transform: scale(0); }
+    70%  { opacity: 1; transform: scale(1.3); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes wt-dot-pulse {
+    0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+    50%      { filter: drop-shadow(0 0 6px var(--info)); }
+  }
+  /* Honor reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .wt-trend-line, .wt-area-fill, .wt-latest-dot, .wt-prog-fill, .wt-milestone { animation: none !important; }
+    .wt-trend-line { stroke-dashoffset: 0; }
+    .wt-area-fill, .wt-milestone { opacity: 1; }
+    .wt-prog-fill { transform: scaleX(1); }
+  }
+
   .weight-recent { border-top: 1px solid var(--border); padding-top: 12px; }
   .weight-recent-hdr { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 6px; }
   .weight-row { display: grid; grid-template-columns: 1.3fr 0.9fr 1fr 28px; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; border-radius: 4px; transition: background 0.12s; }
