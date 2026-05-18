@@ -291,15 +291,27 @@ async function renderWeightCard() {
 
   // Chart geometry
   const W = 600, H = 160;
-  const PAD = { l: 36, r: 12, t: 14, b: 28 };
+  const PAD = { l: 32, r: 14, t: 14, b: 26 };
   const chartW = W - PAD.l - PAD.r;
   const chartH = H - PAD.t - PAD.b;
   const allKg = weights.map(w => w.kg);
-  // Expand y-axis to include goal weight if it would otherwise sit off-chart.
-  const yMin = Math.min(...allKg, goalKg || Infinity) - 0.5;
-  const yMax = Math.max(...allKg, goalKg || -Infinity) + 0.5;
+
+  // Projection: extend the 7-day average forward using current pace (kgPerWeek).
+  // Skip projection if user isn't moving or if there's not enough signal.
+  const PROJECT_DAYS = 21;
+  const lastAvgKgRaw = (() => {
+    for (let i = avgSeries.length - 1; i >= 0; i--) if (avgSeries[i].kg !== null) return avgSeries[i].kg;
+    return null;
+  })();
+  const canProject = Math.abs(kgPerWeek) >= 0.05 && lastAvgKgRaw !== null && series.length >= 7;
+  const projectedEndKg = canProject ? lastAvgKgRaw + (kgPerWeek * (PROJECT_DAYS / 7)) : null;
+  const totalLen = series.length + (canProject ? PROJECT_DAYS : 0);
+
+  // Expand y-axis to include goal + projected endpoint so nothing clips.
+  const yMin = Math.min(...allKg, goalKg || Infinity, projectedEndKg || Infinity) - 0.5;
+  const yMax = Math.max(...allKg, goalKg || -Infinity, projectedEndKg || -Infinity) + 0.5;
   const yRange = Math.max(0.5, yMax - yMin);
-  const xOf = i => PAD.l + (series.length > 1 ? (i / (series.length - 1)) * chartW : chartW / 2);
+  const xOf = i => PAD.l + (totalLen > 1 ? (i / (totalLen - 1)) * chartW : chartW / 2);
   const yOf = kg => PAD.t + ((yMax - kg) / yRange) * chartH;
 
   // Daily weigh-ins rendered as dots so isolated points are always visible
@@ -321,9 +333,9 @@ async function renderWeightCard() {
   // outside the chart (Math.ceil(yMax) could place a tick at e.g. 85 when yMax=84.05).
   const yTicksRaw = [Math.floor(yMax), Math.round((yMax + yMin) / 2), Math.ceil(yMin)];
   const yTicks = [...new Set(yTicksRaw)];
-  const yTickLabels = yTicks.map(v => `
-    <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${v}</text>
-    <line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" stroke-dasharray="2 4" opacity="0.4"/>
+  const yTickLabels = yTicks.map((v, i) => `
+    <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${v}</text>
+    ${i === 1 ? `<line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" opacity="0.25"/>` : ''}
   `).join('');
 
   // Determine fill mode for the area under the trend line:
@@ -371,11 +383,29 @@ async function renderWeightCard() {
     // Place label above-left of the dot so it doesn't clip the right edge.
     const labelX = (cx - 10).toFixed(1);
     const labelY = (cy - 10).toFixed(1);
-    latestCallout = `<text x="${labelX}" y="${labelY}" text-anchor="end" fill="var(--info)" font-size="13" font-weight="700" font-family="sans-serif">${lastPt.kg.toFixed(1)} kg</text>`;
+    latestCallout = `<text x="${labelX}" y="${labelY}" text-anchor="end" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg</text>`;
   }
 
   // Friendly date labels (e.g. "Apr 27" instead of "2026-04-27").
   const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const projectedEndDateStr = canProject
+    ? new Date(lastD.getTime() + PROJECT_DAYS * dayMs).toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : null;
+
+  // Projection: dashed gray line extending forward from the last 7-day avg point.
+  let projectionLine = '';
+  let todayDivider = '';
+  if (canProject && lastAvgIdx !== -1) {
+    const px1 = xOf(lastAvgIdx).toFixed(1);
+    const py1 = yOf(lastAvgKgRaw).toFixed(1);
+    const px2 = xOf(series.length - 1 + PROJECT_DAYS).toFixed(1);
+    const py2 = yOf(projectedEndKg).toFixed(1);
+    projectionLine = `<line x1="${px1}" y1="${py1}" x2="${px2}" y2="${py2}" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.55" class="wt-projection"/>
+                      <circle cx="${px2}" cy="${py2}" r="2.5" fill="var(--text-dim)" opacity="0.6"/>
+                      <text x="${(parseFloat(px2) - 4).toFixed(1)}" y="${(parseFloat(py2) - 6).toFixed(1)}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit" opacity="0.7">~${projectedEndKg.toFixed(1)} kg</text>`;
+    const tx = xOf(series.length - 1).toFixed(1);
+    todayDivider = `<line x1="${tx}" y1="${PAD.t}" x2="${tx}" y2="${H - PAD.b}" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="2 3" opacity="0.35"/>`;
+  }
 
   // Stats card colours
   const dColor = totalDelta < 0 ? 'var(--accent)' : totalDelta > 0 ? 'var(--danger)' : 'var(--text-dim)';
@@ -388,8 +418,8 @@ async function renderWeightCard() {
   let etaHtml = '';
   if (goalKg) {
     const gy = yOf(goalKg).toFixed(1);
-    goalLine = `<line x1="${PAD.l}" y1="${gy}" x2="${W - PAD.r}" y2="${gy}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.8"/>
-                <text x="${W - PAD.r - 4}" y="${(parseFloat(gy) - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)" font-size="9" font-family="sans-serif">goal ${goalKg}</text>`;
+    goalLine = `<line x1="${PAD.l}" y1="${gy}" x2="${W - PAD.r}" y2="${gy}" stroke="var(--accent)" stroke-width="1.25" stroke-dasharray="4 4" opacity="0.7"/>
+                <text x="${W - PAD.r - 4}" y="${(parseFloat(gy) - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)" font-size="10" font-family="inherit" opacity="0.85">goal ${goalKg}</text>`;
     const kgToGo = Math.round((last.kg - goalKg) * 100) / 100;
     const goingRightWay = (goalKg < last.kg && kgPerWeek < 0) || (goalKg > last.kg && kgPerWeek > 0);
     if (Math.abs(kgToGo) < 0.1) {
@@ -505,28 +535,37 @@ async function renderWeightCard() {
     </div>
 
     ${progressHtml}
+    ${!goalKg && weights.length >= 2 ? `
+      <div class="wt-moved-hero">
+        <div class="wt-moved-num" style="color:${dColor};">${dSign}${totalDelta.toFixed(2)} kg</div>
+        <div class="wt-moved-lbl">moved from your start (${first.kg.toFixed(1)} kg, ${daysSpan} day${daysSpan === 1 ? '' : 's'} ago)</div>
+      </div>` : ''}
     ${milestonesHtml}
     <div class="weight-chart">
-      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;font-family:inherit;">
         <defs>
           <linearGradient id="wt-area-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="var(--info)" stop-opacity="${fillMode === 'to-goal' ? 0.28 : 0.18}"/>
+            <stop offset="0%" stop-color="var(--info)" stop-opacity="${fillMode === 'to-goal' ? 0.18 : 0.1}"/>
             <stop offset="100%" stop-color="var(--info)" stop-opacity="0"/>
           </linearGradient>
         </defs>
         ${yTickLabels}
         ${areaPath ? `<path d="${areaPath}" fill="url(#wt-area-grad)" class="wt-area-fill"/>` : ''}
         ${goalLine}
-        ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="2.5" stroke-linecap="round" class="wt-trend-line" pathLength="1"/>` : ''}
+        ${todayDivider}
+        ${projectionLine}
+        ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="1.75" stroke-linecap="round" class="wt-trend-line" pathLength="1"/>` : ''}
         ${dailyDots}
-        ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="5" fill="var(--info)" stroke="var(--bg)" stroke-width="2" class="wt-latest-dot"/>` : ''}
+        ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="4" fill="var(--info)" stroke="var(--bg)" stroke-width="2" class="wt-latest-dot"/>` : ''}
         ${latestCallout}
-        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="10" font-family="sans-serif">${niceDate(first.date)}</text>
-        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="sans-serif">${niceDate(last.date)}</text>
+        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="10" font-family="inherit">${niceDate(first.date)}</text>
+        ${canProject ? `<text x="${xOf(series.length - 1).toFixed(1)}" y="${H - 8}" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-family="inherit" opacity="0.7">today</text>` : ''}
+        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${canProject ? projectedEndDateStr : niceDate(last.date)}</text>
       </svg>
       <div class="weight-legend">
         <span><span class="leg-swatch daily-dot"></span> daily weigh-in</span>
         <span><span class="leg-swatch avg"></span> 7-day average</span>
+        ${canProject ? `<span><span class="leg-swatch projection"></span> projection</span>` : ''}
         ${goalKg ? `<span><span class="leg-swatch goal"></span> goal (${goalKg} kg)</span>` : ''}
       </div>
     </div>
