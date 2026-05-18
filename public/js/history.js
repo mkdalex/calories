@@ -317,8 +317,9 @@ async function renderWeightCard() {
     avgPath += `${cmd}${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
   });
 
-  // Y-axis ticks rounded to whole kg, deduped (handles tight ranges).
-  const yTicksRaw = [Math.ceil(yMax), Math.round((yMax + yMin) / 2), Math.floor(yMin)];
+  // Y-axis ticks rounded toward the interior of the range so labels never sit
+  // outside the chart (Math.ceil(yMax) could place a tick at e.g. 85 when yMax=84.05).
+  const yTicksRaw = [Math.floor(yMax), Math.round((yMax + yMin) / 2), Math.ceil(yMin)];
   const yTicks = [...new Set(yTicksRaw)];
   const yTickLabels = yTicks.map(v => `
     <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="9" font-family="sans-serif">${v}</text>
