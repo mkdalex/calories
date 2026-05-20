@@ -104,12 +104,11 @@ function openFavPopup(f) {
   $('#favPopupClose').addEventListener('click', () => bg.remove());
 
   $('#favLogLast').addEventListener('click', async (ev) => {
-    try {
-      await logMeal({
-        name: f.name, kcal: f.last_kcal, protein: f.last_protein,
-        fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0, source: 'manual'
-      }, ev.currentTarget);
-    } catch (_) { return; }
+    const res = await logMeal({
+      name: f.name, kcal: f.last_kcal, protein: f.last_protein,
+      fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0, source: 'manual'
+    }, ev.currentTarget);
+    if (!res) return;
     bg.remove();
     showToast(`Logged: ${f.name}`);
     loadToday();
@@ -123,12 +122,13 @@ function openFavPopup(f) {
     try {
       const data = await api('/api/parse', { method: 'POST', body: { text } });
       if (data.error || !data.items?.length) { showToast('Could not parse — try being more specific'); return; }
-      await logMeal({
+      const logged = await logMeal({
         name: text.slice(0, 200),
         kcal: data.totals.kcal, protein: data.totals.protein,
         fat: data.totals.fat || 0, carb: data.totals.carb || 0, fiber: data.totals.fiber || 0,
         source: data.items[0]?.source || 'ai-estimate', items: data.items
       });
+      if (!logged) return;
       bg.remove();
       showToast(`Logged: ${text}`);
       loadToday();

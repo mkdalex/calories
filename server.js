@@ -622,8 +622,7 @@ app.get('/api/loader-stats', (req, res) => {
 });
 app.post('/api/loader-stats', async (req, res) => {
   const ms = Number(req.body && req.body.duration_ms);
-  // Sanity: under 300ms is probably a cached response; over 60s is broken.
-  // Either way we don't want it dragging the median.
+  // Under 300ms = probably a cached response; over 60s = broken. Either drags the median.
   if (!Number.isFinite(ms) || ms < 300 || ms > 60000) {
     return res.status(400).json({ error: 'invalid duration' });
   }
@@ -635,7 +634,10 @@ app.post('/api/loader-stats', async (req, res) => {
     writeJson(req.dataFiles.loader_stats, cur);
     return cur;
   });
-  res.json({ samples_count: stats.samples.length });
+  res.json({
+    samples_count: stats.samples.length,
+    median_ms: stats.samples.length >= 4 ? _medianOf(stats.samples) : null
+  });
 });
 app.delete('/api/weight/:date', async (req, res) => {
   const { date } = req.params;

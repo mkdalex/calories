@@ -554,9 +554,7 @@ async function saveParsed() {
     body.date = currentLogDate;
     body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
   }
-  try {
-    await logMeal(body, $('#parsedSaveBtn'));
-  } catch (_) { return; } // toast already shown by logMeal
+  if (!await logMeal(body, $('#parsedSaveBtn'))) return;
   $('#logText').value = '';
   $('#parsedItems').innerHTML = '';
   $('#parsedTotals').innerHTML = '';
@@ -578,9 +576,7 @@ $('#manSave').addEventListener('click', async () => {
     body.date = currentLogDate;
     body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
   }
-  try {
-    await logMeal(body, $('#manSave'));
-  } catch (_) { return; }
+  if (!await logMeal(body, $('#manSave'))) return;
   $('#manName').value = ''; $('#manKcal').value = ''; $('#manProtein').value = '';
   closeLogModal();
   showToast('Meal logged');

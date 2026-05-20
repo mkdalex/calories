@@ -5,11 +5,7 @@
 
 const AI_LOADERS = ['dino'];
 const AI_MESSAGES = {
-  dino:  ['Running for your data…', 'Sprinting through USDA…', 'Outrunning the kcal…', 'Hopping the cactus of nutrition…'],
-  // Dormant — kept for posterity.
-  pot:   ['Tasting your food…', 'Letting the chef sniff…', 'Counting the calories…', 'Reading the label…'],
-  pong:  ['AI vs Database — best of 7…', 'Volleying for the answer…', 'Match point coming up…'],
-  whisk: ['Whisking the macros…', 'Stirring the database…', 'Folding in fiber…']
+  dino: ['Running for your data…', 'Sprinting through USDA…', 'Outrunning the kcal…', 'Hopping the cactus of nutrition…']
 };
 
 // ====== DINO ======
@@ -116,6 +112,7 @@ function startDinoGame(loaderEl) {
   const FIRST_SPAWN_DELAY = 65;
 
   const HIGH_KEY = 'dinoHigh';
+  const JUMP_KEYS = new Set([' ', 'Spacebar', 'ArrowUp']);
   const fmt = n => String(Math.max(0, Math.floor(n))).padStart(5, '0');
 
   const state = {
@@ -128,7 +125,8 @@ function startDinoGame(loaderEl) {
     inputHeld: false,
     rafId: null,
     frame: 0,
-    lastTs: 0
+    lastTs: 0,
+    lastScoreText: ''
   };
 
   highEl.textContent = `HI ${fmt(state.high)}`;
@@ -167,12 +165,12 @@ function startDinoGame(loaderEl) {
   }
 
   function tick(ts) {
-    // Self-clean: if the loader DOM was replaced (AI response landed, modal
-    // closed, etc.), abandon the loop and detach listeners. Belt-and-braces
-    // alongside clearAILoader's explicit destroy().
+    // Self-clean if the loader DOM was replaced — belt-and-braces alongside
+    // clearAILoader's explicit destroy().
     if (!root.isConnected) {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup',   onKeyUp);
+      state.rafId = null;
       return;
     }
     // dt normalized to 60fps frame-units, clamped so a tab switch doesn't teleport
@@ -181,40 +179,44 @@ function startDinoGame(loaderEl) {
     state.lastTs = ts;
     state.frame++;
 
-    if (state.phase === 'playing') {
-      // Physics
-      state.vy += GRAVITY * dt;
-      if (state.inputHeld && state.jumpFrames < MAX_HOLD_FRAMES && state.isJumping && state.vy < 0) {
-        state.vy += JUMP_HOLD * dt;
-        state.jumpFrames += dt;
-      }
-      state.y += state.vy * dt;
-      if (state.y >= 0) {
-        state.y = 0; state.vy = 0; state.isJumping = false; state.jumpFrames = 0;
-        root.classList.remove('jumping');
-      }
-
-      // World movement
-      state.speed = Math.min(MAX_SPEED, state.speed + SPEED_RAMP * dt);
-      state.obstacles.forEach(o => { o.x -= state.speed * dt; });
-      state.obstacles = state.obstacles.filter(o => {
-        if (o.x < -50) { o.node.remove(); return false; }
-        return true;
-      });
-      maybeSpawn();
-
-      // Score (~10/sec at base speed, scales with speed = harder = more points)
-      state.score += 0.16 * dt * (state.speed / BASE_SPEED);
-      scoreEl.textContent = fmt(state.score);
-
-      if (collides()) { gameOver(); }
+    state.vy += GRAVITY * dt;
+    if (state.inputHeld && state.jumpFrames < MAX_HOLD_FRAMES && state.isJumping && state.vy < 0) {
+      state.vy += JUMP_HOLD * dt;
+      state.jumpFrames += dt;
+    }
+    state.y += state.vy * dt;
+    if (state.y >= 0) {
+      state.y = 0; state.vy = 0; state.isJumping = false; state.jumpFrames = 0;
+      root.classList.remove('jumping');
     }
 
-    // Render
+    state.speed = Math.min(MAX_SPEED, state.speed + SPEED_RAMP * dt);
+    state.obstacles.forEach(o => { o.x -= state.speed * dt; });
+    state.obstacles = state.obstacles.filter(o => {
+      if (o.x < -50) { o.node.remove(); return false; }
+      return true;
+    });
+    maybeSpawn();
+
+    state.score += 0.16 * dt * (state.speed / BASE_SPEED);
+    const nextScoreText = fmt(state.score);
+    if (nextScoreText !== state.lastScoreText) {
+      scoreEl.textContent = nextScoreText;
+      state.lastScoreText = nextScoreText;
+    }
+
+    if (collides()) { gameOver(); return; }
+
     dinoEl.style.transform = `translateY(${state.y.toFixed(1)}px)`;
     state.obstacles.forEach(o => { o.node.style.transform = `translateX(${o.x.toFixed(1)}px)`; });
 
     state.rafId = requestAnimationFrame(tick);
+  }
+  function ensureRunning() {
+    if (state.rafId == null) {
+      state.lastTs = 0;
+      state.rafId = requestAnimationFrame(tick);
+    }
   }
 
   function jump() {
@@ -232,16 +234,17 @@ function startDinoGame(loaderEl) {
     state.phase = 'playing';
     overlay.classList.add('hidden');
     root.classList.add('running');
+    ensureRunning();
   }
 
   function gameOver() {
     state.phase = 'gameover';
     root.classList.remove('running', 'jumping');
+    if (state.rafId != null) { cancelAnimationFrame(state.rafId); state.rafId = null; }
     const finalScore = Math.floor(state.score);
-    let newRecord = false;
-    if (finalScore > state.high) {
+    const newRecord = finalScore > state.high;
+    if (newRecord) {
       state.high = finalScore;
-      newRecord = true;
       try { localStorage.setItem(HIGH_KEY, String(finalScore)); } catch (_) {}
       highEl.textContent = `HI ${fmt(finalScore)}`;
     }
@@ -258,27 +261,24 @@ function startDinoGame(loaderEl) {
     state.speed = BASE_SPEED;
     state.score = 0;
     state.frame = 0;
+    state.lastScoreText = '';
     scoreEl.textContent = fmt(0);
     overlay.classList.add('hidden');
     state.phase = 'playing';
     root.classList.add('running');
+    ensureRunning();
   }
 
-  // --- Input ---
   function onKeyDown(e) {
-    // Don't hijack typing in inputs/textareas.
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    if (e.key === ' ' || e.key === 'Spacebar' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      state.inputHeld = true;
-      jump();
-    }
+    if (!JUMP_KEYS.has(e.key)) return;
+    e.preventDefault();
+    state.inputHeld = true;
+    jump();
   }
   function onKeyUp(e) {
-    if (e.key === ' ' || e.key === 'Spacebar' || e.key === 'ArrowUp') {
-      state.inputHeld = false;
-    }
+    if (JUMP_KEYS.has(e.key)) state.inputHeld = false;
   }
   function onPointerDown(e) {
     e.preventDefault();
@@ -294,64 +294,16 @@ function startDinoGame(loaderEl) {
   stage.addEventListener('pointercancel', onPointerUp);
   stage.addEventListener('pointerleave',  onPointerUp);
 
-  state.rafId = requestAnimationFrame(tick);
-
-  // Expose teardown so clearAILoader can stop everything cleanly.
+  // No initial rAF — the loop only runs while state.phase === 'playing'.
+  // Stage pointer listeners die with the DOM; only document keys need detaching.
   loaderEl._dinoGame = {
     destroy() {
-      if (state.rafId) cancelAnimationFrame(state.rafId);
+      if (state.rafId != null) { cancelAnimationFrame(state.rafId); state.rafId = null; }
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup',   onKeyUp);
-      // Stage listeners die with the DOM, no need to detach explicitly.
     }
   };
 }
-
-// ====== Dormant builders (kept for future use) ======
-/* eslint-disable no-unused-vars */
-function aiLoaderPotSVG() {
-  return `
-    <svg class="ail-svg ail-pot-svg" viewBox="0 0 120 150" width="120" height="150" aria-hidden="true">
-      <defs>
-        <linearGradient id="ailFlameGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"  stop-color="#fbbf24" />
-          <stop offset="60%" stop-color="#f97316" />
-          <stop offset="100%" stop-color="#dc2626" />
-        </linearGradient>
-        <radialGradient id="ailSoupGrad" cx="0.5" cy="0.5" r="0.6">
-          <stop offset="0%" stop-color="#f4a273" />
-          <stop offset="100%" stop-color="#c45a36" />
-        </radialGradient>
-      </defs>
-      <g class="ail-steam">
-        <path class="wisp w1" d="M 40 60 Q 35 45 42 30 Q 49 18 42 5"/>
-        <path class="wisp w2" d="M 60 60 Q 55 45 62 30 Q 69 18 62 5"/>
-        <path class="wisp w3" d="M 80 60 Q 75 45 82 30 Q 89 18 82 5"/>
-      </g>
-      <path d="M 14 92 Q 4 86 12 76" fill="none" stroke="#181a1f" stroke-width="3.5" stroke-linecap="round"/>
-      <path d="M 106 92 Q 116 86 108 76" fill="none" stroke="#181a1f" stroke-width="3.5" stroke-linecap="round"/>
-      <ellipse cx="60" cy="72" rx="40" ry="6" fill="#1f2228"/>
-      <path d="M 20 72 L 20 118 Q 20 128 30 131 L 90 131 Q 100 128 100 118 L 100 72 Z" fill="#2a2e36" stroke="#0d0e11" stroke-width="1.5"/>
-      <ellipse cx="60" cy="72" rx="38" ry="4.5" fill="#0d0e11"/>
-      <ellipse class="ail-pot-surface" cx="60" cy="71" rx="36" ry="3.8" fill="url(#ailSoupGrad)"/>
-      <circle class="ail-pot-bubble bubble1" cx="46" cy="71" r="2.4" fill="#fbcb9b"/>
-      <circle class="ail-pot-bubble bubble2" cx="62" cy="72" r="3"   fill="#fbcb9b"/>
-      <circle class="ail-pot-bubble bubble3" cx="74" cy="70" r="1.9" fill="#fbcb9b"/>
-      <circle class="ail-pot-bubble bubble4" cx="55" cy="73" r="1.6" fill="#fbcb9b"/>
-      <ellipse cx="46" cy="69" rx="9" ry="1.2" fill="rgba(255,255,255,0.35)"/>
-      <g class="ail-flame">
-        <path d="M 48 132 Q 42 142 52 144 Q 56 152 60 144 Q 64 152 68 144 Q 78 142 72 132 Q 66 134 60 128 Q 54 134 48 132 Z" fill="url(#ailFlameGrad)"/>
-        <path d="M 54 138 Q 52 144 58 145 Q 60 148 62 145 Q 68 144 66 138 Q 62 140 60 136 Q 58 140 54 138 Z" fill="#fde68a" opacity="0.9"/>
-      </g>
-    </svg>`;
-}
-function aiLoaderWhiskSVG() {
-  return `<svg class="ail-svg ail-whisk-svg" viewBox="0 0 120 130" width="120" height="130" aria-hidden="true"></svg>`;
-}
-function aiLoaderPongSVG() {
-  return `<div class="ail-pong-court"><div class="paddle left"></div><div class="ball"></div><div class="paddle right"></div></div>`;
-}
-/* eslint-enable no-unused-vars */
 
 const AI_LOADER_BUILDERS = {
   dino: aiLoaderDinoMarkup
@@ -380,15 +332,13 @@ function loaderMedianMs() {
 }
 function _recordEtaSample(ms) {
   // Fire and forget — never block the user's flow on stats writes.
-  fetch('/api/loader-stats', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ duration_ms: Math.round(ms) })
-  }).then(r => r.json()).then(r => {
-    if (r && typeof r.samples_count === 'number') _cachedSampleCount = r.samples_count;
-    // Refresh cached median in the background so future loaders use the new value.
-    prefetchLoaderStats();
-  }).catch(() => {});
+  api('/api/loader-stats', { method: 'POST', body: { duration_ms: Math.round(ms) } })
+    .then(r => {
+      if (!r) return;
+      if (typeof r.samples_count === 'number') _cachedSampleCount = r.samples_count;
+      if (typeof r.median_ms === 'number')     _cachedMedianMs = r.median_ms;
+    })
+    .catch(() => {});
 }
 
 // Progress curve: linear to ~88% at the expected time, then asymptotic toward
@@ -423,29 +373,26 @@ function showAILoader(el, fixedMsg) {
       <div class="ai-eta-track"><div class="ai-eta-fill"></div></div>
     </div>`;
 
-  // Boot the playable dino once its DOM exists.
   if (variant === 'dino') startDinoGame(el);
 
-  // ETA bar + duration recording. The rAF self-detects when the loader DOM
-  // was replaced (AI response landed) and records the elapsed time so future
-  // estimates calibrate to this user's real call latency.
+  // ETA bar + duration recording. setInterval (not rAF) because the bar already
+  // has a 150ms CSS transition that smooths between updates — 60Hz writes would
+  // be wasted. When the loader DOM is replaced (AI response landed) the interval
+  // self-clears and records the elapsed time for future calibration.
   const loaderRoot = el.querySelector('.ai-loader');
   const fillEl = el.querySelector('.ai-eta-fill');
   const startTs = performance.now();
-  el._aiLoaderStart = startTs;
-  function etaTick() {
+  el._aiEtaInterval = setInterval(() => {
     if (!loaderRoot || !loaderRoot.isConnected) {
+      clearInterval(el._aiEtaInterval);
+      delete el._aiEtaInterval;
       const elapsed = performance.now() - startTs;
-      // Only count "real" completions (300ms+) so super-fast cached responses
-      // don't drag the median to misleadingly small values.
+      // Under 300ms is probably cached — don't let it drag the median down.
       if (elapsed > 300) _recordEtaSample(elapsed);
       return;
     }
-    const elapsed = performance.now() - startTs;
-    if (fillEl) fillEl.style.width = progressPercent(elapsed, estimatedMs).toFixed(1) + '%';
-    el._aiEtaRaf = requestAnimationFrame(etaTick);
-  }
-  el._aiEtaRaf = requestAnimationFrame(etaTick);
+    if (fillEl) fillEl.style.width = progressPercent(performance.now() - startTs, estimatedMs).toFixed(1) + '%';
+  }, 150);
 
   if (!fixedMsg) {
     let i = 0;
@@ -464,20 +411,10 @@ function showAILoader(el, fixedMsg) {
 }
 
 function clearAILoader(el) {
+  // Explicit clearAILoader (modal close, etc.) deliberately does NOT record a
+  // duration sample — that's a user cancellation, not a real call.
   if (!el) return;
-  if (el._aiLoaderInterval) {
-    clearInterval(el._aiLoaderInterval);
-    delete el._aiLoaderInterval;
-  }
-  if (el._aiEtaRaf) {
-    cancelAnimationFrame(el._aiEtaRaf);
-    delete el._aiEtaRaf;
-  }
-  if (el._dinoGame) {
-    el._dinoGame.destroy();
-    delete el._dinoGame;
-  }
-  // Note: explicit clearAILoader (modal close, etc.) deliberately does NOT
-  // record a duration sample — that's a user cancellation, not a real call.
-  delete el._aiLoaderStart;
+  if (el._aiLoaderInterval) { clearInterval(el._aiLoaderInterval); delete el._aiLoaderInterval; }
+  if (el._aiEtaInterval)    { clearInterval(el._aiEtaInterval);    delete el._aiEtaInterval; }
+  if (el._dinoGame)         { el._dinoGame.destroy();              delete el._dinoGame; }
 }
