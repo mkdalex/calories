@@ -160,6 +160,9 @@ function closeLogModal() {
   $('#logModal').classList.add('hidden');
   currentLogDate = null;
   if ($('#logDateBanner')) $('#logDateBanner').classList.add('hidden');
+  // Tear down any in-progress AI loader (incl. dino game) so it doesn't keep
+  // running invisibly with global key listeners attached.
+  clearAILoader($('#parsedItems'));
 }
 $('#fab').addEventListener('click', () => openLogModal());
 $('#logClose').addEventListener('click', closeLogModal);

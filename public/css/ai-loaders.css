@@ -16,6 +16,38 @@
   text-align: center;
   transition: opacity 0.18s ease;
 }
+
+/* ETA row + progress bar */
+.ai-eta-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.ai-eta-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+.ai-eta-track {
+  width: 280px;
+  height: 2px;
+  background: color-mix(in srgb, var(--text-dim) 18%, transparent);
+  border-radius: 1px;
+  overflow: hidden;
+  margin: 0 auto;
+}
+.ai-eta-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: width 0.15s linear;
+}
 .ail-svg {
   display: block;
   overflow: visible;
@@ -90,48 +122,97 @@
   30%           { opacity: 1; transform: translateY(-8px) scale(1.1); }
 }
 
-/* ====== DINO ====== */
-.ail-dino-stage {
+/* ====== DINO GAME ====== */
+.dino-game {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  outline: none;
+}
+.dino-hud {
+  display: flex;
+  justify-content: space-between;
+  width: 300px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.dino-score {
+  color: var(--text);
+}
+.dino-stage {
   position: relative;
-  width: 270px;
-  height: 96px;
-  border-bottom: 2px solid var(--border);
+  width: 320px;
+  height: 130px;
   overflow: hidden;
+  cursor: pointer;
 }
-.ail-dino-stage::after {
-  content: '';
+.dino-hud { width: 320px; }
+.dino-ground {
   position: absolute;
-  bottom: -2px; left: 0; right: 0;
+  bottom: 8px; left: 0; right: 0;
   height: 2px;
-  background: repeating-linear-gradient(90deg, var(--text-dim) 0 5px, transparent 5px 11px);
-  opacity: 0.45;
+  background: repeating-linear-gradient(90deg, var(--text-dim) 0 6px, transparent 6px 12px);
+  opacity: 0.55;
 }
-.ail-dino-svg {
+.dino-sprite {
   position: absolute;
-  bottom: 4px; left: 30px;
-  animation: ail-dino-jump 1.4s cubic-bezier(0.34,0,0.45,1) infinite;
+  left: 30px;
+  bottom: 6px;           /* sprite has 4px gap below feet → feet land on ground (bottom:10) */
+  width: 44px;
+  height: 44px;
+  will-change: transform;
 }
-@keyframes ail-dino-jump {
-  0%, 65%, 100% { transform: translateY(0); }
-  78%, 88%      { transform: translateY(-40px); }
-}
-.ail-dino-svg .leg-l { animation: ail-dino-leg-l 0.22s steps(2) infinite; }
-.ail-dino-svg .leg-r { animation: ail-dino-leg-r 0.22s steps(2) infinite; }
-@keyframes ail-dino-leg-l { 0%,49% { transform: translateY(0); } 50%,100% { transform: translateY(2px); } }
-@keyframes ail-dino-leg-r { 0%,49% { transform: translateY(2px); } 50%,100% { transform: translateY(0); } }
-.ail-cactus {
+.dino-sprite-svg { display: block; }
+
+/* Leg shuffle — always animates so the idle dino feels alive; paused mid-jump. */
+.dino-game .dino-leg-l { animation: dino-leg-l 0.18s steps(2) infinite; }
+.dino-game .dino-leg-r { animation: dino-leg-r 0.18s steps(2) infinite; }
+.dino-game.jumping .dino-leg-l,
+.dino-game.jumping .dino-leg-r { animation: none; }
+@keyframes dino-leg-l { 0%,49% { transform: translateY(0); } 50%,100% { transform: translateY(2px); } }
+@keyframes dino-leg-r { 0%,49% { transform: translateY(2px); } 50%,100% { transform: translateY(0); } }
+
+.dino-obstacle {
   position: absolute;
-  bottom: 4px;
-  right: -25px;
-  animation: ail-cactus-slide 1.4s linear infinite;
+  bottom: 10px;          /* cactus body fills its viewBox → sits flush on ground top */
+  left: 0;
+  will-change: transform;
+  pointer-events: none;
 }
-.ail-cactus-2 {
-  animation-delay: 0.7s;
+.dino-obstacle svg { display: block; }
+
+.dino-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(2px);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity 0.15s;
 }
-@keyframes ail-cactus-slide {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-320px); }
+.dino-overlay.hidden { opacity: 0; pointer-events: none; }
+.dino-overlay-msg {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  letter-spacing: 0.05em;
 }
+.dino-overlay .dino-gameover { color: var(--text); font-weight: 700; letter-spacing: 0.1em; }
+.dino-overlay .dino-record   { color: #facc15; font-weight: 700; letter-spacing: 0.1em; text-shadow: 0 0 10px color-mix(in srgb, #facc15 50%, transparent); }
+.dino-overlay .dino-retry-hint { color: var(--text-dim); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* ====== PONG ====== */
 .ail-pong-court {

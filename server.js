@@ -239,12 +239,13 @@ function attachUser(req, res, next) {
   const userDir = path.join(USERS_DIR, req.userId);
   if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
   req.dataFiles = {
-    profile:      path.join(userDir, 'profile.json'),
-    log:          path.join(userDir, 'log.json'),
-    weight:       path.join(userDir, 'weight.json'),
-    templates:    path.join(userDir, 'templates.json'),
-    custom_foods: path.join(userDir, 'custom_foods.json'),
-    water:        path.join(userDir, 'water.json')
+    profile:       path.join(userDir, 'profile.json'),
+    log:           path.join(userDir, 'log.json'),
+    weight:        path.join(userDir, 'weight.json'),
+    templates:     path.join(userDir, 'templates.json'),
+    custom_foods:  path.join(userDir, 'custom_foods.json'),
+    water:         path.join(userDir, 'water.json'),
+    loader_stats:  path.join(userDir, 'loader_stats.json')
   };
   next();
 }
@@ -600,6 +601,41 @@ app.post('/api/weight', async (req, res) => {
     });
   }
   res.json({ entry });
+});
+
+// ---------- /api/loader-stats ----------
+// Per-user rolling window of AI loader durations (ms). Used client-side to
+// show "Usually ~Xs" + a calibrated progress bar that follows the user across
+// devices (phone, PC, Electron) instead of starting fresh per browser.
+const LOADER_STATS_MAX = 20;
+function _medianOf(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+app.get('/api/loader-stats', (req, res) => {
+  const stats = readJson(req.dataFiles.loader_stats, { samples: [] });
+  const samples = Array.isArray(stats.samples) ? stats.samples : [];
+  res.json({
+    samples_count: samples.length,
+    median_ms: samples.length >= 4 ? _medianOf(samples) : null
+  });
+});
+app.post('/api/loader-stats', async (req, res) => {
+  const ms = Number(req.body && req.body.duration_ms);
+  // Sanity: under 300ms is probably a cached response; over 60s is broken.
+  // Either way we don't want it dragging the median.
+  if (!Number.isFinite(ms) || ms < 300 || ms > 60000) {
+    return res.status(400).json({ error: 'invalid duration' });
+  }
+  const stats = await withFileLock(req.dataFiles.loader_stats, () => {
+    const cur = readJson(req.dataFiles.loader_stats, { samples: [] });
+    if (!Array.isArray(cur.samples)) cur.samples = [];
+    cur.samples.push(Math.round(ms));
+    while (cur.samples.length > LOADER_STATS_MAX) cur.samples.shift();
+    writeJson(req.dataFiles.loader_stats, cur);
+    return cur;
+  });
+  res.json({ samples_count: stats.samples.length });
 });
 app.delete('/api/weight/:date', async (req, res) => {
   const { date } = req.params;

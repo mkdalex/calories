@@ -34,6 +34,9 @@ $$(".nav button").forEach((btn) => {
     return; // stop — don't fire any /api calls if not logged in
   }
   renderUserChip();
+  // Warm the AI loader ETA cache so the first parse shows a calibrated estimate
+  // (median from the user's prior calls across all devices).
+  if (typeof prefetchLoaderStats === 'function') prefetchLoaderStats();
   loadToday();
   maybeShowOnboarding();
 })();
