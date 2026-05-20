@@ -384,11 +384,11 @@ function renderToday() {
       loadToday();
       if (entry) {
         showUndoToast(`Deleted "${entry.name.slice(0, 40)}"`, async () => {
-          await api('/api/log', { method: 'POST', body: {
+          await logMeal({
             name: entry.name, kcal: entry.kcal, protein: entry.protein,
             fat: entry.fat || 0, carb: entry.carb || 0, fiber: entry.fiber || 0,
             source: entry.source, items: entry.items, time: entry.time
-          }});
+          });
           loadToday();
         });
       }
@@ -619,7 +619,9 @@ function renderGapFill(data) {
   wrap.querySelectorAll('.gf-log').forEach(btn => {
     btn.addEventListener('click', async () => {
       const s = JSON.parse(btn.dataset.s.replace(/&#39;/g, "'"));
-      await api('/api/log', { method: 'POST', body: { name: s.name, kcal: s.kcal, protein: s.protein, fat: s.fat, carb: s.carb, fiber: s.fiber, source: 'custom' } });
+      try {
+        await logMeal({ name: s.name, kcal: s.kcal, protein: s.protein, fat: s.fat, carb: s.carb, fiber: s.fiber, source: 'custom' }, btn);
+      } catch (_) { return; }
       showToast(`Logged: ${s.name}`);
       loadToday();
     });
@@ -653,7 +655,9 @@ async function loadMacroRemaining(data) {
       itemsEl.querySelectorAll('.mr-log').forEach(btn => {
         btn.addEventListener('click', async () => {
           const s = JSON.parse(btn.dataset.s.replace(/&#39;/g, "'"));
-          await api('/api/log', { method: 'POST', body: { name: s.name, kcal: s.kcal, protein: s.protein || 0, fat: s.fat || 0, carb: s.carb || 0, fiber: s.fiber || 0, source: 'ai-estimate' } });
+          try {
+            await logMeal({ name: s.name, kcal: s.kcal, protein: s.protein || 0, fat: s.fat || 0, carb: s.carb || 0, fiber: s.fiber || 0, source: 'ai-estimate' }, btn);
+          } catch (_) { return; }
           showToast(`Logged: ${s.name}`);
           loadToday();
         });

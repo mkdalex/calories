@@ -130,11 +130,11 @@ $('#editDelete').addEventListener('click', async () => {
   closeEditModal();
   refreshAfterChange(date);
   showUndoToast(`Deleted "${entry.name.slice(0, 40)}"`, async () => {
-    await api('/api/log', { method: 'POST', body: {
+    await logMeal({
       name: entry.name, kcal: entry.kcal, protein: entry.protein,
       fat: entry.fat || 0, carb: entry.carb || 0, fiber: entry.fiber || 0,
       source: entry.source, items: entry.items, time: entry.time, date
-    }});
+    });
     refreshAfterChange(date);
   });
 });
@@ -551,7 +551,9 @@ async function saveParsed() {
     body.date = currentLogDate;
     body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
   }
-  await api('/api/log', { method: 'POST', body });
+  try {
+    await logMeal(body, $('#parsedSaveBtn'));
+  } catch (_) { return; } // toast already shown by logMeal
   $('#logText').value = '';
   $('#parsedItems').innerHTML = '';
   $('#parsedTotals').innerHTML = '';
@@ -573,7 +575,9 @@ $('#manSave').addEventListener('click', async () => {
     body.date = currentLogDate;
     body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
   }
-  await api('/api/log', { method: 'POST', body });
+  try {
+    await logMeal(body, $('#manSave'));
+  } catch (_) { return; }
   $('#manName').value = ''; $('#manKcal').value = ''; $('#manProtein').value = '';
   closeLogModal();
   showToast('Meal logged');

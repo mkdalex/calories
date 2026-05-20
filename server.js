@@ -502,11 +502,23 @@ app.get('/api/log', (req, res) => {
 });
 
 app.post('/api/log', async (req, res) => {
-  const { name, kcal, protein, fat, carb, fiber, source, items, date, time } = req.body || {};
+  const { name, kcal, protein, fat, carb, fiber, source, items, date, time, idempotency_key } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   const d = date || todayStr(req);
-  const entry = await withFileLock(req.dataFiles.log, () => {
+  const result = await withFileLock(req.dataFiles.log, () => {
     const log = readJson(req.dataFiles.log, {});
+    // Idempotency: if any existing entry already carries this client-supplied key,
+    // return it instead of creating a duplicate. Survives client retries after a
+    // crash because the key is persisted on the entry itself.
+    if (idempotency_key) {
+      for (const [, entries] of Object.entries(log)) {
+        for (const e of entries) {
+          if (e.idempotency_key === idempotency_key) {
+            return { entry: e, deduped: true };
+          }
+        }
+      }
+    }
     if (!log[d]) log[d] = [];
     const e = {
       id: newId(),
@@ -518,13 +530,14 @@ app.post('/api/log', async (req, res) => {
       fiber: round1(fiber),
       source: source || 'manual',
       items: items || null,
-      time: time || new Date().toISOString()
+      time: time || new Date().toISOString(),
+      ...(idempotency_key ? { idempotency_key } : {})
     };
     log[d].push(e);
     writeJson(req.dataFiles.log, log);
-    return e;
+    return { entry: e };
   });
-  res.json({ entry });
+  res.json(result);
 });
 
 app.patch('/api/log/:date/:id', async (req, res) => {

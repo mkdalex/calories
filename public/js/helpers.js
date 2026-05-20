@@ -75,6 +75,60 @@ async function api(path, opts = {}) {
   });
   return r.json();
 }
+
+// Reasonably-unique key per save action. Used to dedupe accidental double-clicks
+// and post-crash retries — server returns the existing entry if it sees this key.
+function newIdemKey() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+// Wraps POST /api/log with four protections:
+//   1. Injects idempotency_key so the server dedupes accidental double-writes,
+//      even across a server crash + client retry (the key persists on the entry).
+//   2. Disables the trigger button + shows "Saving…" while the request is in flight.
+//   3. Auto-retries on transient failure (up to 3 attempts) with the SAME key,
+//      so a network hiccup that loses the response doesn't create a duplicate.
+//   4. Surfaces a clear error toast + re-enables the button if all retries fail.
+// `btn` is optional — pass null for code paths without a visible save button.
+async function logMeal(body, btn) {
+  let originalText = '';
+  if (btn) {
+    originalText = btn.dataset.origText || btn.textContent;
+    btn.dataset.origText = originalText;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+  }
+  const restoreBtn = () => {
+    if (btn) { btn.disabled = false; btn.textContent = originalText; }
+  };
+
+  // Stable key for this user action — reused across retries so the server dedupes.
+  const payload = { ...body, idempotency_key: body.idempotency_key || newIdemKey() };
+  const MAX_ATTEMPTS = 3;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await api('/api/log', { method: 'POST', body: payload });
+      if (res && res.error) throw new Error(res.error);
+      restoreBtn();
+      return res;
+    } catch (e) {
+      lastError = e;
+      if (attempt < MAX_ATTEMPTS - 1) {
+        if (btn) btn.textContent = `Retrying… (${attempt + 2}/${MAX_ATTEMPTS})`;
+        // Linear backoff: 600ms, 1200ms. Short enough that the user is still here.
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      }
+    }
+  }
+  restoreBtn();
+  if (typeof showToast === 'function') {
+    showToast('Failed to log after 3 tries — check connection then retry');
+  }
+  throw lastError;
+}
 function fmtTime(iso) {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
