@@ -190,10 +190,18 @@ function dateDiff(a, b) {
 function renderGymHeatmap() {
   const card = $('#gymHeatmapCard');
   if (!card) return;
-  // GitHub-style year heatmap: columns = weeks (oldest left → this week right),
-  // rows = day-of-week (Mon top → Sun bottom). 52 columns × 7 rows.
-  const WEEKS = 52;
+  // GitHub-style heatmap that grows with your data: starts at 4 weeks when you're
+  // brand new and expands toward 52 as you accumulate history. Avoids the
+  // "sea of empty cells" demotivation when you've only logged a couple of days.
   const todayStr = fmtDate(new Date());
+  const dataDates = Object.keys(gymData).sort();
+  let weeksSinceFirst = 0;
+  if (dataDates.length) {
+    const first = new Date(dataDates[0] + 'T00:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    weeksSinceFirst = Math.ceil((today - first) / (7 * 86400000));
+  }
+  const WEEKS = Math.min(52, Math.max(4, weeksSinceFirst + 1));
   const startMonday = startOfWeek(new Date());
   startMonday.setDate(startMonday.getDate() - (WEEKS - 1) * 7);
 
@@ -258,8 +266,21 @@ function renderGymHeatmap() {
     return `<span class="hm-month" style="grid-column: span ${span};">${MONTH_NAMES[m.monthIndex]}</span>`;
   }).join('');
 
+  // Adaptive title — matches the user's actual journey stage rather than always
+  // saying "last year" when there's only a week of data.
+  let titleMain;
+  if (totalTrained === 0) {
+    titleMain = `Your training log starts here`;
+  } else if (weeksSinceFirst <= 1) {
+    titleMain = `${totalTrained} training day${totalTrained === 1 ? '' : 's'} so far — keep going`;
+  } else if (WEEKS < 52) {
+    titleMain = `${totalTrained} training days in ${weeksSinceFirst} week${weeksSinceFirst === 1 ? '' : 's'}`;
+  } else {
+    titleMain = `${totalTrained} training days in the last year`;
+  }
+
   card.innerHTML = `
-    <h2>${totalTrained} training day${totalTrained === 1 ? '' : 's'} in the last year
+    <h2>${titleMain}
       <span style="font-size:11px;color:var(--text-dim);font-weight:400;">consistency at a glance</span>
     </h2>
     <div class="hm-wrap">

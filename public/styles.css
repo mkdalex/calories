@@ -544,11 +544,12 @@
     width: var(--hm-cell);
     height: var(--hm-cell);
     border-radius: 2px;
-    background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+    background: color-mix(in srgb, var(--text-dim) 6%, transparent);
     flex-shrink: 0;
   }
-  /* 5-step intensity scale, single-hue green like GitHub's contribution scale. */
-  .hm-cell.hm-l0 { background: color-mix(in srgb, var(--text-dim) 12%, transparent); }
+  /* 5-step intensity scale, single-hue green like GitHub's contribution scale.
+     Level 0 is intentionally very faint so the actual training days dominate visually. */
+  .hm-cell.hm-l0 { background: color-mix(in srgb, var(--text-dim) 6%, transparent); }
   .hm-cell.hm-l1 { background: color-mix(in srgb, var(--accent) 25%, transparent); }
   .hm-cell.hm-l2 { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   .hm-cell.hm-l3 { background: color-mix(in srgb, var(--accent) 70%, transparent); }
