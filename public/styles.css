@@ -503,18 +503,67 @@
   .gym-picker-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .gym-picker-chips .gym-chip { font-size: 13px; padding: 6px 12px; }
 
-  /* 12-week heatmap (GitHub-style) */
-  .gym-hm { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; overflow-x: auto; }
-  .gym-hm-row { display: flex; gap: 3px; }
-  .gym-hm-cell { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-  .gym-hm-cell.empty   { background: color-mix(in srgb, var(--text-dim) 10%, transparent); }
-  .gym-hm-cell.future  { background: transparent; border: 1px dashed var(--border); }
-  .gym-hm-cell.rest    { background: color-mix(in srgb, var(--text-dim) 30%, transparent); }
-  .gym-hm-cell.cardio  { background: color-mix(in srgb, var(--info) 60%, transparent); }
-  .gym-hm-cell.lifting { background: var(--accent); }
-  .gym-hm-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--text-dim); align-items: center; flex-wrap: wrap; }
-  .gym-hm-legend > span { display: inline-flex; align-items: center; gap: 5px; }
-  .gym-hm-legend .gym-hm-cell { width: 10px; height: 10px; }
+  /* GitHub-style 52-week heatmap. Cells are fixed size so y-axis day labels line
+     up exactly with cell rows. Horizontal scroll on narrow screens; the y-labels
+     stick to the left so they stay visible. */
+  .hm-wrap {
+    --hm-cell: 11px;
+    --hm-gap:  3px;
+    display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 4px;
+  }
+  .hm-y-labels {
+    display: flex; flex-direction: column;
+    padding-top: 22px;                  /* clear the months header above */
+    flex-shrink: 0;
+    position: sticky; left: 0;
+    background: var(--panel);
+    z-index: 1;
+    padding-right: 4px;
+  }
+  .hm-y-labels span {
+    font-size: 9px;
+    color: var(--text-dim);
+    height: var(--hm-cell);
+    line-height: var(--hm-cell);
+    margin-bottom: var(--hm-gap);
+  }
+  .hm-y-labels span:last-child { margin-bottom: 0; }
+  .hm-main { flex-shrink: 0; }
+  .hm-months {
+    display: grid;
+    height: 18px;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    gap: var(--hm-gap);
+  }
+  .hm-month { line-height: 18px; white-space: nowrap; overflow: hidden; }
+  .hm-grid { display: flex; gap: var(--hm-gap); }
+  .hm-col  { display: flex; flex-direction: column; gap: var(--hm-gap); }
+  .hm-cell {
+    width: var(--hm-cell);
+    height: var(--hm-cell);
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text-dim) 12%, transparent);
+    flex-shrink: 0;
+  }
+  /* 5-step intensity scale, single-hue green like GitHub's contribution scale. */
+  .hm-cell.hm-l0 { background: color-mix(in srgb, var(--text-dim) 12%, transparent); }
+  .hm-cell.hm-l1 { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  .hm-cell.hm-l2 { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .hm-cell.hm-l3 { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+  .hm-cell.hm-l4 { background: var(--accent); }
+  .hm-cell.hm-rest   { background: color-mix(in srgb, var(--text-dim) 35%, transparent); }
+  .hm-cell.hm-future { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 60%, transparent); }
+
+  .hm-legend {
+    display: flex; align-items: center; gap: 4px;
+    margin-top: 14px; font-size: 11px; color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .hm-legend .hm-cell { width: 11px; height: 11px; max-width: 11px; }
+  .hm-legend-text { margin: 0 4px; }
+  .hm-legend-rest { display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; }
 
   /* ---------- Calendar ---------- */
   .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }

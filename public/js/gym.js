@@ -68,9 +68,9 @@ async function loadGym() {
 }
 
 async function fetchGymRange() {
-  // Pull 12 weeks for the heatmap; the week strip is a slice of this.
+  // Pull 52 weeks so the GitHub-style heatmap has a full year to draw.
   const end = new Date(); end.setHours(0,0,0,0);
-  const start = new Date(end); start.setDate(start.getDate() - 12 * 7);
+  const start = new Date(end); start.setDate(start.getDate() - 52 * 7);
   gymData = await api(`/api/training?start=${fmtDate(start)}&end=${fmtDate(end)}`);
 }
 
@@ -174,7 +174,7 @@ function renderGymStats() {
       </div>
       <div class="gym-stat">
         <div class="gym-stat-num">${longest}</div>
-        <div class="gym-stat-lbl">longest (12 wk)</div>
+        <div class="gym-stat-lbl">longest (1 yr)</div>
       </div>
     </div>
   `;
@@ -190,38 +190,102 @@ function dateDiff(a, b) {
 function renderGymHeatmap() {
   const card = $('#gymHeatmapCard');
   if (!card) return;
-  // 12-week heatmap: rows = day-of-week (Mon-Sun), cols = weeks (oldest left → today right).
+  // GitHub-style year heatmap: columns = weeks (oldest left → this week right),
+  // rows = day-of-week (Mon top → Sun bottom). 52 columns × 7 rows.
+  const WEEKS = 52;
   const todayStr = fmtDate(new Date());
-  const weeks = 12;
-  const startMonday = startOfWeek(new Date()); startMonday.setDate(startMonday.getDate() - (weeks - 1) * 7);
-  // Build 7 × 12 grid
-  const grid = [];
-  for (let row = 0; row < 7; row++) {
+  const startMonday = startOfWeek(new Date());
+  startMonday.setDate(startMonday.getDate() - (WEEKS - 1) * 7);
+
+  // Map a day's tagged types → intensity level 0–4. Levels mirror GitHub's
+  // count-based shading but for training "volume" (number of distinct things tagged).
+  const intensity = (types) => {
+    if (!types || !types.length) return 0;
+    if (types.includes('rest')) return 0; // rest handled separately
+    const nonRest = types.filter(t => t !== 'rest');
+    if (nonRest.length === 1 && nonRest[0] === 'cardio') return 1;
+    if (nonRest.length <= 1) return 2;
+    if (nonRest.length <= 3) return 3;
+    return 4;
+  };
+
+  const cols = [];
+  const monthMarks = []; // { weekIndex, monthIndex }
+  let lastMonth = -1;
+  let totalTrained = 0;
+
+  for (let w = 0; w < WEEKS; w++) {
     const cells = [];
-    for (let col = 0; col < weeks; col++) {
-      const d = new Date(startMonday); d.setDate(d.getDate() + col * 7 + row);
+    for (let dow = 0; dow < 7; dow++) {
+      const d = new Date(startMonday); d.setDate(d.getDate() + w * 7 + dow);
       const ds = fmtDate(d);
-      const e = gymData[ds];
-      let cls = 'gym-hm-cell empty';
-      let title = `${ds} — not tagged`;
-      if (ds > todayStr) { cls = 'gym-hm-cell future'; title = `${ds}`; }
-      else if (e && e.types && e.types.length) {
-        if (e.types.includes('rest')) { cls = 'gym-hm-cell rest'; title = `${ds} — rest`; }
-        else if (e.types.includes('cardio') && e.types.length === 1) { cls = 'gym-hm-cell cardio'; title = `${ds} — cardio`; }
-        else { cls = 'gym-hm-cell lifting'; title = `${ds} — ${e.types.join(', ')}`; }
+      let cls = 'hm-cell';
+      let title = ds;
+      if (ds > todayStr) {
+        cls += ' hm-future';
+      } else {
+        const e = gymData[ds];
+        if (!e || !e.types || !e.types.length) {
+          cls += ' hm-l0';
+          title = `${ds} — untagged`;
+        } else if (e.types.includes('rest')) {
+          cls += ' hm-rest';
+          title = `${ds} — rest`;
+        } else {
+          const level = intensity(e.types);
+          cls += ` hm-l${level}`;
+          totalTrained++;
+          title = `${ds} — ${e.types.join(', ')}`;
+        }
       }
       cells.push(`<div class="${cls}" title="${title}"></div>`);
     }
-    grid.push(`<div class="gym-hm-row">${cells.join('')}</div>`);
+    cols.push(`<div class="hm-col">${cells.join('')}</div>`);
+    // Track month boundary using the first day of each column (Monday).
+    const colStart = new Date(startMonday); colStart.setDate(colStart.getDate() + w * 7);
+    if (colStart.getMonth() !== lastMonth) {
+      monthMarks.push({ weekIndex: w, monthIndex: colStart.getMonth() });
+      lastMonth = colStart.getMonth();
+    }
   }
+
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthLabels = monthMarks.map((m, i) => {
+    const next = monthMarks[i + 1];
+    const span = (next ? next.weekIndex : WEEKS) - m.weekIndex;
+    // Drop the first label if its span is too narrow to read (avoids "Mar" overlapping "Apr").
+    if (i === 0 && span < 2) return '';
+    return `<span class="hm-month" style="grid-column: span ${span};">${MONTH_NAMES[m.monthIndex]}</span>`;
+  }).join('');
+
   card.innerHTML = `
-    <h2>Last 12 weeks <span style="font-size:11px;color:var(--text-dim);font-weight:400;">consistency at a glance</span></h2>
-    <div class="gym-hm">${grid.join('')}</div>
-    <div class="gym-hm-legend">
-      <span><span class="gym-hm-cell lifting"></span> lifting</span>
-      <span><span class="gym-hm-cell cardio"></span> cardio</span>
-      <span><span class="gym-hm-cell rest"></span> rest</span>
-      <span><span class="gym-hm-cell empty"></span> untagged</span>
+    <h2>${totalTrained} training day${totalTrained === 1 ? '' : 's'} in the last year
+      <span style="font-size:11px;color:var(--text-dim);font-weight:400;">consistency at a glance</span>
+    </h2>
+    <div class="hm-wrap">
+      <div class="hm-y-labels">
+        <span>Mon</span>
+        <span></span>
+        <span>Wed</span>
+        <span></span>
+        <span>Fri</span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="hm-main">
+        <div class="hm-months" style="grid-template-columns: repeat(${WEEKS}, 1fr);">${monthLabels}</div>
+        <div class="hm-grid">${cols.join('')}</div>
+      </div>
+    </div>
+    <div class="hm-legend">
+      <span class="hm-legend-text">Less</span>
+      <div class="hm-cell hm-l0"></div>
+      <div class="hm-cell hm-l1"></div>
+      <div class="hm-cell hm-l2"></div>
+      <div class="hm-cell hm-l3"></div>
+      <div class="hm-cell hm-l4"></div>
+      <span class="hm-legend-text">More</span>
+      <span class="hm-legend-rest"><div class="hm-cell hm-rest"></div> rest</span>
     </div>
   `;
 }
