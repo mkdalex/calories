@@ -141,6 +141,49 @@
       <div class="meal-list" id="mealList"></div>
     </div>
 
+    <!-- ========== GYM VIEW ========== -->
+    <div class="view hidden" id="view-gym">
+      <div class="card" id="gymStatsCard"></div>
+      <div class="card">
+        <div class="gym-week-header">
+          <button class="gym-nav-btn" id="gymPrevWeek" aria-label="Previous week">&#8249;</button>
+          <span class="gym-week-label" id="gymWeekLabel"></span>
+          <button class="gym-nav-btn" id="gymNextWeek" aria-label="Next week">&#8250;</button>
+        </div>
+        <div class="gym-week" id="gymWeek"></div>
+      </div>
+      <div class="card" id="gymHeatmapCard"></div>
+    </div>
+
+    <!-- ========== GYM PICKER MODAL ========== -->
+    <div class="modal-bg hidden" id="gymPickerModal">
+      <div class="modal gym-picker-modal">
+        <div class="modal-header">
+          <h2 id="gymPickerTitle">Tag training</h2>
+          <button class="modal-close" id="gymPickerClose">×</button>
+        </div>
+        <div class="gym-picker-section-title">Split</div>
+        <div class="gym-picker-chips" id="gymPickerSplits"></div>
+        <div class="gym-picker-section-title">Specific muscles / activity</div>
+        <div class="gym-picker-chips" id="gymPickerMuscles"></div>
+        <div class="field" style="margin-top:14px;">
+          <label>Add custom <span style="color:var(--text-dim);font-size:11px;">— e.g. BJJ, climbing, swim</span></label>
+          <div style="display:flex;gap:8px;">
+            <input id="gymPickerCustom" placeholder="type then press Enter" style="flex:1;font-size:14px;" />
+            <button class="btn btn-secondary" id="gymPickerCustomAdd" style="padding:8px 14px;font-size:13px;">+ Add</button>
+          </div>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Notes <span style="color:var(--text-dim);font-size:11px;">— optional, e.g. "5x5 bench, 3x12 dips"</span></label>
+          <textarea id="gymPickerNotes" rows="2" style="font-size:13px;"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button class="btn" id="gymPickerSave" style="flex:1;">Save</button>
+          <button class="btn btn-secondary" id="gymPickerClear" style="padding:10px 14px;">Clear day</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ========== HISTORY VIEW ========== -->
     <div class="view hidden" id="view-history">
       <div id="plateauBannerWrap"></div>
@@ -485,6 +528,9 @@
       <button data-view="today" class="active">
         <span class="icon">●</span><span>Today</span>
       </button>
+      <button data-view="gym">
+        <span class="icon">▲</span><span>Gym</span>
+      </button>
       <button data-view="history">
         <span class="icon">▤</span><span>History</span>
       </button>
@@ -505,6 +551,7 @@
     <script src="/js/log-modal.js"></script>
     <script src="/js/templates-favorites.js"></script>
     <script src="/js/today.js"></script>
+    <script src="/js/gym.js"></script>
     <script src="/js/profile.js"></script>
     <script src="/js/history.js"></script>
     <script src="/js/dev.js"></script>

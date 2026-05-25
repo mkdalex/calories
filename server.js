@@ -245,7 +245,8 @@ function attachUser(req, res, next) {
     templates:     path.join(userDir, 'templates.json'),
     custom_foods:  path.join(userDir, 'custom_foods.json'),
     water:         path.join(userDir, 'water.json'),
-    loader_stats:  path.join(userDir, 'loader_stats.json')
+    loader_stats:  path.join(userDir, 'loader_stats.json'),
+    training:      path.join(userDir, 'training.json')
   };
   next();
 }
@@ -738,6 +739,66 @@ app.get('/api/log-range', (req, res) => {
     result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
   });
   res.json(result);
+});
+
+// ---------- /api/training ----------
+// Per-day training log. Each date maps to { types: [...], notes?: string }.
+// `types` is a free-form array — high-level splits ('push','pull','legs',
+// 'upper','lower','full','cardio','rest') and/or individual muscles
+// ('chest','biceps','shoulders'...) freely mixed. AI debrief reads this to
+// cross-reference training days with eating patterns.
+const TRAINING_TYPE_MAX_LEN = 24;
+const TRAINING_TYPES_MAX    = 12;
+const TRAINING_NOTES_MAX    = 500;
+
+app.get('/api/training', (req, res) => {
+  const { start, end } = req.query;
+  const all = readJson(req.dataFiles.training, {});
+  if (!start || !end) return res.json(all);
+  const out = {};
+  for (const [date, entry] of Object.entries(all)) {
+    if (date >= start && date <= end) out[date] = entry;
+  }
+  res.json(out);
+});
+
+app.post('/api/training/:date', async (req, res) => {
+  const { date } = req.params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'invalid date' });
+  const rawTypes = Array.isArray(req.body && req.body.types) ? req.body.types : [];
+  const types = rawTypes
+    .filter(t => typeof t === 'string')
+    .map(t => t.trim().toLowerCase().slice(0, TRAINING_TYPE_MAX_LEN))
+    .filter(Boolean)
+    .slice(0, TRAINING_TYPES_MAX);
+  // 'rest' is exclusive — picking it drops everything else.
+  const finalTypes = types.includes('rest') ? ['rest'] : [...new Set(types)];
+  const notes = String((req.body && req.body.notes) || '').slice(0, TRAINING_NOTES_MAX).trim();
+
+  const entry = await withFileLock(req.dataFiles.training, () => {
+    const data = readJson(req.dataFiles.training, {});
+    if (!finalTypes.length && !notes) {
+      delete data[date];
+      writeJson(req.dataFiles.training, data);
+      return null;
+    }
+    const e = { types: finalTypes };
+    if (notes) e.notes = notes;
+    data[date] = e;
+    writeJson(req.dataFiles.training, data);
+    return e;
+  });
+  res.json({ date, entry });
+});
+
+app.delete('/api/training/:date', async (req, res) => {
+  const { date } = req.params;
+  await withFileLock(req.dataFiles.training, () => {
+    const data = readJson(req.dataFiles.training, {});
+    delete data[date];
+    writeJson(req.dataFiles.training, data);
+  });
+  res.json({ ok: true });
 });
 
 // ---------- /api/protein-adherence ----------

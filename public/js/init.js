@@ -20,6 +20,7 @@ $$(".nav button").forEach((btn) => {
     btn.classList.add("active");
     $("#view-" + btn.dataset.view).classList.remove("hidden");
     if (btn.dataset.view === "today") loadToday();
+    if (btn.dataset.view === "gym") loadGym();
     if (btn.dataset.view === "history") loadHistory();
     if (btn.dataset.view === "profile") loadProfile();
     if (btn.dataset.view === "dev") loadDev();

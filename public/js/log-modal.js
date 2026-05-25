@@ -182,7 +182,7 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (e.key === 'l' || e.key === 'L') { openLogModal(); return; }
   // Number keys 1-5 switch tabs
-  const viewMap = { '1': 'today', '2': 'history', '3': 'profile', '4': 'dev' };
+  const viewMap = { '1': 'today', '2': 'gym', '3': 'history', '4': 'profile', '5': 'dev' };
   if (viewMap[e.key]) {
     const btn = document.querySelector(`.nav button[data-view="${viewMap[e.key]}"]`);
     if (btn) btn.click();
