@@ -740,6 +740,66 @@ app.get('/api/log-range', (req, res) => {
   res.json(result);
 });
 
+// ---------- /api/protein-adherence ----------
+// Rolling protein hit-rate over a window (default 30 days). A "hit" = protein
+// intake >= 90% of the user's target on a logged day. Unlogged days don't count
+// against the hit rate but do break streaks.
+app.get('/api/protein-adherence', (req, res) => {
+  const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+  const log = readJson(req.dataFiles.log, {});
+  const profile = readJson(req.dataFiles.profile, null);
+  const stats = computeStats(profile);
+  if (!stats) return res.json({ empty: true });
+
+  const target = stats.protein_g;
+  const hitThreshold = target * 0.9;
+  const endStr = todayStr(req);
+  const endD = new Date(endStr + 'T00:00:00');
+  const startD = new Date(endD); startD.setDate(startD.getDate() - (days - 1));
+
+  const series = [];
+  let daysLogged = 0;
+  let daysHit = 0;
+  let totalProtein = 0;
+  let currentStreak = 0;
+  let longestStreak = 0;
+  let trailingStreak = 0;
+
+  forEachDateInRange(startD, endD, ds => {
+    const entries = log[ds] || [];
+    if (!entries.length) {
+      series.push({ date: ds, protein: null, hit: false });
+      currentStreak = 0;
+      return;
+    }
+    const protein = entries.reduce((a, e) => a + (e.protein || 0), 0);
+    const hit = protein >= hitThreshold;
+    daysLogged++;
+    totalProtein += protein;
+    if (hit) {
+      daysHit++;
+      currentStreak++;
+      longestStreak = Math.max(longestStreak, currentStreak);
+      trailingStreak = currentStreak;
+    } else {
+      currentStreak = 0;
+      trailingStreak = 0;
+    }
+    series.push({ date: ds, protein: round1(protein), hit, target });
+  });
+
+  res.json({
+    target,
+    days_logged: daysLogged,
+    days_hit: daysHit,
+    hit_rate: daysLogged ? Math.round(daysHit / daysLogged * 100) : 0,
+    avg_protein: daysLogged ? round1(totalProtein / daysLogged) : 0,
+    longest_streak: longestStreak,
+    current_streak: trailingStreak,
+    series
+  });
+});
+
 app.get('/api/source-breakdown', (req, res) => {
   const log = readJson(req.dataFiles.log, {});
   const start = req.query.start;

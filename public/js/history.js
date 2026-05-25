@@ -698,9 +698,86 @@ async function renderWeeklyReview() {
   `;
 }
 
+async function renderProteinAdherence() {
+  const card = $('#proteinAdherenceCard');
+  if (!card) return;
+  card.innerHTML = `<h2>Protein adherence <span style="font-size:11px;color:var(--text-dim);font-weight:400;">last 30 days</span></h2><div class="empty" style="padding:8px 0;">Loading…</div>`;
+  const r = await api('/api/protein-adherence?days=30');
+  if (r.empty) {
+    card.innerHTML = `<h2>Protein adherence</h2><div class="empty" style="padding:12px 0;">Set up your profile first — we need a protein target to compare against.</div>`;
+    return;
+  }
+  if (!r.days_logged) {
+    card.innerHTML = `<h2>Protein adherence</h2><div class="empty" style="padding:12px 0;">Log some meals to see how often you're hitting your ${r.target} g target.</div>`;
+    return;
+  }
+
+  // Hit-rate colors
+  const hitColor = r.hit_rate >= 80 ? 'var(--accent)' : r.hit_rate >= 60 ? 'var(--warn)' : 'var(--danger)';
+  // Avg vs target color
+  const avgVsTarget = r.avg_protein - r.target;
+  const avgColor = Math.abs(avgVsTarget) < 5 ? 'var(--accent)' : avgVsTarget < 0 ? 'var(--warn)' : 'var(--text)';
+
+  // Sparkline: 30 vertical bars, height = protein / (target * 1.3) capped at 100%
+  const W = 560, H = 60;
+  const PAD = { l: 4, r: 4, t: 4, b: 4 };
+  const chartH = H - PAD.t - PAD.b;
+  const barCount = r.series.length;
+  const barW = (W - PAD.l - PAD.r) / barCount;
+  const yMax = r.target * 1.3;
+  const bars = r.series.map((d, i) => {
+    const x = PAD.l + i * barW;
+    if (d.protein === null) {
+      return `<rect x="${x.toFixed(1)}" y="${H - PAD.b - 2}" width="${(barW - 1).toFixed(1)}" height="2" fill="var(--border)"/>`;
+    }
+    const h = Math.min(chartH, (d.protein / yMax) * chartH);
+    const y = H - PAD.b - h;
+    const fill = d.hit ? 'var(--accent)' : 'var(--text-dim)';
+    const opacity = d.hit ? 0.85 : 0.5;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barW - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}"/>`;
+  }).join('');
+  // Target line
+  const targetY = (H - PAD.b - (r.target / yMax) * chartH).toFixed(1);
+  const targetLine = `<line x1="${PAD.l}" y1="${targetY}" x2="${W - PAD.r}" y2="${targetY}" stroke="var(--info)" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>`;
+
+  // Date labels
+  const firstDate = new Date(r.series[0].date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const lastDate = new Date(r.series[r.series.length - 1].date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+  card.innerHTML = `
+    <h2>Protein adherence <span style="font-size:11px;color:var(--text-dim);font-weight:400;">last 30 days</span></h2>
+    <div class="pa-stat-grid">
+      <div class="pa-stat">
+        <div class="pa-num" style="color:${hitColor};">${r.days_hit}/${r.days_logged}</div>
+        <div class="pa-lbl">days hit (${r.hit_rate}%)</div>
+      </div>
+      <div class="pa-stat">
+        <div class="pa-num" style="color:${avgColor};">${r.avg_protein}g</div>
+        <div class="pa-lbl">avg vs ${r.target}g target</div>
+      </div>
+      <div class="pa-stat">
+        <div class="pa-num">${r.longest_streak}</div>
+        <div class="pa-lbl">longest streak${r.current_streak > 0 && r.current_streak === r.longest_streak ? ' · 🔥 active' : r.current_streak > 0 ? ` · ${r.current_streak} now` : ''}</div>
+      </div>
+    </div>
+    <div class="pa-spark" aria-hidden="true">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" style="display:block;">
+        ${bars}
+        ${targetLine}
+      </svg>
+      <div class="pa-spark-axis">
+        <span>${firstDate}</span>
+        <span class="pa-spark-legend"><span class="pa-leg-dot hit"></span>hit ≥90% target</span>
+        <span>${lastDate}</span>
+      </div>
+    </div>
+  `;
+}
+
 async function loadHistory() {
   // Weekly review card
   renderWeeklyReview();
+  renderProteinAdherence();
 
   // Weight tracker — full rebuild with stats, big chart, editable entries
   await renderWeightCard();

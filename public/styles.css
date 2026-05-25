@@ -719,6 +719,17 @@
   .wow-chip.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
   .wow-chip.bad  { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 
+  /* ---------- Protein adherence ---------- */
+  .pa-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 12px; }
+  .pa-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .pa-stat .pa-num { font-size: 20px; font-weight: 700; line-height: 1.1; }
+  .pa-stat .pa-lbl { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .pa-spark { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .pa-spark-axis { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 10px; color: var(--text-dim); }
+  .pa-spark-axis .pa-spark-legend { display: inline-flex; align-items: center; gap: 4px; }
+  .pa-leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+  .pa-leg-dot.hit { background: var(--accent); opacity: 0.85; }
+
   /* ---------- Day-of-week pattern ---------- */
   .dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-items: end; margin: 8px 0 12px; }
   .dow-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
