@@ -341,7 +341,14 @@ function computeStats(profile) {
   const tdee = profile.tdee_override ? Math.round(profile.tdee_override) : tdee_predicted;
   const tdee_calibrated = !!profile.tdee_override;
   const kcal_goal = Math.max(1200, tdee + goal.delta);
-  const protein_g = Math.round(weight_kg * 1.76);
+  // Protein: cutting needs HIGHER per-kg intake (preserve muscle in deficit), and
+  // pegged to goal weight (when set) so the target doesn't drift down as you lose.
+  // Maintain/gain keep the standard active-adult ratio against current weight.
+  const cutting = goal.delta < 0;
+  const goalKg = Number(profile.goal_weight_kg) || null;
+  const proteinBasisKg = cutting && goalKg && goalKg < weight_kg ? goalKg : weight_kg;
+  const proteinPerKg   = cutting ? 2.0 : 1.76;
+  const protein_g = Math.round(proteinBasisKg * proteinPerKg);
   const fat_g = Math.round(kcal_goal * 0.25 / 9);
   const carb_g = Math.round((kcal_goal - protein_g * 4 - fat_g * 9) / 4);
   const fiber_g = Math.round(kcal_goal * 14 / 1000);
@@ -353,7 +360,11 @@ function computeStats(profile) {
       : goal.delta > 0
       ? `To slowly gain muscle, eat ${kcal_goal.toLocaleString()} — that's ${goal.delta} calories above what you burn. `
       : `To stay at your current weight, eat ${kcal_goal.toLocaleString()}. `) +
-    `Your protein target is ${protein_g}g — this protects your muscle while you change weight.`;
+    (cutting && goalKg && goalKg < weight_kg
+      ? `Your protein target is ${protein_g}g — pegged to your goal weight (${goalKg} kg × 2.0 g/kg) so it doesn't drift down as you lose. Defending muscle during a cut.`
+      : cutting
+      ? `Your protein target is ${protein_g}g (2.0 g/kg of current weight) — higher ratio while cutting to preserve muscle. Set a goal weight in Profile to lock it.`
+      : `Your protein target is ${protein_g}g — this protects your muscle while you change weight.`);
 
   return { bmr, tdee, tdee_predicted, tdee_calibrated, kcal_goal, protein_g, fat_g, carb_g, fiber_g, weight_kg, activity: act, goal_meta: goal, explainer };
 }
