@@ -473,6 +473,14 @@
   .gym-day-empty { color: var(--text-dim); font-size: 10px; opacity: 0.6; }
   .gym-day-more { font-size: 10px; color: var(--text-dim); }
   .gym-day-today-tag { position: absolute; top: -1px; right: -1px; font-size: 8px; background: var(--info); color: var(--bg); padding: 1px 4px; border-radius: 0 7px 0 4px; letter-spacing: 0.05em; }
+  .gym-day-cardio-kcal { font-size: 10px; color: var(--warn); margin-top: 4px; font-weight: 600; }
+  .gym-cardio-week { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-dim); text-align: center; }
+  .gym-cardio-week strong { color: var(--warn); font-weight: 700; }
+  .gym-cardio-box { animation: gym-cardio-in 0.22s ease-out; }
+  @keyframes gym-cardio-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 
   /* Chips shared between day cards + picker */
   .gym-chip {

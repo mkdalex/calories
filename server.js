@@ -774,6 +774,12 @@ app.post('/api/training/:date', async (req, res) => {
   // 'rest' is exclusive — picking it drops everything else.
   const finalTypes = types.includes('rest') ? ['rest'] : [...new Set(types)];
   const notes = String((req.body && req.body.notes) || '').slice(0, TRAINING_NOTES_MAX).trim();
+  // Cardio kcal — only meaningful when cardio is one of the tagged types.
+  // Sanity bound (1–5000) to keep garbage out of the file.
+  const rawKcal = Number(req.body && req.body.cardio_kcal);
+  const cardioKcal = (finalTypes.includes('cardio') && Number.isFinite(rawKcal) && rawKcal > 0 && rawKcal < 5000)
+    ? Math.round(rawKcal)
+    : null;
 
   const entry = await withFileLock(req.dataFiles.training, () => {
     const data = readJson(req.dataFiles.training, {});
@@ -784,6 +790,7 @@ app.post('/api/training/:date', async (req, res) => {
     }
     const e = { types: finalTypes };
     if (notes) e.notes = notes;
+    if (cardioKcal) e.cardio_kcal = cardioKcal;
     data[date] = e;
     writeJson(req.dataFiles.training, data);
     return e;

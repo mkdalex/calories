@@ -99,12 +99,16 @@ function renderGymWeek() {
     const more = entry && entry.types && entry.types.length > 3
       ? `<span class="gym-day-more">+${entry.types.length - 3}</span>`
       : '';
+    const cardioBadge = entry && entry.cardio_kcal
+      ? `<div class="gym-day-cardio-kcal">🔥 ${entry.cardio_kcal}</div>`
+      : '';
 
     cards.push(`
       <button class="${cls}" data-date="${ds}" ${isFuture ? 'disabled' : ''}>
         <div class="gym-day-name">${d.toLocaleDateString([], { weekday: 'short' }).toUpperCase()}</div>
         <div class="gym-day-num">${d.getDate()}</div>
         <div class="gym-day-chips">${chips}${more}</div>
+        ${cardioBadge}
         ${isToday ? '<div class="gym-day-today-tag">TODAY</div>' : ''}
       </button>
     `);
@@ -126,11 +130,13 @@ function renderGymStats() {
   // Current week count + active streak + longest streak (all-time from loaded range).
   const todayStr = fmtDate(new Date());
   let weekCount = 0;
+  let weekCardioKcal = 0;
   for (let i = 0; i < 7; i++) {
     const d = new Date(gymWeekStart); d.setDate(d.getDate() + i);
     const ds = fmtDate(d);
     const e = gymData[ds];
     if (e && e.types && e.types.length && !e.types.includes('rest')) weekCount++;
+    if (e && e.cardio_kcal) weekCardioKcal += e.cardio_kcal;
   }
   // Streak rules: training days add +1, tagged rest days pause but don't reset,
   // untagged days break the streak. Today is given a grace period — an untagged
@@ -162,6 +168,9 @@ function renderGymStats() {
   }
   longest = Math.max(longest, activeStreak);
 
+  const cardioLine = weekCardioKcal > 0
+    ? `<div class="gym-cardio-week">🔥 <strong>${weekCardioKcal.toLocaleString()}</strong> kcal cardio this week</div>`
+    : '';
   card.innerHTML = `
     <div class="gym-stat-grid">
       <div class="gym-stat">
@@ -177,6 +186,7 @@ function renderGymStats() {
         <div class="gym-stat-lbl">longest (1 yr)</div>
       </div>
     </div>
+    ${cardioLine}
   `;
 }
 
@@ -326,6 +336,7 @@ function openGymPicker(date) {
   $('#gymPickerTitle').textContent = `Tag training · ${niceDate}`;
   $('#gymPickerNotes').value = gymPickerState.notes;
   $('#gymPickerCustom').value = '';
+  $('#gymPickerCardioKcal').value = (existing && existing.cardio_kcal) || '';
   renderGymPickerChips();
   $('#gymPickerModal').classList.remove('hidden');
 }
@@ -359,6 +370,10 @@ function renderGymPickerChips() {
       toggleGymType(chip.dataset.id);
     });
   });
+
+  // Cardio kcal box: visible iff 'cardio' is currently selected.
+  const cardioBox = $('#gymPickerCardioBox');
+  if (cardioBox) cardioBox.classList.toggle('hidden', !gymPickerState.types.has('cardio'));
 }
 
 function toggleGymType(id) {
@@ -376,10 +391,11 @@ async function saveGymPicker() {
   if (!gymPickerDate) return;
   const notes = $('#gymPickerNotes').value.trim();
   const types = [...gymPickerState.types];
+  const cardio_kcal = Number($('#gymPickerCardioKcal').value) || null;
   const btn = $('#gymPickerSave');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const res = await api(`/api/training/${gymPickerDate}`, { method: 'POST', body: { types, notes } });
+    const res = await api(`/api/training/${gymPickerDate}`, { method: 'POST', body: { types, notes, cardio_kcal } });
     if (res && res.entry) gymData[gymPickerDate] = res.entry;
     else delete gymData[gymPickerDate];
     closeGymPicker();
