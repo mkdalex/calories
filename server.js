@@ -246,7 +246,8 @@ function attachUser(req, res, next) {
     custom_foods:  path.join(userDir, 'custom_foods.json'),
     water:         path.join(userDir, 'water.json'),
     loader_stats:  path.join(userDir, 'loader_stats.json'),
-    training:      path.join(userDir, 'training.json')
+    training:      path.join(userDir, 'training.json'),
+    debriefs:      path.join(userDir, 'debriefs.json')
   };
   next();
 }
@@ -866,6 +867,297 @@ app.get('/api/protein-adherence', (req, res) => {
     current_streak: trailingStreak,
     series
   });
+});
+
+// ---------- /api/debrief ----------
+// AI weekly debrief — pre-aggregates deterministic stats server-side, hands AI a
+// structured brief + raw meal-log entries for fuzzy categorization. Per-trigger
+// prompts (weekly heartbeat, plateau, drift, drop, streak_break) keep the output
+// specific to a real question. See prompts/debrief.js for the rules.
+
+const DEBRIEF_PROMPTS = require('./prompts/debrief');
+const DEBRIEF_TRIGGERS = ['weekly', 'plateau', 'drift', 'drop', 'streak_break'];
+const DEBRIEF_MIN_DAYS = 5;     // 5+ logged days in last 7 to unlock
+const DEBRIEF_KEEP = 24;        // keep last 24 debriefs per user (~6 months)
+
+// ISO week key — "2026-W21" — used as the cache + dedupe key per trigger.
+function isoWeekKey(d) {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  // Thursday in current week determines the ISO year+week
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  const weekNo = 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${date.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Compute the deterministic brief — everything math-based. Output is what the
+// AI receives plus what the client uses to render the "unlock checklist."
+function buildDebriefBrief(req) {
+  const log = readJson(req.dataFiles.log, {});
+  const weights = readJson(req.dataFiles.weight, []);
+  const training = readJson(req.dataFiles.training, {});
+  const customs = readJson(req.dataFiles.custom_foods, {});
+  const profile = readJson(req.dataFiles.profile, null);
+  const stats = computeStats(profile);
+
+  const today = new Date();
+  const todayKey = todayStr(req);
+  const dayMs = 86400000;
+
+  // Windows: this week (last 7), prior week (8–14), last 28 days
+  const win7Start  = fmtDate(new Date(today.getTime() - 6 * dayMs));
+  const win14Start = fmtDate(new Date(today.getTime() - 13 * dayMs));
+  const win28Start = fmtDate(new Date(today.getTime() - 27 * dayMs));
+
+  const aggDay = (dateStr) => {
+    const entries = log[dateStr] || [];
+    const t = entries.reduce((a, e) => ({
+      kcal: a.kcal + (e.kcal || 0),
+      protein: a.protein + (e.protein || 0)
+    }), { kcal: 0, protein: 0 });
+    return { date: dateStr, kcal: t.kcal, protein: round1(t.protein), entries };
+  };
+
+  const collect = (startStr) => {
+    const out = [];
+    const start = new Date(startStr + 'T00:00:00');
+    const end   = new Date(todayKey + 'T00:00:00');
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = fmtDate(d);
+      if ((log[ds] || []).length) out.push(aggDay(ds));
+    }
+    return out;
+  };
+
+  const days7  = collect(win7Start);
+  const days14 = collect(win14Start);
+  const days28 = collect(win28Start);
+  const prior7 = days14.filter(d => d.date < win7Start);
+
+  const summary = (days) => {
+    if (!days.length) return null;
+    const totalK = days.reduce((a, d) => a + d.kcal, 0);
+    const totalP = days.reduce((a, d) => a + d.protein, 0);
+    const goal = stats ? stats.kcal_goal : null;
+    const proteinT = stats ? stats.protein_g : null;
+    return {
+      days_logged: days.length,
+      avg_kcal: Math.round(totalK / days.length),
+      avg_protein: round1(totalP / days.length),
+      days_hit_kcal: goal ? days.filter(d => d.kcal >= goal - 200 && d.kcal <= goal + 200).length : null,
+      days_hit_protein: proteinT ? days.filter(d => d.protein >= proteinT * 0.9).length : null
+    };
+  };
+
+  // Weekend vs weekday split (last 28 days)
+  let wendK = 0, wendN = 0, wdayK = 0, wdayN = 0;
+  days28.forEach(d => {
+    const dow = new Date(d.date + 'T00:00:00').getDay();
+    if (dow === 0 || dow === 6) { wendK += d.kcal; wendN++; }
+    else { wdayK += d.kcal; wdayN++; }
+  });
+
+  // Weight delta + predicted vs actual gap
+  const inWindow = (n) => weights.filter(w => w.date >= fmtDate(new Date(today.getTime() - n * dayMs)));
+  const w28 = inWindow(28);
+  let weightInfo = null;
+  if (w28.length >= 2) {
+    const first = w28[0], last = w28[w28.length - 1];
+    const actualDelta = round1(last.kg - first.kg);
+    let predictedDelta = null;
+    if (stats && stats.tdee) {
+      const daysSpan = Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / dayMs));
+      const inSpan = days28.filter(d => d.date >= first.date && d.date <= last.date);
+      if (inSpan.length >= Math.min(5, daysSpan)) {
+        const avgEaten = inSpan.reduce((a, d) => a + d.kcal, 0) / inSpan.length;
+        const dailyDeficit = stats.tdee - avgEaten;
+        predictedDelta = round1(-(dailyDeficit * daysSpan / 7700));
+      }
+    }
+    weightInfo = {
+      start: first.kg, end: last.kg, start_date: first.date, end_date: last.date,
+      actual_delta_kg: actualDelta,
+      predicted_delta_kg: predictedDelta,
+      gap_kg: predictedDelta !== null ? round1(actualDelta - predictedDelta) : null
+    };
+  }
+
+  // Training summary (last 7 vs prior 7)
+  const trainingWin = (startStr) => {
+    const start = new Date(startStr + 'T00:00:00');
+    const end   = new Date(todayKey + 'T00:00:00');
+    let gymDays = 0, cardioDays = 0, restDays = 0, cardioKcal = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = fmtDate(d);
+      const e = training[ds];
+      if (!e || !e.types) continue;
+      if (e.types.includes('rest')) restDays++;
+      else if (e.types.length) {
+        gymDays++;
+        if (e.types.includes('cardio')) cardioDays++;
+        if (e.cardio_kcal) cardioKcal += e.cardio_kcal;
+      }
+    }
+    return { gym_days: gymDays, cardio_days: cardioDays, rest_days: restDays, cardio_kcal: cardioKcal };
+  };
+
+  return {
+    user_context: {
+      goal: profile && profile.goal,
+      goal_weight_kg: profile && profile.goal_weight_kg,
+      kcal_goal: stats && stats.kcal_goal,
+      protein_goal_g: stats && stats.protein_g,
+      tdee: stats && stats.tdee,
+      current_weight: profile && profile.weight_kg
+    },
+    last_7: summary(days7),
+    prior_7: summary(prior7),
+    last_28: summary(days28),
+    weekend_vs_weekday: wendN && wdayN ? {
+      avg_kcal_weekend: Math.round(wendK / wendN),
+      avg_kcal_weekday: Math.round(wdayK / wdayN),
+      gap: Math.round((wendK / wendN) - (wdayK / wdayN))
+    } : null,
+    weight: weightInfo,
+    training_last_7: trainingWin(win7Start),
+    training_prior_7: trainingWin(win14Start),
+    custom_foods_count: Object.keys(customs).length,
+    // Raw meal log for AI fuzzy categorization. Compact format to save tokens.
+    meal_log: days28.flatMap(d => d.entries.map(e => ({
+      date: d.date,
+      time: e.time ? e.time.slice(11, 16) : null,
+      name: e.name,
+      kcal: e.kcal,
+      protein: e.protein,
+      source: e.source
+    })))
+  };
+}
+
+// Trigger detection — returns the list of triggers that currently fire for this user.
+function detectDebriefTriggers(brief, alreadyGenerated) {
+  const triggers = [];
+  const isoWeek = isoWeekKey(new Date());
+  const alreadyThisWeek = (t) => alreadyGenerated.some(d => d.iso_week === isoWeek && d.trigger === t);
+
+  // Need minimum data to fire anything
+  if (!brief.last_7 || brief.last_7.days_logged < DEBRIEF_MIN_DAYS) return triggers;
+
+  // Weekly heartbeat: only on Monday-Sunday active window, fires once per ISO week.
+  if (!alreadyThisWeek('weekly')) triggers.push('weekly');
+
+  // Plateau: weight flat (|delta| < 0.3kg) AND hitting kcal goal AND 14+ days of data
+  if (brief.last_28 && brief.last_28.days_logged >= 14 && brief.weight) {
+    const stalled = Math.abs(brief.weight.actual_delta_kg) < 0.3;
+    const onPlan = brief.last_28.days_hit_kcal !== null &&
+                   brief.last_28.days_hit_kcal / brief.last_28.days_logged > 0.6;
+    if (stalled && onPlan && !alreadyThisWeek('plateau')) triggers.push('plateau');
+  }
+
+  // TDEE drift: predicted vs actual differs by >0.5kg over 14+ days
+  if (brief.weight && brief.weight.gap_kg !== null && Math.abs(brief.weight.gap_kg) > 0.5) {
+    if (!alreadyThisWeek('drift')) triggers.push('drift');
+  }
+
+  // Adherence drop: hit-rate fell >20% week-over-week
+  if (brief.last_7 && brief.prior_7 && brief.last_7.days_hit_kcal !== null && brief.prior_7.days_hit_kcal !== null) {
+    const thisRate = brief.last_7.days_hit_kcal / brief.last_7.days_logged;
+    const lastRate = brief.prior_7.days_hit_kcal / brief.prior_7.days_logged;
+    if (lastRate - thisRate > 0.2 && !alreadyThisWeek('drop')) triggers.push('drop');
+  }
+
+  return triggers;
+}
+
+// Returns the unlock checklist for the locked-state UI.
+function debriefUnlockChecklist(brief) {
+  const checks = [];
+  checks.push({ key: 'profile', label: 'Profile complete', done: !!(brief.user_context && brief.user_context.kcal_goal) });
+  const dayCount = (brief.last_7 && brief.last_7.days_logged) || 0;
+  checks.push({
+    key: 'meals',
+    label: `${dayCount}/${DEBRIEF_MIN_DAYS} days logged this week`,
+    done: dayCount >= DEBRIEF_MIN_DAYS,
+    progress: { current: dayCount, target: DEBRIEF_MIN_DAYS }
+  });
+  return checks;
+}
+
+app.get('/api/debrief', (req, res) => {
+  const brief = buildDebriefBrief(req);
+  const existing = readJson(req.dataFiles.debriefs, []);
+  const checklist = debriefUnlockChecklist(brief);
+  const unlocked = checklist.every(c => c.done);
+  const triggers = unlocked ? detectDebriefTriggers(brief, existing) : [];
+  const recent = existing.slice(-5).reverse();
+  res.json({
+    unlocked,
+    checklist,
+    pending_triggers: triggers,
+    recent
+  });
+});
+
+app.post('/api/debrief', async (req, res) => {
+  if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
+  const trigger = String((req.body && req.body.trigger) || 'weekly');
+  if (!DEBRIEF_TRIGGERS.includes(trigger)) return res.status(400).json({ error: 'invalid trigger' });
+
+  const brief = buildDebriefBrief(req);
+  const checklist = debriefUnlockChecklist(brief);
+  if (!checklist.every(c => c.done)) return res.status(400).json({ error: 'locked', checklist });
+
+  const existing = readJson(req.dataFiles.debriefs, []);
+  const isoWeek = isoWeekKey(new Date());
+  // Per-trigger cache: if we've already generated this trigger for this week, return it.
+  const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger);
+  if (cached) return res.json({ debrief: cached, cached: true });
+
+  const systemPrompt = DEBRIEF_PROMPTS[trigger] || DEBRIEF_PROMPTS.weekly;
+  // Hand the AI the structured brief. JSON.stringify is compact and clear; the
+  // raw meal log inside `meal_log` lets it categorize fuzzy food names ("3 eggs"
+  // / "eggs scrambled" → "eggs") without us needing rule-based normalization.
+  const userPrompt = `DATA BRIEF:\n${JSON.stringify(brief, null, 2)}`;
+
+  let data;
+  try {
+    data = await aiJson('debrief', systemPrompt, userPrompt, 8000);
+  } catch (e) {
+    console.error('Debrief error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+
+  // Persist + trim
+  const entry = {
+    id: newId(),
+    trigger,
+    iso_week: isoWeek,
+    generated_at: new Date().toISOString(),
+    working: String(data.working || '').slice(0, 400),
+    leak: String(data.leak || '').slice(0, 400),
+    try_this: String(data.try || '').slice(0, 400),
+    feedback: null
+  };
+  await withFileLock(req.dataFiles.debriefs, () => {
+    const arr = readJson(req.dataFiles.debriefs, []);
+    arr.push(entry);
+    while (arr.length > DEBRIEF_KEEP) arr.shift();
+    writeJson(req.dataFiles.debriefs, arr);
+  });
+  res.json({ debrief: entry, cached: false });
+});
+
+app.post('/api/debrief/:id/feedback', async (req, res) => {
+  const { id } = req.params;
+  const value = req.body && req.body.value;
+  if (value !== 'up' && value !== 'down') return res.status(400).json({ error: 'value must be up|down' });
+  await withFileLock(req.dataFiles.debriefs, () => {
+    const arr = readJson(req.dataFiles.debriefs, []);
+    const i = arr.findIndex(d => d.id === id);
+    if (i >= 0) { arr[i].feedback = value; writeJson(req.dataFiles.debriefs, arr); }
+  });
+  res.json({ ok: true });
 });
 
 app.get('/api/source-breakdown', (req, res) => {

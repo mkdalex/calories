@@ -774,8 +774,163 @@ async function renderProteinAdherence() {
   `;
 }
 
+// ---------- AI weekly debrief ----------
+const DEBRIEF_TRIGGER_META = {
+  weekly:       { emoji: '📋', label: 'Weekly review',        accent: 'var(--info)'   },
+  plateau:      { emoji: '📉', label: 'Plateau alert',         accent: 'var(--warn)'   },
+  drift:        { emoji: '⚖️',  label: 'TDEE drift detected',   accent: 'var(--warn)'   },
+  drop:         { emoji: '⚠️',  label: 'Adherence dropped',     accent: 'var(--danger)' },
+  streak_break: { emoji: '🔻', label: 'Streak broke',          accent: 'var(--text-dim)' }
+};
+
+async function renderDebriefCard() {
+  const card = $('#debriefCard');
+  if (!card) return;
+  card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="padding:8px 0;">Loading…</div>`;
+  let status;
+  try { status = await api('/api/debrief'); }
+  catch (e) {
+    card.innerHTML = `<h2>AI debrief</h2><div class="empty">Failed to load.</div>`;
+    return;
+  }
+  if (!status.unlocked) {
+    renderDebriefLocked(card, status.checklist);
+    return;
+  }
+  // Unlocked — pick the most relevant debrief to show.
+  // Priority: a pending trigger that hasn't been generated yet > the most recent existing debrief.
+  const triggers = status.pending_triggers || [];
+  const recent = status.recent || [];
+
+  if (triggers.length && (!recent.length || recent[0].iso_week !== isoWeekClient())) {
+    // Auto-generate the highest-priority pending trigger (alerts before weekly heartbeat).
+    const ordered = ['plateau', 'drift', 'drop', 'streak_break', 'weekly'];
+    const trigger = ordered.find(t => triggers.includes(t)) || triggers[0];
+    renderDebriefGenerating(card, trigger);
+    try {
+      const r = await api('/api/debrief', { method: 'POST', body: { trigger } });
+      renderDebriefResult(card, r.debrief, { otherPending: triggers.filter(t => t !== trigger), recent });
+    } catch (e) {
+      card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Generation failed: ${escapeHtml(e.message || 'unknown')}</div>`;
+    }
+    return;
+  }
+
+  if (recent.length) {
+    renderDebriefResult(card, recent[0], { otherPending: triggers, recent: recent.slice(1) });
+    return;
+  }
+
+  // Unlocked but no pending triggers and no recent debriefs — offer manual run.
+  card.innerHTML = `
+    <h2>AI debrief</h2>
+    <div class="db-empty">
+      Nothing flagged right now — your data's looking on-track. Want a manual review of the last 7 days anyway?
+      <button class="btn" id="debriefManualBtn" style="margin-top:10px;">Generate weekly debrief</button>
+    </div>`;
+  $('#debriefManualBtn').addEventListener('click', () => {
+    renderDebriefGenerating(card, 'weekly');
+    api('/api/debrief', { method: 'POST', body: { trigger: 'weekly' } })
+      .then(r => renderDebriefResult(card, r.debrief, { otherPending: [], recent: [] }))
+      .catch(e => { card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Failed: ${escapeHtml(e.message || '')}</div>`; });
+  });
+}
+
+function isoWeekClient() {
+  const d = new Date(); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const w1 = new Date(d.getFullYear(), 0, 4);
+  const n = 1 + Math.round(((d - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7);
+  return `${d.getFullYear()}-W${String(n).padStart(2,'0')}`;
+}
+
+function renderDebriefLocked(card, checklist) {
+  const items = (checklist || []).map(c => {
+    const tick = c.done ? '✓' : '○';
+    const cls = c.done ? 'done' : 'pending';
+    const prog = c.progress && !c.done
+      ? ` <span class="db-prog">(${c.progress.current}/${c.progress.target})</span>`
+      : '';
+    return `<div class="db-check ${cls}"><span class="db-tick">${tick}</span> ${escapeHtml(c.label)}${prog}</div>`;
+  }).join('');
+  card.innerHTML = `
+    <h2>🤖 AI debrief <span class="db-lock-tag">LOCKED</span></h2>
+    <div class="db-lock-blurb">Unlock by logging consistently — then I'll write you a weekly review with one leak, one win, and one specific change to try.</div>
+    <div class="db-checklist">${items}</div>
+  `;
+}
+
+function renderDebriefGenerating(card, trigger) {
+  const meta = DEBRIEF_TRIGGER_META[trigger] || DEBRIEF_TRIGGER_META.weekly;
+  card.innerHTML = `
+    <h2>${meta.emoji} ${meta.label}</h2>
+    <div id="debriefLoaderSlot"></div>
+  `;
+  if (typeof showAILoader === 'function') showAILoader($('#debriefLoaderSlot'), 'Reading your week…');
+}
+
+function renderDebriefResult(card, debrief, opts = {}) {
+  const meta = DEBRIEF_TRIGGER_META[debrief.trigger] || DEBRIEF_TRIGGER_META.weekly;
+  const when = new Date(debrief.generated_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const otherCount = (opts.otherPending || []).length;
+  const otherBanner = otherCount > 0
+    ? `<div class="db-other">+${otherCount} other alert${otherCount === 1 ? '' : 's'} this week — <button class="db-link" id="debriefShowOther">view</button></div>`
+    : '';
+  const fb = debrief.feedback;
+  card.innerHTML = `
+    <h2>${meta.emoji} ${meta.label} <span class="db-when">${when}</span></h2>
+    <div class="db-section db-working">
+      <div class="db-section-label">Working</div>
+      <div class="db-section-text">${escapeHtml(debrief.working || '—')}</div>
+    </div>
+    <div class="db-section db-leak">
+      <div class="db-section-label">Leak</div>
+      <div class="db-section-text">${escapeHtml(debrief.leak || '—')}</div>
+    </div>
+    <div class="db-section db-try">
+      <div class="db-section-label">Try this week</div>
+      <div class="db-section-text">${escapeHtml(debrief.try_this || '—')}</div>
+    </div>
+    ${otherBanner}
+    <div class="db-feedback">
+      <span class="db-feedback-label">Was this useful?</span>
+      <button class="db-thumb ${fb === 'up' ? 'active' : ''}" data-fb="up" ${fb ? 'disabled' : ''} aria-label="useful">👍</button>
+      <button class="db-thumb ${fb === 'down' ? 'active' : ''}" data-fb="down" ${fb ? 'disabled' : ''} aria-label="not useful">👎</button>
+      <span class="db-feedback-state">${fb === 'up' ? 'Glad it helped.' : fb === 'down' ? 'Noted — sharper next week.' : ''}</span>
+    </div>
+  `;
+
+  card.querySelectorAll('.db-thumb').forEach(btn => btn.addEventListener('click', async () => {
+    const val = btn.dataset.fb;
+    btn.disabled = true;
+    try {
+      await api(`/api/debrief/${debrief.id}/feedback`, { method: 'POST', body: { value: val } });
+      debrief.feedback = val;
+      renderDebriefResult(card, debrief, opts);
+    } catch (_) { btn.disabled = false; }
+  }));
+
+  const otherBtn = $('#debriefShowOther');
+  if (otherBtn) {
+    otherBtn.addEventListener('click', async () => {
+      // Generate + show the next pending trigger (cycles through them on each click).
+      const next = opts.otherPending[0];
+      renderDebriefGenerating(card, next);
+      try {
+        const r = await api('/api/debrief', { method: 'POST', body: { trigger: next } });
+        renderDebriefResult(card, r.debrief, {
+          otherPending: opts.otherPending.slice(1),
+          recent: opts.recent
+        });
+      } catch (e) {
+        card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Failed: ${escapeHtml(e.message || '')}</div>`;
+      }
+    });
+  }
+}
+
 async function loadHistory() {
-  // Weekly review card
+  renderDebriefCard();
   renderWeeklyReview();
   renderProteinAdherence();
 

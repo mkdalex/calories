@@ -859,6 +859,59 @@
   .wow-chip.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
   .wow-chip.bad  { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 
+  /* ---------- AI debrief card ---------- */
+  .db-lock-tag {
+    font-size: 10px; background: var(--panel-2); color: var(--text-dim);
+    padding: 2px 8px; border-radius: 10px; letter-spacing: 0.08em;
+    border: 1px solid var(--border); font-weight: 600; margin-left: 6px;
+    vertical-align: middle;
+  }
+  .db-lock-blurb { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: 8px 0 12px; }
+  .db-checklist { display: flex; flex-direction: column; gap: 6px; }
+  .db-check { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  .db-check.done { color: var(--accent); }
+  .db-check .db-tick {
+    display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--panel-2); color: var(--text-dim);
+    align-items: center; justify-content: center; font-size: 11px;
+    border: 1px solid var(--border);
+  }
+  .db-check.done .db-tick { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .db-prog { color: var(--text-dim); font-size: 11px; }
+
+  .db-when { font-size: 11px; color: var(--text-dim); font-weight: 400; margin-left: 6px; }
+  .db-section { margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--border); }
+  .db-section.db-working { border-left-color: var(--accent); }
+  .db-section.db-leak    { border-left-color: var(--warn); }
+  .db-section.db-try     { border-left-color: var(--info); }
+  .db-section-label {
+    font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 600; margin-bottom: 3px;
+  }
+  .db-section-text { font-size: 13px; line-height: 1.5; color: var(--text); }
+  .db-other {
+    margin-top: 12px; padding: 8px 10px; background: var(--panel-2);
+    border-radius: 6px; font-size: 12px; color: var(--text-dim);
+  }
+  .db-link {
+    background: none; border: none; color: var(--info);
+    cursor: pointer; font-size: 12px; padding: 0; text-decoration: underline;
+    font-family: inherit;
+  }
+  .db-empty { color: var(--text-dim); font-size: 13px; line-height: 1.5; padding: 8px 0; }
+
+  .db-feedback { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+  .db-feedback-label { margin-right: 4px; }
+  .db-thumb {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px;
+    width: 32px; height: 28px; cursor: pointer; font-size: 14px;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .db-thumb:hover:not(:disabled) { border-color: var(--accent); }
+  .db-thumb.active { border-color: var(--accent); background: var(--tint-accent-bg-soft); }
+  .db-thumb:disabled { cursor: default; opacity: 0.85; }
+  .db-feedback-state { font-style: italic; }
+
   /* ---------- Protein adherence ---------- */
   .pa-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 12px; }
   .pa-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
