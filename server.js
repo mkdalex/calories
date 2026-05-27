@@ -958,32 +958,43 @@ function buildDebriefBrief(req) {
     else { wdayK += d.kcal; wdayN++; }
   });
 
-  // Weight delta + predicted vs actual gap
+  // Weight deltas per window — labeled explicitly so the AI can't conflate the
+  // 28-day trend with the 7-day review. Each block self-describes via span_days.
   const inWindow = (n) => weights.filter(w => w.date >= fmtDate(new Date(today.getTime() - n * dayMs)));
-  const w28 = inWindow(28);
-  let weightInfo = null;
-  if (w28.length >= 2) {
-    const first = w28[0], last = w28[w28.length - 1];
-    const actualDelta = round1(last.kg - first.kg);
-    let predictedDelta = null;
-    if (stats && stats.tdee) {
-      const daysSpan = Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / dayMs));
-      const inSpan = days28.filter(d => d.date >= first.date && d.date <= last.date);
-      if (inSpan.length >= Math.min(5, daysSpan)) {
-        const avgEaten = inSpan.reduce((a, d) => a + d.kcal, 0) / inSpan.length;
-        const dailyDeficit = stats.tdee - avgEaten;
-        predictedDelta = round1(-(dailyDeficit * daysSpan / 7700));
-      }
-    }
-    weightInfo = {
-      start: first.kg, end: last.kg, start_date: first.date, end_date: last.date,
-      actual_delta_kg: actualDelta,
-      predicted_delta_kg: predictedDelta,
-      gap_kg: predictedDelta !== null ? round1(actualDelta - predictedDelta) : null
+  const weightBlock = (winWeights) => {
+    if (!winWeights || winWeights.length < 2) return null;
+    const first = winWeights[0], last = winWeights[winWeights.length - 1];
+    const spanDays = Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / dayMs));
+    return {
+      start_kg: first.kg,
+      end_kg: last.kg,
+      start_date: first.date,
+      end_date: last.date,
+      span_days: spanDays,
+      delta_kg: round1(last.kg - first.kg)
     };
+  };
+
+  const weight7  = weightBlock(inWindow(7));
+  const weight28raw = weightBlock(inWindow(28));
+  let weight28 = weight28raw;
+  // Add predicted-vs-actual gap to the 28-day block only (long-window math).
+  if (weight28raw && stats && stats.tdee) {
+    const inSpan = days28.filter(d => d.date >= weight28raw.start_date && d.date <= weight28raw.end_date);
+    if (inSpan.length >= Math.min(5, weight28raw.span_days)) {
+      const avgEaten = inSpan.reduce((a, d) => a + d.kcal, 0) / inSpan.length;
+      const dailyDeficit = stats.tdee - avgEaten;
+      const predictedDelta = round1(-(dailyDeficit * weight28raw.span_days / 7700));
+      weight28 = {
+        ...weight28raw,
+        predicted_delta_kg: predictedDelta,
+        gap_kg: round1(weight28raw.delta_kg - predictedDelta)
+      };
+    }
   }
 
-  // Training summary (last 7 vs prior 7)
+  // Training summary (last 7 vs prior 7) + a 14-day day-by-day history so the AI
+  // can detect routine patterns ("you never train legs", "rest always falls on Sun").
   const trainingWin = (startStr) => {
     const start = new Date(startStr + 'T00:00:00');
     const end   = new Date(todayKey + 'T00:00:00');
@@ -1001,6 +1012,59 @@ function buildDebriefBrief(req) {
     }
     return { gym_days: gymDays, cardio_days: cardioDays, rest_days: restDays, cardio_kcal: cardioKcal };
   };
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const trainingHistory = (days) => {
+    const out = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today); d.setDate(d.getDate() - i);
+      const ds = fmtDate(d);
+      const e = training[ds];
+      if (!e || !e.types || !e.types.length) {
+        out.push({ date: ds, dow: DOW[d.getDay()], types: [] });
+      } else {
+        const row = { date: ds, dow: DOW[d.getDay()], types: e.types };
+        if (e.cardio_kcal) row.cardio_kcal = e.cardio_kcal;
+        out.push(row);
+      }
+    }
+    return out;
+  };
+
+  // Day-by-day kcal/protein for the last 7 days. Lets the AI spot patterns the
+  // weekly average hides — e.g. "protein crashes on rest days" or "Tuesday is
+  // always your worst day."
+  const dailyBreakdown = days7.map(d => {
+    const dt = new Date(d.date + 'T00:00:00');
+    const trEntry = training[d.date];
+    const row = {
+      date: d.date,
+      dow: DOW[dt.getDay()],
+      kcal: d.kcal,
+      protein: d.protein,
+      hit_kcal: stats ? d.kcal >= stats.kcal_goal - 200 && d.kcal <= stats.kcal_goal + 200 : null,
+      hit_protein: stats ? d.protein >= stats.protein_g * 0.9 : null
+    };
+    if (trEntry && trEntry.types && trEntry.types.length) {
+      row.training_types = trEntry.types;
+      if (trEntry.cardio_kcal) row.cardio_kcal = trEntry.cardio_kcal;
+    }
+    return row;
+  });
+
+  // Source breakdown over the 28-day window — how much of intake comes from
+  // verified sources (USDA / custom / manual) vs soft AI estimates. Lets the AI
+  // suggest "save your top AI-estimated foods" when adherence numbers look off.
+  const sourceTotals = {};
+  let sourceTotalKcal = 0;
+  days28.forEach(d => d.entries.forEach(e => {
+    const src = e.source || 'manual';
+    sourceTotals[src] = (sourceTotals[src] || 0) + (e.kcal || 0);
+    sourceTotalKcal += (e.kcal || 0);
+  }));
+  const sourceBreakdown = {};
+  Object.entries(sourceTotals).forEach(([src, kcal]) => {
+    sourceBreakdown[src] = Math.round((kcal / sourceTotalKcal) * 100);
+  });
 
   return {
     user_context: {
@@ -1019,9 +1083,13 @@ function buildDebriefBrief(req) {
       avg_kcal_weekday: Math.round(wdayK / wdayN),
       gap: Math.round((wendK / wendN) - (wdayK / wdayN))
     } : null,
-    weight: weightInfo,
-    training_last_7: trainingWin(win7Start),
-    training_prior_7: trainingWin(win14Start),
+    weight_last_7_days:   weight7,
+    weight_trend_28_days: weight28,
+    training_last_7:    trainingWin(win7Start),
+    training_prior_7:   trainingWin(win14Start),
+    training_history_14d: trainingHistory(14),
+    daily_breakdown_last_7: dailyBreakdown,
+    source_breakdown_28d_pct: sourceBreakdown,
     custom_foods_count: Object.keys(customs).length,
     // Raw meal log for AI fuzzy categorization. Compact format to save tokens.
     meal_log: days28.flatMap(d => d.entries.map(e => ({
@@ -1048,15 +1116,16 @@ function detectDebriefTriggers(brief, alreadyGenerated) {
   if (!alreadyThisWeek('weekly')) triggers.push('weekly');
 
   // Plateau: weight flat (|delta| < 0.3kg) AND hitting kcal goal AND 14+ days of data
-  if (brief.last_28 && brief.last_28.days_logged >= 14 && brief.weight) {
-    const stalled = Math.abs(brief.weight.actual_delta_kg) < 0.3;
+  if (brief.last_28 && brief.last_28.days_logged >= 14 && brief.weight_trend_28_days) {
+    const stalled = Math.abs(brief.weight_trend_28_days.delta_kg) < 0.3;
     const onPlan = brief.last_28.days_hit_kcal !== null &&
                    brief.last_28.days_hit_kcal / brief.last_28.days_logged > 0.6;
     if (stalled && onPlan && !alreadyThisWeek('plateau')) triggers.push('plateau');
   }
 
   // TDEE drift: predicted vs actual differs by >0.5kg over 14+ days
-  if (brief.weight && brief.weight.gap_kg !== null && Math.abs(brief.weight.gap_kg) > 0.5) {
+  const w28 = brief.weight_trend_28_days;
+  if (w28 && w28.gap_kg !== null && w28.gap_kg !== undefined && Math.abs(w28.gap_kg) > 0.5) {
     if (!alreadyThisWeek('drift')) triggers.push('drift');
   }
 

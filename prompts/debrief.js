@@ -13,9 +13,26 @@ const SHARED_RULES = `CRITICAL CONTEXT — how to interpret the user's data:
     * GAIN: kcal_goal is a FLOOR. Under it = leak; over it = winning.
 - The window is "last 7 days" (rolling, may not align with Mon-Sun). Use
   "last 7 days" not "this week" when phrasing.
-- Predicted vs actual weight: if weight.gap_kg > 0 (heavier than predicted),
-  user is under-logging OR TDEE is lower than estimated. If gap_kg < 0
-  (lighter than predicted), TDEE is higher OR they're losing faster than expected.
+- WEIGHT WINDOWS — each weight block carries its OWN span_days. NEVER mix them:
+    * weight_last_7_days   → short-term scale change. Use this when talking
+      about "the last 7 days" or "this week's weight."
+    * weight_trend_28_days → longer trend, includes predicted_delta_kg and gap_kg.
+      Use this for TDEE drift and overall cut progress, not 7-day phrasing.
+  When you cite a weight delta, ALWAYS state the actual span_days from the block
+  ("down 0.3 kg over 7 days" or "down 2.5 kg over 28 days"), never invent a span.
+- Predicted vs actual weight: if weight_trend_28_days.gap_kg > 0 (heavier than
+  predicted), user is under-logging OR TDEE is lower than estimated.
+  If gap_kg < 0 (lighter than predicted), TDEE is higher OR they're losing faster.
+- CROSS-REFERENCE these arrays — they unlock the most valuable insights:
+    * daily_breakdown_last_7 → per-day kcal/protein/training. Look for patterns:
+      "protein crashes on rest days," "Tuesday always over goal," etc. Cite the
+      specific days (e.g., "Sun, Tue, Thu all missed protein").
+    * training_history_14d → 14-day training sequence. Spot routine patterns:
+      "no legs in 12 days," "trained upper 4× but never lower," "rest always
+      falls on Sun." Useful for users whose routine is unbalanced.
+    * source_breakdown_28d_pct → % of kcal from each source. If 'ai-estimate'
+      is >40%, the user's totals are soft — suggest saving top AI foods as
+      customs to tighten adherence numbers.
 
 HARD OUTPUT RULES (output is rejected if violated):
 - Every claim MUST cite a specific number from the brief. No exceptions.
