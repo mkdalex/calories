@@ -1111,8 +1111,13 @@ app.post('/api/debrief', async (req, res) => {
   const existing = readJson(req.dataFiles.debriefs, []);
   const isoWeek = isoWeekKey(new Date());
   // Per-trigger cache: if we've already generated this trigger for this week, return it.
-  const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger);
-  if (cached) return res.json({ debrief: cached, cached: true });
+  // `force=true` in the body bypasses the cache and replaces the cached entry —
+  // useful when the user gives a 👎 and wants a re-roll, or when prompt has been tuned.
+  const force = !!(req.body && req.body.force);
+  if (!force) {
+    const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger);
+    if (cached) return res.json({ debrief: cached, cached: true });
+  }
 
   const systemPrompt = DEBRIEF_PROMPTS[trigger] || DEBRIEF_PROMPTS.weekly;
   // Hand the AI the structured brief. JSON.stringify is compact and clear; the
@@ -1141,9 +1146,11 @@ app.post('/api/debrief', async (req, res) => {
   };
   await withFileLock(req.dataFiles.debriefs, () => {
     const arr = readJson(req.dataFiles.debriefs, []);
-    arr.push(entry);
-    while (arr.length > DEBRIEF_KEEP) arr.shift();
-    writeJson(req.dataFiles.debriefs, arr);
+    // If forcing a regenerate, drop the prior cached entry for this (week, trigger).
+    const filtered = force ? arr.filter(d => !(d.iso_week === isoWeek && d.trigger === trigger)) : arr;
+    filtered.push(entry);
+    while (filtered.length > DEBRIEF_KEEP) filtered.shift();
+    writeJson(req.dataFiles.debriefs, filtered);
   });
   res.json({ debrief: entry, cached: false });
 });

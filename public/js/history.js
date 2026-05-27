@@ -897,6 +897,7 @@ function renderDebriefResult(card, debrief, opts = {}) {
       <button class="db-thumb ${fb === 'up' ? 'active' : ''}" data-fb="up" ${fb ? 'disabled' : ''} aria-label="useful">👍</button>
       <button class="db-thumb ${fb === 'down' ? 'active' : ''}" data-fb="down" ${fb ? 'disabled' : ''} aria-label="not useful">👎</button>
       <span class="db-feedback-state">${fb === 'up' ? 'Glad it helped.' : fb === 'down' ? 'Noted — sharper next week.' : ''}</span>
+      <button class="db-link db-regen" id="debriefRegen" title="Discard this debrief and ask the AI again with current data">↻ regenerate</button>
     </div>
   `;
 
@@ -909,6 +910,17 @@ function renderDebriefResult(card, debrief, opts = {}) {
       renderDebriefResult(card, debrief, opts);
     } catch (_) { btn.disabled = false; }
   }));
+
+  const regenBtn = $('#debriefRegen');
+  if (regenBtn) regenBtn.addEventListener('click', async () => {
+    renderDebriefGenerating(card, debrief.trigger);
+    try {
+      const r = await api('/api/debrief', { method: 'POST', body: { trigger: debrief.trigger, force: true } });
+      renderDebriefResult(card, r.debrief, opts);
+    } catch (e) {
+      card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Regenerate failed: ${escapeHtml(e.message || '')}</div>`;
+    }
+  });
 
   const otherBtn = $('#debriefShowOther');
   if (otherBtn) {
