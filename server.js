@@ -93,14 +93,15 @@ function recordUsage(endpoint, model, usage) {
   console.log(`[AI] ${entry.ts} ${endpoint} model=${model} in=${inT} out=${outT} reasoning=${reasoning} cost=$${entry.cost.toFixed(4)}`);
 }
 
-async function aiJson(endpoint, systemPrompt, userPrompt, maxTokens = 4000) {
+async function aiJson(endpoint, systemPrompt, userPrompt, maxTokens = 4000, modelOverride = null) {
   const allowed = checkAiAllowed();
   if (!allowed.ok) {
     console.warn(`[AI] BLOCKED ${endpoint}: ${allowed.reason}`);
     throw new Error(`AI call blocked: ${allowed.reason}`);
   }
+  const model = modelOverride || OPENAI_MODEL;
   const r = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
+    model,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: systemPrompt },
@@ -108,7 +109,7 @@ async function aiJson(endpoint, systemPrompt, userPrompt, maxTokens = 4000) {
     ],
     max_completion_tokens: maxTokens
   });
-  recordUsage(endpoint, r.model || OPENAI_MODEL, r.usage);
+  recordUsage(endpoint, r.model || model, r.usage);
   const content = r.choices[0].message.content;
   if (!content || !content.trim()) {
     const reasoning = r.usage?.completion_tokens_details?.reasoning_tokens || 0;
@@ -877,8 +878,40 @@ app.get('/api/protein-adherence', (req, res) => {
 
 const DEBRIEF_PROMPTS = require('./prompts/debrief');
 const DEBRIEF_TRIGGERS = ['weekly', 'plateau', 'drift', 'drop', 'streak_break'];
-const DEBRIEF_MIN_DAYS = 5;     // 5+ logged days in last 7 to unlock
-const DEBRIEF_KEEP = 24;        // keep last 24 debriefs per user (~6 months)
+const DEBRIEF_MIN_DAYS = 5;          // 5+ logged days in last 7 to unlock
+const DEBRIEF_KEEP = 24;             // keep last 24 debriefs per user (~6 months)
+// Upgraded model for debrief only — the nuanced "on_plan" rule requires more
+// capability than gpt-5-nano consistently delivers. Other endpoints stay on nano.
+const DEBRIEF_MODEL = process.env.OPENAI_MODEL_DEBRIEF || 'gpt-5-mini';
+// Per-user rate limits to keep the bigger model from accidentally getting hammered.
+const DEBRIEF_MAX_PER_DAY      = 5;          // 5 calls in any 24-hour window
+const DEBRIEF_MAX_REGENS_WEEK  = 3;          // 3 force=true calls in any 7-day window
+const DEBRIEF_COOLDOWN_MS      = 60 * 1000;  // 60s between any two calls
+
+function checkDebriefRate(existing, isForce) {
+  const now = Date.now();
+  const dayAgo  = now - 24 * 3600 * 1000;
+  const weekAgo = now - 7 * 24 * 3600 * 1000;
+
+  const last24h = existing.filter(d => new Date(d.generated_at).getTime() > dayAgo);
+  if (last24h.length >= DEBRIEF_MAX_PER_DAY) {
+    return { ok: false, reason: `Daily debrief limit reached (${DEBRIEF_MAX_PER_DAY}/24h). Try again later.` };
+  }
+  if (isForce) {
+    const forcedThisWeek = existing.filter(d => d.forced && new Date(d.generated_at).getTime() > weekAgo);
+    if (forcedThisWeek.length >= DEBRIEF_MAX_REGENS_WEEK) {
+      return { ok: false, reason: `Regenerate limit reached (${DEBRIEF_MAX_REGENS_WEEK}/week). Wait for next week's debrief.` };
+    }
+  }
+  if (existing.length) {
+    const lastAge = now - new Date(existing[existing.length - 1].generated_at).getTime();
+    if (lastAge < DEBRIEF_COOLDOWN_MS) {
+      const wait = Math.ceil((DEBRIEF_COOLDOWN_MS - lastAge) / 1000);
+      return { ok: false, reason: `Cooldown active — try again in ${wait}s.` };
+    }
+  }
+  return { ok: true };
+}
 
 // ISO week key — "2026-W21" — used as the cache + dedupe key per trigger.
 function isoWeekKey(d) {
@@ -900,6 +933,8 @@ function buildDebriefBrief(req) {
   const customs = readJson(req.dataFiles.custom_foods, {});
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile);
+  // Goal direction drives ALL on-plan logic below; declared early.
+  const goalDelta = stats && stats.goal_meta ? stats.goal_meta.delta : 0;
 
   const today = new Date();
   const todayKey = todayStr(req);
@@ -935,6 +970,17 @@ function buildDebriefBrief(req) {
   const days28 = collect(win28Start);
   const prior7 = days14.filter(d => d.date < win7Start);
 
+  // "On plan" interpretation respects the user's goal direction:
+  //   Cutter: at or BELOW the kcal_goal (ceiling). Under is winning.
+  //   Maintainer: within ±200 of the goal (both directions matter).
+  //   Gainer: at or ABOVE the kcal_goal (floor). Over is winning.
+  // Sending the AI both raw and direction-aware counts so it can't conflate them.
+  const kcalOnPlan = (d) => {
+    if (!stats) return false;
+    if (goalDelta < 0) return d.kcal <= stats.kcal_goal;
+    if (goalDelta > 0) return d.kcal >= stats.kcal_goal;
+    return d.kcal >= stats.kcal_goal - 200 && d.kcal <= stats.kcal_goal + 200;
+  };
   const summary = (days) => {
     if (!days.length) return null;
     const totalK = days.reduce((a, d) => a + d.kcal, 0);
@@ -945,8 +991,12 @@ function buildDebriefBrief(req) {
       days_logged: days.length,
       avg_kcal: Math.round(totalK / days.length),
       avg_protein: round1(totalP / days.length),
-      days_hit_kcal: goal ? days.filter(d => d.kcal >= goal - 200 && d.kcal <= goal + 200).length : null,
-      days_hit_protein: proteinT ? days.filter(d => d.protein >= proteinT * 0.9).length : null
+      // "on plan" = correct side of the goal for THIS user (cutter: under ceiling, etc.)
+      days_kcal_on_plan: stats ? days.filter(kcalOnPlan).length : null,
+      // raw boundary counts so AI can see both directions explicitly
+      days_over_kcal_goal:  goal ? days.filter(d => d.kcal > goal).length : null,
+      days_under_kcal_goal: goal ? days.filter(d => d.kcal < goal).length : null,
+      days_hit_protein:     proteinT ? days.filter(d => d.protein >= proteinT * 0.9).length : null
     };
   };
 
@@ -1069,6 +1119,9 @@ function buildDebriefBrief(req) {
   return {
     user_context: {
       goal: profile && profile.goal,
+      is_cutting:     goalDelta < 0,
+      is_maintaining: goalDelta === 0,
+      is_gaining:     goalDelta > 0,
       goal_weight_kg: profile && profile.goal_weight_kg,
       kcal_goal: stats && stats.kcal_goal,
       protein_goal_g: stats && stats.protein_g,
@@ -1091,6 +1144,32 @@ function buildDebriefBrief(req) {
     daily_breakdown_last_7: dailyBreakdown,
     source_breakdown_28d_pct: sourceBreakdown,
     custom_foods_count: Object.keys(customs).length,
+    // Server-computed verdict so the AI doesn't have to derive it. If on_plan is
+    // true, the prompt instructs the AI to NOT search for a leak — there isn't one.
+    derived_insights: (() => {
+      const s7 = summary(days7);
+      const ins = { on_plan: false };
+      if (!s7 || !stats || !weight7) return ins;
+      const cutterOnPlan =
+        goalDelta < 0 &&
+        s7.days_kcal_on_plan / s7.days_logged >= 0.7 &&        // ≥70% days under ceiling
+        s7.avg_protein >= stats.protein_g * 0.95 &&            // protein basically hit
+        weight7.delta_kg <= -0.1;                              // weight actually dropping
+      const maintainerOnPlan =
+        goalDelta === 0 &&
+        s7.days_kcal_on_plan / s7.days_logged >= 0.7 &&
+        Math.abs(weight7.delta_kg) < 0.3;
+      const gainerOnPlan =
+        goalDelta > 0 &&
+        s7.days_kcal_on_plan / s7.days_logged >= 0.7 &&
+        s7.avg_protein >= stats.protein_g * 0.9 &&
+        weight7.delta_kg >= 0.1;
+      ins.on_plan = cutterOnPlan || maintainerOnPlan || gainerOnPlan;
+      if (ins.on_plan) {
+        ins.on_plan_summary = `last_7: avg ${s7.avg_kcal} kcal vs ${stats.kcal_goal} goal, avg protein ${s7.avg_protein}g vs ${stats.protein_g} target, weight ${weight7.delta_kg} kg over ${weight7.span_days}d.`;
+      }
+      return ins;
+    })(),
     // Raw meal log for AI fuzzy categorization. Compact format to save tokens.
     meal_log: days28.flatMap(d => d.entries.map(e => ({
       date: d.date,
@@ -1118,8 +1197,8 @@ function detectDebriefTriggers(brief, alreadyGenerated) {
   // Plateau: weight flat (|delta| < 0.3kg) AND hitting kcal goal AND 14+ days of data
   if (brief.last_28 && brief.last_28.days_logged >= 14 && brief.weight_trend_28_days) {
     const stalled = Math.abs(brief.weight_trend_28_days.delta_kg) < 0.3;
-    const onPlan = brief.last_28.days_hit_kcal !== null &&
-                   brief.last_28.days_hit_kcal / brief.last_28.days_logged > 0.6;
+    const onPlan = brief.last_28.days_kcal_on_plan !== null &&
+                   brief.last_28.days_kcal_on_plan / brief.last_28.days_logged > 0.6;
     if (stalled && onPlan && !alreadyThisWeek('plateau')) triggers.push('plateau');
   }
 
@@ -1130,9 +1209,9 @@ function detectDebriefTriggers(brief, alreadyGenerated) {
   }
 
   // Adherence drop: hit-rate fell >20% week-over-week
-  if (brief.last_7 && brief.prior_7 && brief.last_7.days_hit_kcal !== null && brief.prior_7.days_hit_kcal !== null) {
-    const thisRate = brief.last_7.days_hit_kcal / brief.last_7.days_logged;
-    const lastRate = brief.prior_7.days_hit_kcal / brief.prior_7.days_logged;
+  if (brief.last_7 && brief.prior_7 && brief.last_7.days_kcal_on_plan !== null && brief.prior_7.days_kcal_on_plan !== null) {
+    const thisRate = brief.last_7.days_kcal_on_plan / brief.last_7.days_logged;
+    const lastRate = brief.prior_7.days_kcal_on_plan / brief.prior_7.days_logged;
     if (lastRate - thisRate > 0.2 && !alreadyThisWeek('drop')) triggers.push('drop');
   }
 
@@ -1179,7 +1258,6 @@ app.post('/api/debrief', async (req, res) => {
 
   const existing = readJson(req.dataFiles.debriefs, []);
   const isoWeek = isoWeekKey(new Date());
-  // Per-trigger cache: if we've already generated this trigger for this week, return it.
   // `force=true` in the body bypasses the cache and replaces the cached entry —
   // useful when the user gives a 👎 and wants a re-roll, or when prompt has been tuned.
   const force = !!(req.body && req.body.force);
@@ -1187,6 +1265,11 @@ app.post('/api/debrief', async (req, res) => {
     const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger);
     if (cached) return res.json({ debrief: cached, cached: true });
   }
+
+  // Rate-limit safety nets: caps the upgraded-model spend even if the user mashes
+  // regenerate, has many open browser tabs, or a bug somewhere fires repeats.
+  const rate = checkDebriefRate(existing, force);
+  if (!rate.ok) return res.status(429).json({ error: rate.reason });
 
   const systemPrompt = DEBRIEF_PROMPTS[trigger] || DEBRIEF_PROMPTS.weekly;
   // Hand the AI the structured brief. JSON.stringify is compact and clear; the
@@ -1196,7 +1279,7 @@ app.post('/api/debrief', async (req, res) => {
 
   let data;
   try {
-    data = await aiJson('debrief', systemPrompt, userPrompt, 8000);
+    data = await aiJson('debrief', systemPrompt, userPrompt, 8000, DEBRIEF_MODEL);
   } catch (e) {
     console.error('Debrief error:', e);
     return res.status(500).json({ error: e.message });
@@ -1211,7 +1294,8 @@ app.post('/api/debrief', async (req, res) => {
     working: String(data.working || '').slice(0, 400),
     leak: String(data.leak || '').slice(0, 400),
     try_this: String(data.try || '').slice(0, 400),
-    feedback: null
+    feedback: null,
+    forced: force ? true : undefined
   };
   await withFileLock(req.dataFiles.debriefs, () => {
     const arr = readJson(req.dataFiles.debriefs, []);

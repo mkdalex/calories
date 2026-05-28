@@ -809,6 +809,12 @@ async function renderDebriefCard() {
     renderDebriefGenerating(card, trigger);
     try {
       const r = await api('/api/debrief', { method: 'POST', body: { trigger } });
+      if (r && r.error && !r.debrief) {
+        // Rate-limited or other server-side block — fall back to whatever we have.
+        if (recent.length) renderDebriefResult(card, recent[0], { otherPending: triggers, recent: recent.slice(1) });
+        else card.innerHTML = `<h2>AI debrief</h2><div class="db-empty">${escapeHtml(r.error)}</div>`;
+        return;
+      }
       renderDebriefResult(card, r.debrief, { otherPending: triggers.filter(t => t !== trigger), recent });
     } catch (e) {
       card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Generation failed: ${escapeHtml(e.message || 'unknown')}</div>`;
@@ -916,6 +922,12 @@ function renderDebriefResult(card, debrief, opts = {}) {
     renderDebriefGenerating(card, debrief.trigger);
     try {
       const r = await api('/api/debrief', { method: 'POST', body: { trigger: debrief.trigger, force: true } });
+      // Rate-limit responses come back as { error: "..." } not a debrief object.
+      if (r && r.error && !r.debrief) {
+        renderDebriefResult(card, debrief, opts);
+        if (typeof showToast === 'function') showToast(r.error);
+        return;
+      }
       renderDebriefResult(card, r.debrief, opts);
     } catch (e) {
       card.innerHTML = `<h2>AI debrief</h2><div class="empty" style="color:var(--danger);">Regenerate failed: ${escapeHtml(e.message || '')}</div>`;
