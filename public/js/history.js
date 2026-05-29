@@ -902,8 +902,11 @@ function renderDebriefResult(card, debrief, opts = {}) {
       <span class="db-feedback-label">Was this useful?</span>
       <button class="db-thumb ${fb === 'up' ? 'active' : ''}" data-fb="up" ${fb ? 'disabled' : ''} aria-label="useful">👍</button>
       <button class="db-thumb ${fb === 'down' ? 'active' : ''}" data-fb="down" ${fb ? 'disabled' : ''} aria-label="not useful">👎</button>
-      <span class="db-feedback-state">${fb === 'up' ? 'Glad it helped.' : fb === 'down' ? 'Noted — sharper next week.' : ''}</span>
-      <button class="db-link db-regen" id="debriefRegen" title="Discard this debrief and ask the AI again with current data">↻ regenerate</button>
+      ${fb === 'up'
+        ? `<span class="db-feedback-state">Glad it helped.</span>`
+        : fb === 'down'
+        ? `<span class="db-feedback-state">Noted — <button class="db-link" id="debriefRegen">try once more?</button></span>`
+        : ''}
     </div>
   `;
 

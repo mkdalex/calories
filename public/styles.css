@@ -911,8 +911,6 @@
   .db-thumb.active { border-color: var(--accent); background: var(--tint-accent-bg-soft); }
   .db-thumb:disabled { cursor: default; opacity: 0.85; }
   .db-feedback-state { font-style: italic; }
-  .db-regen { margin-left: auto; font-size: 11px; text-decoration: none; }
-  .db-regen:hover { text-decoration: underline; }
 
   /* ---------- Protein adherence ---------- */
   .pa-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 12px; }
