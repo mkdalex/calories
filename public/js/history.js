@@ -878,13 +878,30 @@ function renderDebriefGenerating(card, trigger) {
 function renderDebriefResult(card, debrief, opts = {}) {
   const meta = DEBRIEF_TRIGGER_META[debrief.trigger] || DEBRIEF_TRIGGER_META.weekly;
   const when = new Date(debrief.generated_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  // "Next debrief" tooltip — weekly heartbeat fires on the next Monday after this
+  // ISO week ends. Triggered alerts (plateau/drift/etc) don't have a schedule
+  // so we just show the next weekly cycle as the reference.
+  const nextWeekly = (() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const day = d.getDay();                                 // 0=Sun, 1=Mon
+    const ahead = day === 0 ? 1 : day === 1 ? 7 : 8 - day;  // days until next Mon (Mon→7d)
+    d.setDate(d.getDate() + ahead);
+    return d;
+  })();
+  const daysToNext = Math.round((nextWeekly - new Date().setHours(0,0,0,0)) / 86400000);
+  const relText = daysToNext === 0 ? 'later today'
+                : daysToNext === 1 ? 'tomorrow'
+                : daysToNext === 7 ? 'in a week'
+                : `in ${daysToNext} days`;
+  const nextStr = nextWeekly.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const nextTooltip = `Next weekly debrief ${relText} (${nextStr}). Auto-generates on your next History visit then.`;
   const otherCount = (opts.otherPending || []).length;
   const otherBanner = otherCount > 0
     ? `<div class="db-other">+${otherCount} other alert${otherCount === 1 ? '' : 's'} this week — <button class="db-link" id="debriefShowOther">view</button></div>`
     : '';
   const fb = debrief.feedback;
   card.innerHTML = `
-    <h2>${meta.emoji} ${meta.label} <span class="db-when">${when}</span></h2>
+    <h2>${meta.emoji} ${meta.label} <span class="db-when" title="${nextTooltip}">${when}</span></h2>
     <div class="db-section db-working">
       <div class="db-section-label">Working</div>
       <div class="db-section-text">${escapeHtml(debrief.working || '—')}</div>

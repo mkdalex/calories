@@ -879,7 +879,7 @@
   .db-check.done .db-tick { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
   .db-prog { color: var(--text-dim); font-size: 11px; }
 
-  .db-when { font-size: 11px; color: var(--text-dim); font-weight: 400; margin-left: 6px; }
+  .db-when { font-size: 11px; color: var(--text-dim); font-weight: 400; margin-left: 6px; cursor: help; border-bottom: 1px dotted var(--text-dim); }
   .db-section { margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--border); }
   .db-section.db-working { border-left-color: var(--accent); }
   .db-section.db-leak    { border-left-color: var(--warn); }
