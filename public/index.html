@@ -115,22 +115,10 @@
     <div class="view" id="view-today">
       <div id="setupBanner"></div>
       <div class="dash-grid">
-        <div class="dash-col-primary-top">
+        <div class="dash-col-left">
           <div class="ring-row-wrap">
             <div class="ring-wrap" id="ringWrap"></div>
           </div>
-        </div>
-        <div class="dash-col-secondary">
-          <div id="waterWrap"></div>
-          <div id="streakWrap"></div>
-          <div id="proteinWrap"></div>
-          <div id="macroWrap"></div>
-          <div id="narrativeWrap"></div>
-          <div id="dayStatusWrap"></div>
-          <div id="zoneWrap"></div>
-          <div id="gapFillWrap"></div>
-        </div>
-        <div class="dash-col-primary-bottom">
           <h3
             style="
               color: var(--text-dim);
@@ -145,6 +133,16 @@
           <div id="templateWrap"></div>
           <div id="favWrap"></div>
           <div class="meal-list" id="mealList"></div>
+        </div>
+        <div class="dash-col-right">
+          <div id="waterWrap"></div>
+          <div id="streakWrap"></div>
+          <div id="proteinWrap"></div>
+          <div id="macroWrap"></div>
+          <div id="narrativeWrap"></div>
+          <div id="zoneWrap"></div>
+          <div id="dayStatusWrap"></div>
+          <div id="gapFillWrap"></div>
         </div>
       </div>
     </div>
@@ -200,12 +198,20 @@
     <div class="view hidden" id="view-history">
       <div id="plateauBannerWrap"></div>
       <div class="dash-grid">
-        <div class="dash-col-primary-top">
+        <div class="dash-col-left">
           <div class="card" id="debriefCard"></div>
           <div class="card" id="weeklyReviewCard"></div>
           <div class="card" id="proteinAdherenceCard"></div>
+          <div class="card" id="predictedActualCard"></div>
+          <div class="card" id="kcalTrendCard">
+            <h2>Calorie trend — 30 days</h2>
+            <div id="kcalTrendStats" class="kcal-trend-stats"></div>
+            <div id="kcalTrendChart"></div>
+          </div>
+          <div class="card" id="dowPatternCard"></div>
+          <div class="card" id="sourceQualityCard"></div>
         </div>
-        <div class="dash-col-secondary">
+        <div class="dash-col-right">
           <div class="card" id="calendarCard">
             <div class="cal-header">
               <button class="cal-nav-btn" id="calPrev">&#8249;</button>
@@ -231,16 +237,6 @@
             </div>
             <div id="weightHistory"></div>
           </div>
-        </div>
-        <div class="dash-col-primary-bottom">
-          <div class="card" id="predictedActualCard"></div>
-          <div class="card" id="kcalTrendCard">
-            <h2>Calorie trend — 30 days</h2>
-            <div id="kcalTrendStats" class="kcal-trend-stats"></div>
-            <div id="kcalTrendChart"></div>
-          </div>
-          <div class="card" id="dowPatternCard"></div>
-          <div class="card" id="sourceQualityCard"></div>
         </div>
       </div>
     </div>

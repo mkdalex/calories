@@ -1055,42 +1055,35 @@
      DESKTOP DASHBOARD LAYOUT — wide screens only
      ============================================================
      Mobile (default): .dash-grid + .dash-col-* are transparent
-     (display: contents), so cards stack as a single column exactly
-     as the DOM order specifies.
+     (display: contents) so cards stack as a single column.
 
-     Desktop (≥1000px): .dash-grid is a 2-col grid. Three wrappers
-     per view —
-       .dash-col-primary-top    → top of left column
-       .dash-col-secondary      → entire right column (spans 2 rows)
-       .dash-col-primary-bottom → bottom of left column
-     This lets the right column visually "sit beside" both the
-     top-left and bottom-left content without one column getting
-     stranded with a giant empty gap below a short card. */
+     Desktop (≥1000px): .dash-grid is a flex row with two flex-
+     column children. Each column is its own independent stack —
+     heights don't have to align row-by-row, so a short left
+     column and tall right column (or vice versa) coexist without
+     either getting stretched or stranded. `align-items: flex-start`
+     keeps each column hugging the top instead of stretching to
+     match the other. */
   .dash-grid,
-  .dash-col-primary-top,
-  .dash-col-secondary,
-  .dash-col-primary-bottom { display: contents; }
+  .dash-col-left,
+  .dash-col-right { display: contents; }
 
   @media (min-width: 1000px) {
     .view { max-width: 1200px; }
 
     .dash-grid {
-      display: grid;
-      grid-template-columns: 1.6fr 1fr;
-      gap: 0 20px;
-      align-items: start;
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
     }
 
-    .dash-col-primary-top,
-    .dash-col-primary-bottom,
-    .dash-col-secondary {
+    .dash-col-left,
+    .dash-col-right {
       display: flex;
       flex-direction: column;
-      min-width: 0;        /* lets children shrink inside grid cell */
+      min-width: 0;        /* lets children shrink inside the flex cell */
     }
-
-    .dash-col-primary-top    { grid-column: 1; grid-row: 1; }
-    .dash-col-secondary      { grid-column: 2; grid-row: 1 / span 2; }
-    .dash-col-primary-bottom { grid-column: 1; grid-row: 2; }
+    .dash-col-left  { flex: 1.6 1 0; }
+    .dash-col-right { flex: 1   1 0; }
   }
 
