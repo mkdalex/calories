@@ -1051,3 +1051,60 @@
   [data-theme="day"]   .theme-toggle .th-moon { display: block; }
   [data-theme="day"]   .theme-toggle .th-sun  { display: none; }
 
+  /* ============================================================
+     DESKTOP DASHBOARD LAYOUT — wide screens only
+     ============================================================
+     Below 1100px nothing in this block applies; mobile layout is
+     untouched. On desktop we widen .view and turn #view-today /
+     #view-history into a 2-column grid via explicit grid-column
+     assignment on existing children. No DOM reordering — `dense`
+     packing lets right-col items fill empty slots beside taller
+     left-col cards. */
+  @media (min-width: 1100px) {
+    .view { max-width: 1200px; }
+
+    #view-today,
+    #view-history {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 0 20px;
+      grid-auto-flow: row dense;
+      align-items: start;
+    }
+
+    /* --- Today: full-width rows --- */
+    #view-today > #setupBanner,
+    #view-today > h3,
+    #view-today > #mealList { grid-column: 1 / -1; }
+
+    /* --- Today: left column (primary narrative) --- */
+    #view-today > .ring-row-wrap,
+    #view-today > #macroWrap,
+    #view-today > #narrativeWrap,
+    #view-today > #dayStatusWrap,
+    #view-today > #zoneWrap,
+    #view-today > #gapFillWrap { grid-column: 1; }
+
+    /* --- Today: right column (quick stats + actions) --- */
+    #view-today > #streakWrap,
+    #view-today > #proteinWrap,
+    #view-today > #templateWrap,
+    #view-today > #favWrap { grid-column: 2; }
+
+    /* --- History: full-width row --- */
+    #view-history > #plateauBannerWrap { grid-column: 1 / -1; }
+
+    /* --- History: left column (analysis) --- */
+    #view-history > #debriefCard,
+    #view-history > #weeklyReviewCard,
+    #view-history > #proteinAdherenceCard,
+    #view-history > #predictedActualCard,
+    #view-history > #kcalTrendCard,
+    #view-history > #dowPatternCard,
+    #view-history > #sourceQualityCard { grid-column: 1; }
+
+    /* --- History: right column (interactive sidebar) --- */
+    #view-history > #calendarCard,
+    #view-history > #weightCard { grid-column: 2; }
+  }
+
