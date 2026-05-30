@@ -1054,57 +1054,43 @@
   /* ============================================================
      DESKTOP DASHBOARD LAYOUT — wide screens only
      ============================================================
-     Below 1100px nothing in this block applies; mobile layout is
-     untouched. On desktop we widen .view and turn #view-today /
-     #view-history into a 2-column grid via explicit grid-column
-     assignment on existing children. No DOM reordering — `dense`
-     packing lets right-col items fill empty slots beside taller
-     left-col cards. */
-  @media (min-width: 1100px) {
+     Mobile (default): .dash-grid + .dash-col-* are transparent
+     (display: contents), so cards stack as a single column exactly
+     as the DOM order specifies.
+
+     Desktop (≥1000px): .dash-grid is a 2-col grid. Three wrappers
+     per view —
+       .dash-col-primary-top    → top of left column
+       .dash-col-secondary      → entire right column (spans 2 rows)
+       .dash-col-primary-bottom → bottom of left column
+     This lets the right column visually "sit beside" both the
+     top-left and bottom-left content without one column getting
+     stranded with a giant empty gap below a short card. */
+  .dash-grid,
+  .dash-col-primary-top,
+  .dash-col-secondary,
+  .dash-col-primary-bottom { display: contents; }
+
+  @media (min-width: 1000px) {
     .view { max-width: 1200px; }
 
-    #view-today,
-    #view-history {
+    .dash-grid {
       display: grid;
       grid-template-columns: 1.6fr 1fr;
       gap: 0 20px;
-      grid-auto-flow: row dense;
       align-items: start;
     }
 
-    /* --- Today: full-width rows --- */
-    #view-today > #setupBanner,
-    #view-today > h3,
-    #view-today > #mealList { grid-column: 1 / -1; }
+    .dash-col-primary-top,
+    .dash-col-primary-bottom,
+    .dash-col-secondary {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;        /* lets children shrink inside grid cell */
+    }
 
-    /* --- Today: left column (primary narrative) --- */
-    #view-today > .ring-row-wrap,
-    #view-today > #macroWrap,
-    #view-today > #narrativeWrap,
-    #view-today > #dayStatusWrap,
-    #view-today > #zoneWrap,
-    #view-today > #gapFillWrap { grid-column: 1; }
-
-    /* --- Today: right column (quick stats + actions) --- */
-    #view-today > #streakWrap,
-    #view-today > #proteinWrap,
-    #view-today > #templateWrap,
-    #view-today > #favWrap { grid-column: 2; }
-
-    /* --- History: full-width row --- */
-    #view-history > #plateauBannerWrap { grid-column: 1 / -1; }
-
-    /* --- History: left column (analysis) --- */
-    #view-history > #debriefCard,
-    #view-history > #weeklyReviewCard,
-    #view-history > #proteinAdherenceCard,
-    #view-history > #predictedActualCard,
-    #view-history > #kcalTrendCard,
-    #view-history > #dowPatternCard,
-    #view-history > #sourceQualityCard { grid-column: 1; }
-
-    /* --- History: right column (interactive sidebar) --- */
-    #view-history > #calendarCard,
-    #view-history > #weightCard { grid-column: 2; }
+    .dash-col-primary-top    { grid-column: 1; grid-row: 1; }
+    .dash-col-secondary      { grid-column: 2; grid-row: 1 / span 2; }
+    .dash-col-primary-bottom { grid-column: 1; grid-row: 2; }
   }
 
