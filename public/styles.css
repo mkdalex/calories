@@ -1090,6 +1090,10 @@
       min-width: 0;
       padding: 30px 40px 60px;
       max-width: 1320px;
+      margin-left: auto;     /* center within the 1fr grid cell so the */
+      margin-right: auto;    /* gutter is balanced on wide screens */
+      width: 100%;
+      box-sizing: border-box;
     }
     .view { max-width: none; padding: 0; margin: 0; }
     body  { padding-bottom: 0; }
@@ -1318,5 +1322,35 @@
     #view-today > .dash-grid #waterWrap,
     #view-today > .dash-grid #narrativeWrap,
     #view-today > .dash-grid #dayStatusWrap { display: none; }
+
+    /* --- Streak / 7-day-avg as bordered card with two stat tiles ---------
+       On mobile this stays the existing centered flex strip. On desktop we
+       wrap it in card chrome and lay the two items out as side-by-side
+       tiles so the right column visually starts level with the hero. */
+    #view-today > .dash-grid #streakWrap .streak-strip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      justify-content: stretch;
+    }
+    #view-today > .dash-grid #streakWrap .streak-strip .item {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 13px 15px;
+      text-align: left;
+    }
+    #view-today > .dash-grid #streakWrap .streak-strip .num {
+      font-size: 26px; font-weight: 800; letter-spacing: -0.02em;
+      line-height: 1.05; margin-bottom: 4px;
+    }
+    #view-today > .dash-grid #streakWrap .streak-strip .lbl {
+      font-size: 11px; font-weight: 700; color: var(--text-dim);
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
   }
 
