@@ -428,6 +428,48 @@ function renderToday() {
 
   // Favorites
   loadFavorites();
+
+  // Desktop hero card extras (protein + water mini-stats + coach line).
+  // Renders unconditionally — on mobile the .hero-right is display:none via CSS.
+  renderHeroExtras(data);
+}
+
+// Renders the desktop hero card's right-hand block: protein mini-stat,
+// water mini-stat, and the coaching line. Mobile hides it via CSS.
+function renderHeroExtras(data) {
+  const wrap = document.getElementById('heroExtras');
+  if (!wrap || !data || !data.stats) return;
+  const water = state.water || { total_ml: 0 };
+  const GOAL_ML = 2000, GLASS_ML = 250, GOAL_GLASSES = 8;
+  const glasses = Math.floor((water.total_ml || 0) / GLASS_ML);
+  const pPct = Math.min(data.totals.protein / data.stats.protein_g, 1) * 100;
+  const wPct = Math.min((water.total_ml || 0) / GOAL_ML, 1) * 100;
+
+  const goal = data.stats.kcal_goal;
+  const eaten = data.totals.kcal;
+  const over = eaten > goal;
+  const remaining = goal - eaten;
+  let coach;
+  if (over)               coach = `You're ${eaten - goal} kcal over today. No big deal — eat lighter tomorrow and you're back on track.`;
+  else if (remaining < 200) coach = `${remaining} kcal left — that's a small snack or a light side.`;
+  else if (remaining < 600) coach = `${remaining} kcal left — plenty for a normal-sized meal.`;
+  else                      coach = `${remaining} kcal left. Eat a real meal — don't undereat, you'll just binge later.`;
+
+  wrap.innerHTML = `
+    <div class="hero-stats">
+      <div class="mini-stat">
+        <div class="ms-top"><span class="ms-label">Protein</span></div>
+        <div class="ms-val">${Math.round(data.totals.protein)}<span class="unit"> / ${data.stats.protein_g}g</span></div>
+        <div class="mini-bar"><i style="width:${pPct}%;background:linear-gradient(90deg,var(--accent-dim),var(--accent));"></i></div>
+      </div>
+      <div class="mini-stat">
+        <div class="ms-top"><span class="ms-label">Water</span></div>
+        <div class="ms-val">${glasses}<span class="unit"> / ${GOAL_GLASSES} glasses</span></div>
+        <div class="mini-bar"><i style="width:${wPct}%;background:linear-gradient(90deg,#3b82f6,var(--info));"></i></div>
+      </div>
+    </div>
+    <div class="coach"><span>${escapeHtml(coach)}</span></div>
+  `;
 }
 
 // ---------- MEAL PERIOD ----------

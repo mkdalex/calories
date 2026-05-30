@@ -1065,6 +1065,14 @@
   .sidebar    { display: none; }
   .page-head  { display: none; }
 
+  /* On mobile the hero card is a no-op wrapper around the ring — strip
+     all card chrome so the ring renders the same as it always has. */
+  .hero {
+    background: none; border: none; padding: 0;
+    box-shadow: none; border-radius: 0;
+  }
+  .hero .hero-right { display: none; }
+
   @media (min-width: 1000px) {
     /* --- App shell: sidebar + main grid ---------------------- */
     .app-shell {
@@ -1126,7 +1134,10 @@
     }
     .sidebar .sb-nav-item:hover  { background: var(--panel-2); color: var(--text); }
     .sidebar .sb-nav-item.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-    .sidebar .sb-nav-ico { width: 18px; text-align: center; flex-shrink: 0; }
+    .sidebar .sb-nav-ico { width: 19px; height: 19px; flex-shrink: 0; color: var(--text-dim); }
+    .sidebar .sb-nav-item:hover  .sb-nav-ico { color: var(--text); }
+    .sidebar .sb-nav-item.active .sb-nav-ico { color: var(--accent); }
+    .sidebar .sb-quicklog-head .ai-spark { width: 14px; height: 14px; }
 
     .sidebar .sb-spacer { flex: 1; }
 
@@ -1250,12 +1261,62 @@
     .dash-col-left  > .card,
     .dash-col-right > .card { margin-bottom: 0; }
 
-    /* Hero ring: stretch to fill the wide left col with breathing room */
-    .dash-col-left .ring-row-wrap {
-      padding: 18px 0 22px;
+    /* --- Hero card: ring on the left, mini-stats + coach on the right --- */
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      padding: 22px;
+      box-shadow: none;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 30px;
+      align-items: center;
+    }
+    .hero .ring-row-wrap { padding: 0; max-width: none; margin: 0; }
+    .hero .hero-right {
+      display: flex; flex-direction: column;
+      gap: 14px; min-width: 0;
+    }
+    .hero-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .mini-stat {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 13px 15px;
+    }
+    .mini-stat .ms-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 9px;
+    }
+    .mini-stat .ms-label { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+    .mini-stat .ms-val {
+      font-size: 16px; font-weight: 800; letter-spacing: -0.02em;
+      margin-bottom: 9px;
+    }
+    .mini-stat .ms-val .unit { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+    .mini-bar { height: 7px; border-radius: 4px; background: var(--panel-3, var(--border)); overflow: hidden; }
+    .mini-bar > i {
+      display: block; height: 100%; border-radius: 4px;
+      transition: width .5s cubic-bezier(.22,1,.36,1);
+    }
+    .hero .coach {
+      background: color-mix(in srgb, var(--info) 9%, transparent);
+      border: 1px solid color-mix(in srgb, var(--info) 24%, transparent);
+      border-radius: 14px;
+      padding: 13px 15px;
+      font-size: 13.5px; line-height: 1.5; color: var(--info-light);
+      display: flex; gap: 10px;
     }
 
-    /* Cards the desktop dash represents elsewhere (or simply doesn't show) */
+    /* Standalone cards whose data lives inside the hero on desktop */
+    #view-today > .dash-grid #proteinWrap,
+    #view-today > .dash-grid #waterWrap,
+    #view-today > .dash-grid #narrativeWrap,
     #view-today > .dash-grid #dayStatusWrap { display: none; }
   }
 

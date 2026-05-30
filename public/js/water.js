@@ -82,10 +82,12 @@ async function logWater() {
   const res = await api('/api/water', { method: 'POST', body: { ml: 250 } });
   state.water = res;
   renderWater();
+  if (typeof renderHeroExtras === 'function' && state.today) renderHeroExtras(state.today);
 }
 
 async function undoWater(id) {
   const res = await api(`/api/water/${id}`, { method: 'DELETE' });
   state.water = res;
   renderWater();
+  if (typeof renderHeroExtras === 'function' && state.today) renderHeroExtras(state.today);
 }
