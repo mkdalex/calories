@@ -1052,54 +1052,210 @@
   [data-theme="day"]   .theme-toggle .th-sun  { display: none; }
 
   /* ============================================================
-     DESKTOP DASHBOARD LAYOUT — wide screens only
+     DESKTOP LAYOUT — sidebar + page-head + 2-col dash
      ============================================================
      Mobile (default): .dash-grid + .dash-col-* are transparent
      (display: contents) so cards stack as a single column.
-
-     Desktop (≥1000px): .dash-grid is a flex row with two flex-
-     column children. Each column is its own independent stack —
-     heights don't have to align row-by-row, so a short left
-     column and tall right column (or vice versa) coexist without
-     either getting stretched or stranded. `align-items: flex-start`
-     keeps each column hugging the top instead of stretching to
-     match the other. */
+     Desktop chrome (.app-shell sidebar, .page-head) is hidden by
+     default and only shown inside the media query below. */
   .dash-grid,
   .dash-col-left,
   .dash-col-right { display: contents; }
 
+  .sidebar    { display: none; }
+  .page-head  { display: none; }
+
   @media (min-width: 1000px) {
-    .view { max-width: 1100px; }
-
-    .dash-grid {
-      display: flex;
-      gap: 24px;
-      align-items: flex-start;   /* don't stretch columns to equal height */
+    /* --- App shell: sidebar + main grid ---------------------- */
+    .app-shell {
+      display: grid;
+      grid-template-columns: 264px 1fr;
+      min-height: 100vh;
+      align-items: stretch;
     }
+    /* Hide mobile chrome on desktop */
+    .topbar { display: none; }
+    .nav    { display: none; }
+    .fab    { display: none; }
 
+    .app-main {
+      min-width: 0;
+      padding: 30px 40px 60px;
+      max-width: 1320px;
+    }
+    .view { max-width: none; padding: 0; margin: 0; }
+    body  { padding-bottom: 0; }
+
+    /* --- Sidebar -------------------------------------------- */
+    .sidebar {
+      position: sticky; top: 0; height: 100vh;
+      display: flex; flex-direction: column;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 22px 16px 16px;
+      gap: 4px;
+      box-sizing: border-box;
+    }
+    .sidebar .sb-brand {
+      display: flex; align-items: center; gap: 11px;
+      padding: 4px 8px 18px;
+    }
+    .sidebar .sb-brand-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent),
+                  0 0 16px color-mix(in srgb, var(--accent) 50%, transparent);
+      flex-shrink: 0;
+    }
+    .sidebar .sb-brand-name { font-size: 18px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+    .sidebar .sb-brand-sub  { font-size: 11px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.02em; margin-top: 2px; }
+
+    .sidebar .sb-nav-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--text-dim);
+      padding: 14px 10px 6px;
+    }
+    .sidebar .sb-nav-item {
+      display: flex; align-items: center; gap: 12px;
+      width: 100%; text-align: left;
+      background: none; border: none; color: var(--text-dim);
+      padding: 10px 12px; border-radius: 11px;
+      font-size: 14.5px; font-weight: 600; cursor: pointer;
+      font-family: inherit;
+      transition: background .15s, color .15s;
+    }
+    .sidebar .sb-nav-item:hover  { background: var(--panel-2); color: var(--text); }
+    .sidebar .sb-nav-item.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    .sidebar .sb-nav-ico { width: 18px; text-align: center; flex-shrink: 0; }
+
+    .sidebar .sb-spacer { flex: 1; }
+
+    .sidebar .sb-quicklog {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      margin: 8px 2px 12px;
+    }
+    .sidebar .sb-quicklog-head {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 700; color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    .sidebar .sb-quicklog-head .ai-spark { color: var(--accent); font-weight: 800; }
+    .sidebar .sb-quicklog textarea {
+      width: 100%; resize: none; min-height: 58px;
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 9px 10px;
+      font-family: inherit; font-size: 13px; line-height: 1.45;
+      box-sizing: border-box;
+    }
+    .sidebar .sb-quicklog textarea::placeholder { color: var(--text-dim); }
+    .sidebar .sb-quicklog textarea:focus { outline: none; border-color: var(--accent); }
+    .sidebar .sb-quicklog-btn {
+      width: 100%; margin-top: 8px;
+      background: var(--accent); color: var(--bg);
+      border: none; border-radius: 10px;
+      padding: 10px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+      font-family: inherit;
+    }
+    .sidebar .sb-quicklog-btn:hover { filter: brightness(1.06); }
+
+    .sidebar .sb-user {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 8px; border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .sidebar .sb-user-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      background: var(--accent); color: var(--bg);
+      font-weight: 800; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .sidebar .sb-user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .sidebar .sb-user-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .sidebar .sb-user-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar .sb-user-plan { font-size: 11px; color: var(--text-dim); }
+    .sidebar .sb-theme-btn {
+      width: 34px; height: 34px; border-radius: 9px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text-dim); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .sidebar .sb-theme-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .sidebar .sb-theme-btn svg { width: 17px; height: 17px; }
+    /* Sun-on-night / moon-on-day matching the topbar logic */
+    .sidebar .sb-theme-btn .th-sun,
+    .sidebar .sb-theme-btn .th-moon { display: none; }
+    :root .sidebar .sb-theme-btn .th-sun,
+    [data-theme="night"] .sidebar .sb-theme-btn .th-sun  { display: block; }
+    [data-theme="day"]   .sidebar .sb-theme-btn .th-moon { display: block; }
+    [data-theme="day"]   .sidebar .sb-theme-btn .th-sun  { display: none; }
+
+    /* --- Page head bar -------------------------------------- */
+    .page-head {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 20px; margin-bottom: 24px; flex-wrap: wrap;
+    }
+    .page-head > div { min-width: 0; }
+    .page-head .ph-greeting {
+      font-size: 26px; font-weight: 800; letter-spacing: -0.03em;
+    }
+    .page-head .ph-greeting .accent { color: var(--accent); }
+    .page-head .ph-date {
+      color: var(--text-dim); font-size: 14px; font-weight: 600; margin-top: 3px;
+    }
+    .page-head .ph-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .page-head .ph-pace {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border-radius: 999px;
+      font-size: 13px; font-weight: 700;
+      background: var(--panel); border: 1px solid var(--border);
+    }
+    .page-head .ph-pace .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 8px var(--accent);
+    }
+    .page-head .ph-pace.warn .dot   { background: var(--warn);   box-shadow: 0 0 8px var(--warn); }
+    .page-head .ph-pace.over .dot   { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    .page-head .ph-pace-sub { color: var(--text-dim); font-weight: 600; }
+    .page-head .ph-log-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--accent); color: var(--bg);
+      border: none; border-radius: 12px;
+      padding: 11px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 32%, transparent);
+    }
+    .page-head .ph-log-btn:hover { filter: brightness(1.06); }
+
+    /* --- Dash grid: 1.55fr 1fr per HANDOFF ------------------ */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
     .dash-col-left,
     .dash-col-right {
-      display: flex;
-      flex-direction: column;
-      align-self: flex-start;    /* belt-and-braces against stretching */
-      min-width: 0;              /* lets children shrink inside the flex cell */
+      display: flex; flex-direction: column;
+      gap: 16px;
+      min-width: 0;
     }
-    .dash-col-left  { flex: 1.35 1 0; }
-    .dash-col-right { flex: 1    1 0; }
+    /* Cards inside dash columns already have margin-bottom; zero it out so
+       the column flex gap drives spacing consistently. */
+    .dash-col-left  > .card,
+    .dash-col-right > .card { margin-bottom: 0; }
 
-    /* Stop the ring from floating in vast empty space inside the wide
-       left column. Cap the ring's row container and center it. */
+    /* Hero ring: stretch to fill the wide left col with breathing room */
     .dash-col-left .ring-row-wrap {
-      max-width: 320px;
-      margin: 0 auto;
-      padding: 4px 0 12px;
+      padding: 18px 0 22px;
     }
 
-    /* Cap the bottle SVG so it doesn't try to fill the column on wide
-       screens (default SVG behavior with no width constraint). */
-    .dash-col-right .water-bottle-wrap svg.water-bottle {
-      max-width: 70px;
-      height: auto;
-    }
+    /* Cards the desktop dash represents elsewhere (or simply doesn't show) */
+    #view-today > .dash-grid #dayStatusWrap { display: none; }
   }
 

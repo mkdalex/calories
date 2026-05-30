@@ -68,6 +68,54 @@
       </div>
     </div>
 
+    <!-- ========== APP SHELL (desktop sidebar + main; transparent on mobile) ========== -->
+    <div class="app-shell">
+
+    <!-- ========== SIDEBAR (desktop only; hidden via CSS on mobile) ========== -->
+    <aside class="sidebar">
+      <div class="sb-brand">
+        <div class="sb-brand-dot"></div>
+        <div>
+          <div class="sb-brand-name">Calories</div>
+          <div class="sb-brand-sub">kcal + protein</div>
+        </div>
+      </div>
+      <div class="sb-nav-label">Track</div>
+      <button class="sb-nav-item active" data-view="today" type="button"><span class="sb-nav-ico">●</span>Today</button>
+      <button class="sb-nav-item" data-view="gym" type="button"><span class="sb-nav-ico">▲</span>Gym</button>
+      <button class="sb-nav-item" data-view="history" type="button"><span class="sb-nav-ico">▤</span>History</button>
+      <button class="sb-nav-item" data-view="profile" type="button"><span class="sb-nav-ico">◐</span>Profile</button>
+      <button class="sb-nav-item" data-view="dev" type="button"><span class="sb-nav-ico">⚙</span>Dev</button>
+      <div class="sb-spacer"></div>
+      <div class="sb-quicklog">
+        <div class="sb-quicklog-head">
+          <span class="ai-spark">+</span>
+          <span>Quick log — just type it</span>
+        </div>
+        <textarea id="sbQuickLog" placeholder="e.g. &quot;2 eggs and a banana&quot;"></textarea>
+        <button class="sb-quicklog-btn" id="sbQuickLogBtn" type="button">+ Parse with AI</button>
+      </div>
+      <div class="sb-user">
+        <div class="sb-user-avatar" id="sbUserAvatar">?</div>
+        <div class="sb-user-meta">
+          <span class="sb-user-name" id="sbUserName">…</span>
+          <span class="sb-user-plan">Self-hosted</span>
+        </div>
+        <button class="sb-theme-btn" id="themeToggleDesktop" type="button" aria-label="Toggle day/night theme" title="Toggle theme">
+          <svg class="th-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+          </svg>
+          <svg class="th-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ========== MAIN (everything else; full-width on mobile) ========== -->
+    <div class="app-main">
+
     <div class="topbar">
       <h1>Calories</h1>
       <div style="display: flex; align-items: center; gap: 12px">
@@ -113,12 +161,27 @@
 
     <!-- ========== TODAY VIEW ========== -->
     <div class="view" id="view-today">
+      <div class="page-head">
+        <div>
+          <div class="ph-greeting"><span id="phGreet">Hello</span>, <span class="accent" id="phName">there</span></div>
+          <div class="ph-date" id="phDate"></div>
+        </div>
+        <div class="ph-actions">
+          <span class="ph-pace" id="phPace" style="display: none">
+            <span class="dot"></span>
+            <span class="ph-pace-label">On pace</span>
+            <span class="ph-pace-sub"></span>
+          </span>
+          <button class="ph-log-btn" id="phLogBtn" type="button">+ Log meal</button>
+        </div>
+      </div>
       <div id="setupBanner"></div>
       <div class="dash-grid">
         <div class="dash-col-left">
           <div class="ring-row-wrap">
             <div class="ring-wrap" id="ringWrap"></div>
           </div>
+          <div id="narrativeWrap"></div>
           <h3
             style="
               color: var(--text-dim);
@@ -135,12 +198,11 @@
           <div class="meal-list" id="mealList"></div>
         </div>
         <div class="dash-col-right">
-          <div id="waterWrap"></div>
           <div id="streakWrap"></div>
+          <div id="waterWrap"></div>
           <div id="proteinWrap"></div>
-          <div id="macroWrap"></div>
-          <div id="narrativeWrap"></div>
           <div id="zoneWrap"></div>
+          <div id="macroWrap"></div>
           <div id="dayStatusWrap"></div>
           <div id="gapFillWrap"></div>
         </div>
@@ -558,6 +620,10 @@
         <span class="icon">⚙</span><span>Dev</span>
       </button>
     </div>
+
+    </div>
+    </div>
+    <!-- ========== /APP SHELL ========== -->
 
     <!-- Load order matters: helpers first, then content/state, then features, init last -->
     <script src="/js/helpers.js"></script>

@@ -1,4 +1,4 @@
-// ---------- Today date ----------
+// ---------- Today date (mobile topbar) ----------
 const today = new Date();
 $("#todayDate").textContent = today.toLocaleDateString([], {
   weekday: "short",
@@ -6,26 +6,72 @@ $("#todayDate").textContent = today.toLocaleDateString([], {
   day: "numeric",
 });
 
-// ---------- Theme toggle (top bar) — works regardless of auth state ----------
-if (typeof renderThemeToggle === "function") renderThemeToggle();
-const themeToggleBtn = $("#themeToggle");
-if (themeToggleBtn)
-  themeToggleBtn.addEventListener("click", () => toggleTheme());
+// ---------- Page-head greeting + date (desktop) ----------
+function renderPageHead() {
+  const h = new Date().getHours();
+  const greet = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const el = document.getElementById("phGreet");
+  if (el) el.textContent = greet;
+  const dateEl = document.getElementById("phDate");
+  if (dateEl) {
+    dateEl.textContent = new Date().toLocaleDateString([], {
+      weekday: "long", month: "long", day: "numeric",
+    });
+  }
+}
+renderPageHead();
 
-// ---------- Nav ----------
-$$(".nav button").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    $$(".nav button").forEach((b) => b.classList.remove("active"));
-    $$(".view").forEach((v) => v.classList.add("hidden"));
-    btn.classList.add("active");
-    $("#view-" + btn.dataset.view).classList.remove("hidden");
-    if (btn.dataset.view === "today") loadToday();
-    if (btn.dataset.view === "gym") loadGym();
-    if (btn.dataset.view === "history") loadHistory();
-    if (btn.dataset.view === "profile") loadProfile();
-    if (btn.dataset.view === "dev") loadDev();
-  });
+// ---------- Theme toggle (mobile topbar + desktop sidebar) ----------
+if (typeof renderThemeToggle === "function") renderThemeToggle();
+document.querySelectorAll("#themeToggle, #themeToggleDesktop").forEach((btn) => {
+  btn.addEventListener("click", () => toggleTheme());
 });
+
+// ---------- Nav (mobile bottom nav + desktop sidebar) ----------
+function setActiveView(viewName) {
+  document.querySelectorAll(".nav button, .sb-nav-item").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === viewName);
+  });
+  $$(".view").forEach((v) => v.classList.add("hidden"));
+  const target = document.getElementById("view-" + viewName);
+  if (target) target.classList.remove("hidden");
+  if (viewName === "today")   loadToday();
+  if (viewName === "gym")     loadGym();
+  if (viewName === "history") loadHistory();
+  if (viewName === "profile") loadProfile();
+  if (viewName === "dev")     loadDev();
+}
+document.querySelectorAll(".nav button, .sb-nav-item").forEach((btn) => {
+  btn.addEventListener("click", () => setActiveView(btn.dataset.view));
+});
+
+// ---------- Page-head "Log meal" button (desktop) ----------
+const phLogBtn = document.getElementById("phLogBtn");
+if (phLogBtn) phLogBtn.addEventListener("click", () => openLogModal());
+
+// ---------- Sidebar quick-log (desktop) ----------
+const sbQuickLog = document.getElementById("sbQuickLog");
+const sbQuickLogBtn = document.getElementById("sbQuickLogBtn");
+function sbSubmitQuickLog() {
+  const text = sbQuickLog ? sbQuickLog.value.trim() : "";
+  if (!text) { openLogModal(); return; }
+  openLogModal();
+  // Pipe the typed text into the modal so the user picks up mid-flow
+  const modalText = document.getElementById("logText");
+  if (modalText) {
+    modalText.value = text;
+    if (typeof modalText.dispatchEvent === "function") {
+      modalText.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+  if (sbQuickLog) sbQuickLog.value = "";
+}
+if (sbQuickLogBtn) sbQuickLogBtn.addEventListener("click", sbSubmitQuickLog);
+if (sbQuickLog) {
+  sbQuickLog.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sbSubmitQuickLog(); }
+  });
+}
 
 // ---------- INIT ----------
 (async () => {
