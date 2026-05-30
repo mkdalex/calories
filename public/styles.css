@@ -1069,21 +1069,37 @@
   .dash-col-right { display: contents; }
 
   @media (min-width: 1000px) {
-    .view { max-width: 1200px; }
+    .view { max-width: 1100px; }
 
     .dash-grid {
       display: flex;
-      gap: 20px;
-      align-items: flex-start;
+      gap: 24px;
+      align-items: flex-start;   /* don't stretch columns to equal height */
     }
 
     .dash-col-left,
     .dash-col-right {
       display: flex;
       flex-direction: column;
-      min-width: 0;        /* lets children shrink inside the flex cell */
+      align-self: flex-start;    /* belt-and-braces against stretching */
+      min-width: 0;              /* lets children shrink inside the flex cell */
     }
-    .dash-col-left  { flex: 1.6 1 0; }
-    .dash-col-right { flex: 1   1 0; }
+    .dash-col-left  { flex: 1.35 1 0; }
+    .dash-col-right { flex: 1    1 0; }
+
+    /* Stop the ring from floating in vast empty space inside the wide
+       left column. Cap the ring's row container and center it. */
+    .dash-col-left .ring-row-wrap {
+      max-width: 320px;
+      margin: 0 auto;
+      padding: 4px 0 12px;
+    }
+
+    /* Cap the bottle SVG so it doesn't try to fill the column on wide
+       screens (default SVG behavior with no width constraint). */
+    .dash-col-right .water-bottle-wrap svg.water-bottle {
+      max-width: 70px;
+      height: auto;
+    }
   }
 
