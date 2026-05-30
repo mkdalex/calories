@@ -452,19 +452,20 @@ app.get('/api/calibrate', (req, res) => {
 });
 
 // ---------- Streak + weekly avg ----------
-function computeStreak(log, stats) {
-  if (!stats) return 0;
+// Consecutive days the user logged anything. Today is allowed to be empty
+// (you haven't eaten yet at 7am), but once any previous day is empty the
+// streak ends. Going over kcal does NOT break it — over-goal days still
+// count as "you showed up and logged."
+function computeStreak(log) {
   let streak = 0;
   const d = new Date();
   for (let i = 0; i <= 60; i++) {
     const ds = fmtDate(d);
     const entries = log[ds] || [];
     if (!entries.length) {
-      if (i === 0) { d.setDate(d.getDate() - 1); continue; } // today may have no entries yet
+      if (i === 0) { d.setDate(d.getDate() - 1); continue; }
       break;
     }
-    const total = entries.reduce((a, e) => a + (e.kcal || 0), 0);
-    if (total > stats.kcal_goal) break;
     streak++;
     d.setDate(d.getDate() - 1);
   }
@@ -511,7 +512,7 @@ app.get('/api/log', (req, res) => {
     remaining_carb: stats ? stats.carb_g - totals.carb : null,
     remaining_fiber: stats ? stats.fiber_g - totals.fiber : null,
     stats,
-    streak: isToday ? computeStreak(log, stats) : undefined,
+    streak: isToday ? computeStreak(log) : undefined,
     weekly_avg_kcal: isToday ? computeWeeklyAvg(log) : undefined
   });
 });
