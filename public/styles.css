@@ -191,7 +191,7 @@
   .nav { position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); z-index: var(--z-nav); }
   .nav button { background: none; border: none; color: var(--text-dim); padding: 8px 14px; font-size: 12px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; }
   .nav button.active { color: var(--accent); }
-  .nav button .icon { font-size: 20px; line-height: 1; }
+  .nav button .icon { width: 22px; height: 22px; flex-shrink: 0; }
 
   /* ---------- View container ---------- */
   .view { padding: 0 16px; max-width: 720px; margin: 0 auto; }
