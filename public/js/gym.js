@@ -61,6 +61,9 @@ function gymTypeChip(t, opts = {}) {
 async function loadGym() {
   const today = new Date();
   if (gymWeekStart > startOfWeek(today)) gymWeekStart = startOfWeek(today);
+  // Re-arm the auto-scroll so revisits to the Gym tab land on today again,
+  // not on whichever day the strip was last scrolled to.
+  gymWeekScrolled = false;
   await fetchGymRange();
   renderGymWeek();
   renderGymStats();

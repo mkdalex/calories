@@ -911,13 +911,18 @@ function checkDebriefRate(existing, isForce, trigger) {
       return { ok: false, reason: `Regenerate limit reached (${DEBRIEF_MAX_REGENS_WEEK}/week). Wait for next week's debrief.` };
     }
   }
-  // Cooldown only applies to same-trigger repeat generation OR force regens.
-  // A legitimate view of a *different* pending alert ("+1 other alert this
-  // week → view") should never trip cooldown.
-  const cooldownApplies = isForce || existing.some(d =>
-    d.trigger === trigger && (now - new Date(d.generated_at).getTime()) < DEBRIEF_COOLDOWN_MS);
-  if (cooldownApplies) {
-    const lastAge = now - new Date(existing[existing.length - 1].generated_at).getTime();
+  // Pick the entry whose age decides the cooldown:
+  //   - Force regens: any prior debrief throttles (button-mash prevention)
+  //   - Natural calls: only the last *same-trigger* entry counts — so a
+  //     legitimate "+1 other alert this week → view" click isn't blocked by
+  //     the weekly we just auto-generated for them.
+  // Reading from the right entry also makes the displayed wait time correct,
+  // and means an empty `existing` simply has no cooldownAgainst (no crash).
+  const cooldownAgainst = isForce
+    ? existing[existing.length - 1]
+    : [...existing].reverse().find(d => d.trigger === trigger);
+  if (cooldownAgainst) {
+    const lastAge = now - new Date(cooldownAgainst.generated_at).getTime();
     if (lastAge < DEBRIEF_COOLDOWN_MS) {
       const wait = Math.ceil((DEBRIEF_COOLDOWN_MS - lastAge) / 1000);
       return { ok: false, reason: `Cooldown active — try again in ${wait}s.` };
