@@ -889,7 +889,7 @@ const DEBRIEF_MAX_PER_DAY      = 5;          // 5 calls in any 24-hour window
 const DEBRIEF_MAX_REGENS_WEEK  = 3;          // 3 force=true calls in any 7-day window
 const DEBRIEF_COOLDOWN_MS      = 60 * 1000;  // 60s between any two calls
 
-function checkDebriefRate(existing, isForce) {
+function checkDebriefRate(existing, isForce, trigger) {
   const now = Date.now();
   const dayAgo  = now - 24 * 3600 * 1000;
   const weekAgo = now - 7 * 24 * 3600 * 1000;
@@ -904,7 +904,12 @@ function checkDebriefRate(existing, isForce) {
       return { ok: false, reason: `Regenerate limit reached (${DEBRIEF_MAX_REGENS_WEEK}/week). Wait for next week's debrief.` };
     }
   }
-  if (existing.length) {
+  // Cooldown only applies to same-trigger repeat generation OR force regens.
+  // A legitimate view of a *different* pending alert ("+1 other alert this
+  // week → view") should never trip cooldown.
+  const cooldownApplies = isForce || existing.some(d =>
+    d.trigger === trigger && (now - new Date(d.generated_at).getTime()) < DEBRIEF_COOLDOWN_MS);
+  if (cooldownApplies && existing.length) {
     const lastAge = now - new Date(existing[existing.length - 1].generated_at).getTime();
     if (lastAge < DEBRIEF_COOLDOWN_MS) {
       const wait = Math.ceil((DEBRIEF_COOLDOWN_MS - lastAge) / 1000);
@@ -1269,7 +1274,7 @@ app.post('/api/debrief', async (req, res) => {
 
   // Rate-limit safety nets: caps the upgraded-model spend even if the user mashes
   // regenerate, has many open browser tabs, or a bug somewhere fires repeats.
-  const rate = checkDebriefRate(existing, force);
+  const rate = checkDebriefRate(existing, force, trigger);
   if (!rate.ok) return res.status(429).json({ error: rate.reason });
 
   const systemPrompt = DEBRIEF_PROMPTS[trigger] || DEBRIEF_PROMPTS.weekly;

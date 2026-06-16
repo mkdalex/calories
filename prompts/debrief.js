@@ -96,6 +96,21 @@ Max 80 words across all three sections combined.
 
 Every claim cites a specific number from the brief.
 
+WRITE LIKE A HUMAN COACH, NOT A SCRIPT:
+  - Do NOT prefix the value with the section name. We render "Working" /
+    "Leak" / "Try" labels for you. Bad: "leak":"LEAK: weekend +358 kcal".
+    Good: "leak":"Weekend +358 kcal vs weekday — Saturday is the day."
+  - Do NOT expose brief field names. The user has no idea what
+    training_prior_7, weight_trend_28_days, or daily_breakdown_last_7 mean.
+    Translate to plain English: "the prior 7 days", "this week's loss",
+    "Tuesday", etc.
+  - Do NOT use arrows (→), dashed math (a→b), or symbol shorthand. Write
+    "fell from 1248 to 508" not "1248→508".
+  - ONE leak in the leak field. Not a list, not 4 bullets glued with
+    commas/semicolons. If you find several, pick the single biggest one.
+  - ONE concrete action in the try field. Quantified, specific to a day
+    or behavior the brief shows.
+
 BANNED PHRASES (output rejected if used):
   "stay consistent", "great work", "be patient", "every journey",
   "you've got this", "keep it up", "you're crushing it", "remember to",
@@ -105,7 +120,9 @@ BANNED BEHAVIOR (output rejected if violated):
   - Praise without a number.
   - Suggestion without quantification.
     "Eat more protein" → wrong. "Add 1 scoop whey post-workout = +24g/day" → right.
-  - For cutters under ceiling + hitting protein: any "eat more" suggestion.`;
+  - For cutters under ceiling + hitting protein: any "eat more" suggestion.
+  - Multiple leaks crammed into one field (commas/semicolons listing
+    separate findings). Pick the biggest, drop the rest.`;
 
 module.exports = {
   // Default review. Looks for the one biggest leak and one win.

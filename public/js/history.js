@@ -875,6 +875,14 @@ function renderDebriefGenerating(card, trigger) {
   if (typeof showAILoader === 'function') showAILoader($('#debriefLoaderSlot'), 'Reading your week…');
 }
 
+// Some debrief outputs lead with the section name ("WORKING: weight down…").
+// That collides with the section label we render above the text, so strip
+// any leading label prefix defensively before display.
+function stripDebriefPrefix(s) {
+  if (!s) return '';
+  return String(s).replace(/^\s*(?:WORKING|LEAK|TRY(?:\s+THIS\s+WEEK)?)\s*[:\-–—]\s*/i, '');
+}
+
 function renderDebriefResult(card, debrief, opts = {}) {
   const meta = DEBRIEF_TRIGGER_META[debrief.trigger] || DEBRIEF_TRIGGER_META.weekly;
   const when = new Date(debrief.generated_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -904,15 +912,15 @@ function renderDebriefResult(card, debrief, opts = {}) {
     <h2>${meta.emoji} ${meta.label} <span class="db-when" title="${nextTooltip}">${when}</span></h2>
     <div class="db-section db-working">
       <div class="db-section-label">Working</div>
-      <div class="db-section-text">${escapeHtml(debrief.working || '—')}</div>
+      <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.working) || '—')}</div>
     </div>
     <div class="db-section db-leak">
       <div class="db-section-label">Leak</div>
-      <div class="db-section-text">${escapeHtml(debrief.leak || '—')}</div>
+      <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.leak) || '—')}</div>
     </div>
     <div class="db-section db-try">
       <div class="db-section-label">Try this week</div>
-      <div class="db-section-text">${escapeHtml(debrief.try_this || '—')}</div>
+      <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.try_this) || '—')}</div>
     </div>
     ${otherBanner}
     <div class="db-feedback">
