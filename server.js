@@ -676,6 +676,42 @@ app.delete('/api/weight/:date', async (req, res) => {
 // The full-log scan is O(entries) per call; with a year of history this is ~thousands of items.
 const favoritesCache = new Map(); // userId -> { mtimeMs, favs }
 const FAV_MACROS = ['kcal', 'protein', 'fat', 'carb', 'fiber'];
+
+// median(arr) — small helper. arr must be non-empty.
+function median(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+// Pick up to 3 distinct portion variants (low / mid / high by kcal) for a meal.
+// Returned ONLY when the spread is wide enough to be useful — small spread
+// means the user effectively eats one portion size, so the median is enough.
+function pickPortionVariants(entries) {
+  if (entries.length < 3) return null;
+  const sorted = [...entries].sort((a, b) => (a.kcal || 0) - (b.kcal || 0));
+  const lo = sorted[0];
+  const mid = sorted[Math.floor(sorted.length / 2)];
+  const hi = sorted[sorted.length - 1];
+  const spread = (hi.kcal - lo.kcal) / Math.max(mid.kcal || 1, 1);
+  if (spread < 0.2) return null;  // <20% variation — call it one portion
+  // Dedup if two of the three picks collapse to the same kcal value.
+  const seenKcal = new Set();
+  const out = [lo, mid, hi].filter(e => {
+    if (seenKcal.has(e.kcal)) return false;
+    seenKcal.add(e.kcal);
+    return true;
+  });
+  return out.length >= 2 ? out.map(e => ({
+    text: e.name,
+    kcal: e.kcal || 0,
+    protein: round1(e.protein || 0),
+    fat: round1(e.fat || 0),
+    carb: round1(e.carb || 0),
+    fiber: round1(e.fiber || 0)
+  })) : null;
+}
+
 function computeFavorites(log) {
   const counts = {};
   // Iterate dates oldest-first so `c.last` ends up holding the newest entry.
@@ -683,11 +719,12 @@ function computeFavorites(log) {
     for (const e of entries) {
       if (!e.name) continue;
       const key = e.name.trim().toLowerCase();
-      const c = counts[key] ??= { name: e.name, count: 0, sums: { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 }, last: e, last_date: date };
+      const c = counts[key] ??= { name: e.name, count: 0, sums: { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 }, values: { kcal: [], protein: [], fat: [], carb: [], fiber: [] }, last: e, last_date: date, all_entries: [] };
       c.count++;
-      for (const m of FAV_MACROS) c.sums[m] += e[m] || 0;
+      for (const m of FAV_MACROS) { c.sums[m] += e[m] || 0; c.values[m].push(e[m] || 0); }
       c.last = e;
       c.last_date = date;
+      c.all_entries.push(e);
     }
   }
   return Object.values(counts)
@@ -695,20 +732,33 @@ function computeFavorites(log) {
     .map(f => ({
       name: f.name,
       count: f.count,
+      // Average (kept for back-compat with anything that read it).
       kcal: Math.round(f.sums.kcal / f.count),
       protein: round1(f.sums.protein / f.count),
+      // Median — what the smart-default flow picks unless the user overrides.
+      // Robust to one-off "ate a huge portion that one time" outliers.
+      median_kcal: Math.round(median(f.values.kcal)),
+      median_protein: round1(median(f.values.protein)),
+      median_fat: round1(median(f.values.fat)),
+      median_carb: round1(median(f.values.carb)),
+      median_fiber: round1(median(f.values.fiber)),
       last_kcal: f.last.kcal || 0,
       last_protein: f.last.protein || 0,
       last_fat: f.last.fat || 0,
       last_carb: f.last.carb || 0,
       last_fiber: f.last.fiber || 0,
       last_text: f.last.name,
-      last_date: f.last_date
+      last_date: f.last_date,
+      // Up-to-three portion variants when the user actually has range
+      // (e.g. 120g / 200g / 300g potato). null when portions cluster tight.
+      portions: pickPortionVariants(f.all_entries)
     }));
 }
 
 app.get('/api/favorites', (req, res) => {
-  const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 8));
+  // High cap so the log-modal search index can ask for "everything".
+  // The list is bounded by unique meal-name count anyway.
+  const limit = Math.max(1, Math.min(1000, Number(req.query.limit) || 8));
   // `sort=recency` returns the same de-duped meal list ordered by most recent
   // last_date. Default `count` is kept so the Today "Frequent Foods" card
   // (which wants the user's go-to meals) is unaffected.

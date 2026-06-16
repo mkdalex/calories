@@ -155,6 +155,9 @@ function openLogModal(date) {
   }
   $('#logModal').classList.remove('hidden');
   $('#logText').focus();
+  // Warm the meal search index in the background so the very first letter
+  // typed has matches ready instantly. No-op if already loaded.
+  if (typeof loadMealSearchIndex === 'function') loadMealSearchIndex();
 }
 function closeLogModal() {
   $('#logModal').classList.add('hidden');
@@ -163,6 +166,11 @@ function closeLogModal() {
   // Tear down any in-progress AI loader (incl. dino game) so it doesn't keep
   // running invisibly with global key listeners attached.
   clearAILoader($('#parsedItems'));
+  // Reset transient pickers so the next open starts clean.
+  const ghost = $('#logTextGhost');
+  if (ghost) ghost.innerHTML = '';
+  const chips = $('#portionChips');
+  if (chips) { chips.innerHTML = ''; chips.classList.add('hidden'); }
 }
 $('#fab').addEventListener('click', () => openLogModal());
 $('#logClose').addEventListener('click', closeLogModal);
@@ -189,53 +197,245 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ---------- TYPE-AHEAD ----------
-let suggestTimeout = null;
+// ---------- TYPE-AHEAD (local index, smart ranking, ghost completion) ----------
+// The search index is built once per session: one round-trip to fetch
+// favourites + customs + templates, then every keystroke runs locally.
+// No more 300ms debounce, no more "open the log file on every letter" lag.
+
+let mealSearchIndex = null;
+let mealSearchIndexLoading = null;
+let currentMatches = [];
+let currentGhostSuggestion = null;
+
+async function loadMealSearchIndex() {
+  if (mealSearchIndex) return mealSearchIndex;
+  if (mealSearchIndexLoading) return mealSearchIndexLoading;
+  mealSearchIndexLoading = (async () => {
+    const [favs, customs, templates] = await Promise.all([
+      api('/api/favorites?limit=500').catch(() => []),
+      api('/api/custom-foods').catch(() => ({})),
+      api('/api/templates').catch(() => [])
+    ]);
+    const items = [];
+    for (const f of (favs || [])) {
+      items.push({
+        source: 'history',
+        name: f.last_text || f.name,
+        name_lower: (f.last_text || f.name).toLowerCase(),
+        // Median is what gets used by default — robust to outlier portions.
+        kcal: f.median_kcal ?? f.kcal,
+        protein: f.median_protein ?? f.protein,
+        fat: f.median_fat ?? 0,
+        carb: f.median_carb ?? 0,
+        fiber: f.median_fiber ?? 0,
+        count: f.count || 0,
+        last_date: f.last_date || null,
+        portions: f.portions || null
+      });
+    }
+    for (const c of Object.values(customs || {})) {
+      items.push({
+        source: 'custom',
+        name: c.name,
+        name_lower: c.name.toLowerCase(),
+        kcal: c.kcal || 0, protein: c.protein || 0,
+        fat: c.fat || 0, carb: c.carb || 0, fiber: c.fiber || 0,
+        count: 0, last_date: null, portions: null
+      });
+    }
+    for (const t of (templates || [])) {
+      items.push({
+        source: 'template',
+        template_id: t.id,
+        name: t.name,
+        name_lower: t.name.toLowerCase(),
+        kcal: t.totals?.kcal || 0, protein: t.totals?.protein || 0,
+        fat: t.totals?.fat || 0, carb: t.totals?.carb || 0, fiber: t.totals?.fiber || 0,
+        count: 0, last_date: null, portions: null
+      });
+    }
+    mealSearchIndex = items;
+    return items;
+  })();
+  return mealSearchIndexLoading;
+}
+
+// Rank candidates: prefix match beats substring, then add a recency + freq
+// + source-kicker bonus. User-curated rows (custom / template) outrank
+// history rows of the same score so saved foods float to the top.
+function rankMatches(items, q) {
+  const todayMs = Date.now();
+  const ranked = [];
+  for (const it of items) {
+    let baseScore;
+    if (it.name_lower.startsWith(q))    baseScore = 1000;
+    else if (it.name_lower.includes(q)) baseScore = 500;
+    else continue;
+    const freq = Math.min(it.count, 30);
+    let recency = 0;
+    if (it.last_date) {
+      const ageDays = (todayMs - new Date(it.last_date + 'T00:00:00').getTime()) / 86400000;
+      recency = Math.max(0, 100 - ageDays * 3.3);  // 0 at ~30 days, 100 today
+    }
+    const sourceBonus = it.source === 'custom' ? 20 : it.source === 'template' ? 10 : 0;
+    ranked.push({ item: it, score: baseScore + freq + recency + sourceBonus });
+  }
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.map(r => r.item);
+}
+
+function relDateLabel(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - d) / 86400000);
+  if (days <= 0)  return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7)   return `${days}d ago`;
+  if (days < 30)  return `${Math.round(days / 7)}w ago`;
+  if (days < 365) return `${Math.round(days / 30)}mo ago`;
+  return `${Math.round(days / 365)}y ago`;
+}
+
+function updateGhost(typed, suggestion) {
+  const ghost = $('#logTextGhost');
+  if (!ghost) return;
+  if (!typed || !suggestion || suggestion.length === typed.length
+      || !suggestion.toLowerCase().startsWith(typed.toLowerCase())) {
+    ghost.innerHTML = '';
+    return;
+  }
+  const suffix = suggestion.slice(typed.length);
+  ghost.innerHTML = `<span>${escapeHtml(typed)}</span><span class="ghost-suffix">${escapeHtml(suffix)}</span>`;
+}
+
 $('#logText').addEventListener('input', () => {
-  clearTimeout(suggestTimeout);
-  const text = $('#logText').value.trim();
-  if (!text || text.length < 2) { $('#suggestDropdown').classList.add('hidden'); return; }
-  suggestTimeout = setTimeout(async () => {
-    const results = await api(`/api/suggest?q=${encodeURIComponent(text.split('\n')[0].slice(0, 50))}`);
-    const dd = $('#suggestDropdown');
-    if (!results.length) { dd.classList.add('hidden'); return; }
+  const text = $('#logText').value;
+  const trimmed = text.trim();
+  const dd = $('#suggestDropdown');
+  if (!trimmed || trimmed.length < 2) {
+    dd.classList.add('hidden');
+    currentMatches = [];
+    currentGhostSuggestion = null;
+    updateGhost(text, null);
+    return;
+  }
+  loadMealSearchIndex().then(items => {
+    // Textarea may have changed during the await on the very first call.
+    const t = $('#logText').value;
+    const q = t.trim().toLowerCase().split('\n')[0].slice(0, 60);
+    if (q.length < 2) { dd.classList.add('hidden'); return; }
+    currentMatches = rankMatches(items, q).slice(0, 6);
+    if (!currentMatches.length) {
+      dd.classList.add('hidden');
+      currentGhostSuggestion = null;
+      updateGhost(t, null);
+      return;
+    }
     dd.classList.remove('hidden');
-    dd.innerHTML = results.map((r, i) => `
-      <div class="suggest-item" data-idx="${i}">
-        <span class="si-name">${escapeHtml(r.name)}</span>
-        <span class="si-meta">${r.kcal} kcal · ${r.protein}g P</span>
-        <span class="si-src">${r.source}</span>
-      </div>
-    `).join('');
+    dd.innerHTML = currentMatches.map((r, i) => {
+      const rel = r.last_date ? ` · ${relDateLabel(r.last_date)}` : '';
+      return `
+        <div class="suggest-item ${i === 0 ? 'top' : ''}" data-idx="${i}">
+          <span class="si-name">${escapeHtml(r.name)}</span>
+          <span class="si-meta">${r.kcal} kcal · ${r.protein}g P${rel}</span>
+          <span class="si-src">${r.source}</span>
+        </div>
+      `;
+    }).join('');
     dd.querySelectorAll('.suggest-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const r = results[Number(item.dataset.idx)];
-        if (r.source === 'template' && r.template_id) {
-          // Log template directly
-          api(`/api/log-template/${r.template_id}`, { method: 'POST', body: {} }).then(res => {
-            showToast(`Logged ${res.logged} items from "${r.name}"`);
-            $('#logModal').classList.add('hidden');
-            loadToday();
-          });
-        } else {
-          // Fill input + pre-populate parsed result
-          $('#logText').value = r.name;
-          dd.classList.add('hidden');
-          // Directly log with stored macros (skip AI call)
-          const fakeResult = {
-            items: [{ name: r.name, qty: 1, unit: 'serving', kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0, source: r.source, confidence: 'high' }],
-            totals: { kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0 },
-            trace: [],
-            suggested_extras: []
-          };
-          parsedCache = fakeResult;
-          renderParsed(fakeResult);
-        }
+      // mousedown so we beat the textarea-blur handler that hides the dropdown.
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        pickSuggestion(currentMatches[Number(item.dataset.idx)]);
       });
     });
-  }, 300);
+    const top = currentMatches[0];
+    if (top.name_lower.startsWith(q)) {
+      currentGhostSuggestion = top.name;
+      updateGhost(t, top.name);
+    } else {
+      currentGhostSuggestion = null;
+      updateGhost(t, null);
+    }
+  });
 });
-$('#logText').addEventListener('blur', () => { setTimeout(() => $('#suggestDropdown').classList.add('hidden'), 200); });
+
+// Tab on the textarea accepts the ghost suggestion (when one is showing).
+// Falls through to normal Tab behaviour otherwise so accessibility stays sane.
+$('#logText').addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && currentGhostSuggestion) {
+    e.preventDefault();
+    $('#logText').value = currentGhostSuggestion;
+    currentGhostSuggestion = null;
+    updateGhost($('#logText').value, null);
+    $('#logText').dispatchEvent(new Event('input', { bubbles: true }));
+  }
+});
+
+$('#logText').addEventListener('blur', () => {
+  setTimeout(() => $('#suggestDropdown').classList.add('hidden'), 200);
+});
+
+// User picked a suggestion → fill the textarea, render the parsed view with
+// median macros so they can verify + adjust weight + save. Doesn't auto-save,
+// except for templates which are an explicit "log this whole combo" action.
+function pickSuggestion(r) {
+  if (!r) return;
+  if (r.source === 'template' && r.template_id) {
+    api(`/api/log-template/${r.template_id}`, { method: 'POST', body: {} }).then(res => {
+      showToast(`Logged ${res.logged} items from "${r.name}"`);
+      closeLogModal();
+      loadToday();
+    });
+    return;
+  }
+  $('#logText').value = r.name;
+  currentGhostSuggestion = null;
+  updateGhost(r.name, null);
+  $('#suggestDropdown').classList.add('hidden');
+  const fakeResult = {
+    items: [{ name: r.name, qty: 1, unit: 'serving', kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0, source: r.source, confidence: 'high' }],
+    totals: { kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0 },
+    trace: [], suggested_extras: []
+  };
+  parsedCache = fakeResult;
+  renderParsed(fakeResult);
+  renderPortionChips(r);
+}
+
+function renderPortionChips(r) {
+  const host = $('#portionChips');
+  if (!host) return;
+  if (!r.portions || r.portions.length < 2) {
+    host.innerHTML = '';
+    host.classList.add('hidden');
+    return;
+  }
+  host.classList.remove('hidden');
+  host.innerHTML = `
+    <span class="portion-chip-label">Portion you ate today —</span>
+    ${r.portions.map((p, i) => `
+      <button class="portion-chip" data-idx="${i}" type="button">
+        <span class="pc-kcal">${p.kcal} kcal</span>
+        <span class="pc-meta">${p.protein}g P</span>
+      </button>
+    `).join('')}
+  `;
+  host.querySelectorAll('.portion-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = r.portions[Number(btn.dataset.idx)];
+      const fakeResult = {
+        items: [{ name: p.text || r.name, qty: 1, unit: 'serving', kcal: p.kcal, protein: p.protein, fat: p.fat, carb: p.carb, fiber: p.fiber, source: r.source, confidence: 'high' }],
+        totals: { kcal: p.kcal, protein: p.protein, fat: p.fat, carb: p.carb, fiber: p.fiber },
+        trace: [], suggested_extras: []
+      };
+      parsedCache = fakeResult;
+      renderParsed(fakeResult);
+      host.querySelectorAll('.portion-chip').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+}
 
 let parsedCache = null;
 

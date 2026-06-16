@@ -443,10 +443,13 @@
         ></div>
         <div class="field suggest-wrap">
           <label>What did you eat?</label>
-          <textarea
-            id="logText"
-            placeholder="e.g. 2 eggs scrambled with butter and a slice of sourdough toast"
-          ></textarea>
+          <div class="logtext-wrap">
+            <div class="logtext-ghost" id="logTextGhost" aria-hidden="true"></div>
+            <textarea
+              id="logText"
+              placeholder="e.g. 2 eggs scrambled with butter and a slice of sourdough toast"
+            ></textarea>
+          </div>
           <div class="suggest-dropdown hidden" id="suggestDropdown"></div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
@@ -460,6 +463,7 @@
           </button>
         </div>
         <div id="historyPanel" class="hidden" style="margin-top: 12px"></div>
+        <div id="portionChips" class="hidden" style="margin-top: 12px"></div>
         <div id="parsedItems" style="margin-top: 16px"></div>
         <div id="parsedTotals" style="margin-top: 12px"></div>
         <div id="extrasWrap" style="margin-top: 8px"></div>
