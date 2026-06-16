@@ -262,7 +262,7 @@ $('#logHistory').addEventListener('click', async () => {
   panel.classList.remove('hidden');
   panel.innerHTML = '<div class="empty" style="padding:12px;">Loading…</div>';
   try {
-    const favs = await api('/api/favorites?limit=30');
+    const favs = await api('/api/favorites?limit=30&sort=recency');
     if (!favs.length) {
       panel.innerHTML = '<div class="empty" style="padding:12px;">No past meals yet — log a few and they\'ll show up here.</div>';
       return;

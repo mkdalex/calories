@@ -709,6 +709,10 @@ function computeFavorites(log) {
 
 app.get('/api/favorites', (req, res) => {
   const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 8));
+  // `sort=recency` returns the same de-duped meal list ordered by most recent
+  // last_date. Default `count` is kept so the Today "Frequent Foods" card
+  // (which wants the user's go-to meals) is unaffected.
+  const sortMode = req.query.sort === 'recency' ? 'recency' : 'count';
   const logFile = req.dataFiles.log;
   const stat = fs.statSync(logFile, { throwIfNoEntry: false });
   const mtimeMs = stat ? stat.mtimeMs : 0;
@@ -720,7 +724,10 @@ app.get('/api/favorites', (req, res) => {
     favs = computeFavorites(readJson(logFile, {}));
     favoritesCache.set(req.userId, { mtimeMs, favs });
   }
-  res.json(favs.slice(0, limit));
+  const ordered = sortMode === 'recency'
+    ? [...favs].sort((a, b) => (b.last_date || '').localeCompare(a.last_date || ''))
+    : favs;
+  res.json(ordered.slice(0, limit));
 });
 
 // ---------- /api/log-range ----------
