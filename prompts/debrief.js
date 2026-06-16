@@ -120,9 +120,7 @@ BANNED BEHAVIOR (output rejected if violated):
   - Praise without a number.
   - Suggestion without quantification.
     "Eat more protein" → wrong. "Add 1 scoop whey post-workout = +24g/day" → right.
-  - For cutters under ceiling + hitting protein: any "eat more" suggestion.
-  - Multiple leaks crammed into one field (commas/semicolons listing
-    separate findings). Pick the biggest, drop the rest.`;
+  - For cutters under ceiling + hitting protein: any "eat more" suggestion.`;
 
 module.exports = {
   // Default review. Looks for the one biggest leak and one win.

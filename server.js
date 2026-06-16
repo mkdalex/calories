@@ -916,7 +916,7 @@ function checkDebriefRate(existing, isForce, trigger) {
   // week → view") should never trip cooldown.
   const cooldownApplies = isForce || existing.some(d =>
     d.trigger === trigger && (now - new Date(d.generated_at).getTime()) < DEBRIEF_COOLDOWN_MS);
-  if (cooldownApplies && existing.length) {
+  if (cooldownApplies) {
     const lastAge = now - new Date(existing[existing.length - 1].generated_at).getTime();
     if (lastAge < DEBRIEF_COOLDOWN_MS) {
       const wait = Math.ceil((DEBRIEF_COOLDOWN_MS - lastAge) / 1000);
@@ -1298,15 +1298,19 @@ app.post('/api/debrief', async (req, res) => {
     return res.status(500).json({ error: e.message });
   }
 
-  // Persist + trim
+  // Persist + trim. Strip any leading "WORKING:" / "LEAK:" / "TRY:" prefix
+  // the model still emits despite prompt rules — keeps data on disk canonical
+  // so we don't have to clean it on every render.
+  const stripPrefix = (s) =>
+    String(s || '').replace(/^\s*(?:WORKING|LEAK|TRY(?:\s+THIS\s+WEEK)?)\s*[:\-–—]\s*/i, '').slice(0, 400);
   const entry = {
     id: newId(),
     trigger,
     iso_week: isoWeek,
     generated_at: new Date().toISOString(),
-    working: String(data.working || '').slice(0, 400),
-    leak: String(data.leak || '').slice(0, 400),
-    try_this: String(data.try || '').slice(0, 400),
+    working: stripPrefix(data.working),
+    leak:    stripPrefix(data.leak),
+    try_this: stripPrefix(data.try),
     feedback: null,
     forced: force ? true : undefined
   };

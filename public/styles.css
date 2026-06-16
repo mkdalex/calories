@@ -1109,7 +1109,6 @@
       max-width: 1320px;
       margin-left: auto;     /* center within the 1fr grid cell so the */
       margin-right: auto;    /* gutter is balanced on wide screens */
-      width: 100%;
       box-sizing: border-box;
     }
     .view { max-width: none; padding: 0; margin: 0; }

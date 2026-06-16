@@ -74,6 +74,7 @@ async function fetchGymRange() {
   gymData = await api(`/api/training?start=${fmtDate(start)}&end=${fmtDate(end)}`);
 }
 
+let gymWeekScrolled = false;
 function renderGymWeek() {
   const wrap = $('#gymWeek');
   if (!wrap) return;
@@ -123,11 +124,15 @@ function renderGymWeek() {
   const curWeekStart = startOfWeek(new Date()).getTime();
   $('#gymNextWeek').disabled = gymWeekStart.getTime() >= curWeekStart;
 
-  // On the horizontal-scroll mobile layout, nudge today into view so users
-  // land on the right day instead of staring at last Monday.
-  const todayCard = wrap.querySelector('.gym-day-card.today');
-  if (todayCard && wrap.scrollWidth > wrap.clientWidth) {
-    todayCard.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' });
+  // On the horizontal-scroll mobile layout, nudge today into view on the
+  // first paint so users land on the right day. Skip on week-nav re-renders
+  // so we don't yank them around when they paginate.
+  if (!gymWeekScrolled) {
+    const todayCard = wrap.querySelector('.gym-day-card.today');
+    if (todayCard && wrap.scrollWidth > wrap.clientWidth) {
+      todayCard.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' });
+    }
+    gymWeekScrolled = true;
   }
 }
 

@@ -875,12 +875,13 @@ function renderDebriefGenerating(card, trigger) {
   if (typeof showAILoader === 'function') showAILoader($('#debriefLoaderSlot'), 'Reading your week…');
 }
 
-// Some debrief outputs lead with the section name ("WORKING: weight down…").
-// That collides with the section label we render above the text, so strip
-// any leading label prefix defensively before display.
+// Some older cached debrief entries lead with the section name
+// ("WORKING: weight down…"). New entries are sanitized server-side at save
+// time; this is a defense-in-depth strip for anything already on disk.
+const DEBRIEF_PREFIX_RE = /^\s*(?:WORKING|LEAK|TRY(?:\s+THIS\s+WEEK)?)\s*[:\-–—]\s*/i;
 function stripDebriefPrefix(s) {
   if (!s) return '';
-  return String(s).replace(/^\s*(?:WORKING|LEAK|TRY(?:\s+THIS\s+WEEK)?)\s*[:\-–—]\s*/i, '');
+  return String(s).replace(DEBRIEF_PREFIX_RE, '');
 }
 
 function renderDebriefResult(card, debrief, opts = {}) {
