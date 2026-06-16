@@ -122,6 +122,13 @@ function renderGymWeek() {
   // Disable "next" once we're already on the current week.
   const curWeekStart = startOfWeek(new Date()).getTime();
   $('#gymNextWeek').disabled = gymWeekStart.getTime() >= curWeekStart;
+
+  // On the horizontal-scroll mobile layout, nudge today into view so users
+  // land on the right day instead of staring at last Monday.
+  const todayCard = wrap.querySelector('.gym-day-card.today');
+  if (todayCard && wrap.scrollWidth > wrap.clientWidth) {
+    todayCard.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' });
+  }
 }
 
 function renderGymStats() {

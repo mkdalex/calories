@@ -448,6 +448,23 @@
   .gym-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
   .gym-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  /* On narrow phones the 7-col grid squishes each tile to ~38px and content
+     gets clipped (Sunday off-screen, "Tap to log" wraps to 3 lines). Below
+     600px switch to a horizontal scroll-snap strip so each day reads cleanly. */
+  @media (max-width: 600px) {
+    .gym-week {
+      display: flex;
+      overflow-x: auto;
+      gap: 8px;
+      padding: 0 2px 6px;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .gym-week::-webkit-scrollbar { height: 4px; }
+    .gym-week::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .gym-day-card { flex: 0 0 80px; scroll-snap-align: center; min-height: 110px; }
+  }
   .gym-day-card {
     background: var(--panel-2);
     border: 1px solid var(--border);
