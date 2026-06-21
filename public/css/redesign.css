@@ -1,0 +1,271 @@
+/* ============================================================================
+   Calories — History + Log-modal redesign
+   Drop-in reskin. Load AFTER public/styles.css. Touches no JS, no markup.
+   Everything uses your existing CSS-variable tokens, so all themes inherit it.
+
+   Integration (pick one):
+   A) <link rel="stylesheet" href="/css/redesign.css" />  in index.html,
+      placed AFTER the main stylesheet link.
+   B) Paste this whole file at the END of public/styles.css.
+   ============================================================================ */
+
+/* A couple of local tokens layered on top of yours (theme-safe via color-mix) */
+:root {
+  --rd-hero-bg: color-mix(in srgb, var(--panel) 88%, var(--text) 4%);
+  --rd-faint:   color-mix(in srgb, var(--text-dim) 62%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   1. CARD + SECTION RHYTHM
+   Softer borders, a touch more air, lifted "hero" cards.
+--------------------------------------------------------------------------- */
+#view-history .card {
+  border-color: color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 16px;
+  padding: 18px;
+}
+#view-history .card h2 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+/* The two anchors — calendar + weight — read as elevated heroes */
+#view-history .card:has(#calGrid),
+#view-history .card:has(#weightHistory) {
+  background: linear-gradient(180deg, var(--rd-hero-bg), var(--panel));
+  box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 12px 30px rgba(0,0,0,0.18);
+}
+
+/* ---------------------------------------------------------------------------
+   2. CALENDAR — calm heatmap
+   Maps your existing cell states to a quieter palette:
+   on-target → green · over → amber (not alarming red) · under → neutral.
+--------------------------------------------------------------------------- */
+#view-history .cal-grid { gap: 6px; }
+#view-history .cal-dow { font-size: 10.5px; letter-spacing: 0.06em; color: var(--rd-faint); }
+#view-history .cal-cell {
+  min-height: 60px;
+  border-radius: 11px;
+  padding: 7px 8px;
+  background: var(--panel-2);
+  transition: transform 0.1s ease, border-color 0.15s ease;
+}
+#view-history .cal-cell:hover:not(.outside) { transform: translateY(-1px); border-color: transparent; }
+#view-history .cal-cell.outside { background: transparent; }
+#view-history .cal-day-num { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+#view-history .cal-day-kcal { font-size: 14px; font-weight: 650; letter-spacing: -0.02em; margin-top: auto; }
+#view-history .cal-day-protein { font-size: 10.5px; }
+
+/* states — calm, single-hue-per-meaning */
+#view-history .cal-cell.on-target {
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel-2));
+}
+#view-history .cal-cell.on-target .cal-day-num  { color: color-mix(in srgb, var(--accent) 55%, var(--text)); }
+#view-history .cal-cell.on-target .cal-day-kcal { color: color-mix(in srgb, var(--accent) 35%, var(--text)); }
+
+#view-history .cal-cell.over {
+  background: color-mix(in srgb, var(--warn) 14%, var(--panel-2)); /* was red — now amber */
+}
+#view-history .cal-cell.over .cal-day-num  { color: color-mix(in srgb, var(--warn) 55%, var(--text)); }
+#view-history .cal-cell.over .cal-day-kcal { color: color-mix(in srgb, var(--warn) 40%, var(--text)); }
+
+#view-history .cal-cell.under     { background: var(--panel-2); }
+#view-history .cal-cell.empty-log { background: var(--panel-2); }
+#view-history .cal-cell.empty-log .cal-day-num { color: var(--rd-faint); }
+
+#view-history .cal-cell.today    { border-color: var(--accent) !important; box-shadow: 0 0 0 1px var(--accent); }
+#view-history .cal-cell.selected { outline: 2px solid var(--info); outline-offset: 1px; border-color: transparent !important; }
+
+/* month nav buttons */
+#view-history .cal-nav-btn {
+  border-radius: 9px; width: 32px; height: 32px; padding: 0;
+  display: inline-grid; place-items: center; color: var(--text-dim);
+}
+#view-history .cal-nav-btn:hover { color: var(--text); border-color: color-mix(in srgb, var(--text) 22%, transparent); }
+#view-history .cal-month-label { font-size: 15px; letter-spacing: -0.01em; }
+
+/* ---------------------------------------------------------------------------
+   3. AI WEEKLY REVIEW (debrief) — WORKING / LEAK / TRY
+   Drop the loud emoji weight; color-key each section with a left rule.
+--------------------------------------------------------------------------- */
+#debriefCard .db-section,
+#view-history .db-section {
+  border-left: 2px solid var(--border);
+  padding-left: 14px; margin: 12px 0;
+}
+#view-history .db-working { border-left-color: var(--accent); }
+#view-history .db-leak    { border-left-color: var(--warn); }
+#view-history .db-try     { border-left-color: var(--info); }
+#view-history .db-section-label {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 6px;
+}
+#view-history .db-working .db-section-label { color: var(--accent); }
+#view-history .db-leak    .db-section-label { color: var(--warn); }
+#view-history .db-try     .db-section-label { color: var(--info); }
+#view-history .db-section-text { font-size: 14px; line-height: 1.55; }
+
+/* ---------------------------------------------------------------------------
+   4. LAST 7 DAYS (weekly-review stats) — calmer stat tiles
+--------------------------------------------------------------------------- */
+#weeklyReviewCard .wr-stat-grid { gap: 12px; }
+#weeklyReviewCard .wr-stat {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+}
+#weeklyReviewCard .wr-num { letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+#weeklyReviewCard .streak-row .streak-pill {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   5. WEIGHT TRACKER
+--------------------------------------------------------------------------- */
+/* stat trio */
+#view-history .weight-stats { gap: 12px; }
+#view-history .ws-hero {
+  background: color-mix(in srgb, var(--info) 9%, transparent);
+  border-color: color-mix(in srgb, var(--info) 26%, transparent);
+  border-radius: 12px;
+}
+#view-history .ws-hero-num { letter-spacing: -0.03em; }
+#view-history .ws-stat {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+}
+#view-history .ws-stat-num { letter-spacing: -0.02em; }
+
+/* progress bar */
+#view-history .wt-prog-track { height: 9px; border-radius: 999px; background: var(--panel-2); }
+#view-history .wt-prog-fill {
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 60%, #000), var(--accent));
+}
+
+/* milestones — kill emoji loudness, calm chips */
+#view-history .wt-milestone {
+  border-radius: 999px; font-weight: 600; font-size: 12px;
+  background: var(--panel-2); border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  color: var(--text-dim);
+}
+#view-history .wt-milestone.gold {
+  color: #e9c46a; background: color-mix(in srgb, #e9c46a 9%, transparent);
+  border-color: color-mix(in srgb, #e9c46a 30%, transparent);
+}
+#view-history .wt-milestone.green {
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* ETA banner — affirming, not loud */
+#view-history .weight-eta {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* recent weigh-ins — tidy rows */
+#view-history .weight-recent-hdr { letter-spacing: 0.08em; color: var(--rd-faint); }
+#view-history .weight-row { border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+#view-history .weight-row .wr-kg { font-weight: 650; font-variant-numeric: tabular-nums; }
+
+/* legend dots/lines */
+#view-history .weight-legend span,
+#view-history .pa-spark-axis span { color: var(--text-dim); }
+
+/* ---------------------------------------------------------------------------
+   6. PROTEIN ADHERENCE
+--------------------------------------------------------------------------- */
+#proteinAdherenceCard .pa-stat,
+#view-history .pa-stat {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+}
+#view-history .pa-num { letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------------------
+   7. SOURCE QUALITY
+--------------------------------------------------------------------------- */
+#sourceQualityCard .sq-bar { height: 10px; border-radius: 6px; gap: 2px; }
+#sourceQualityCard .sq-seg { border-radius: 3px; }
+#sourceQualityCard .sq-dot { border-radius: 3px; width: 9px; height: 9px; }
+
+/* ---------------------------------------------------------------------------
+   8. LOG-A-MEAL MODAL + autocomplete
+--------------------------------------------------------------------------- */
+#logModal .modal,
+#editModal .modal { border-radius: 16px; }
+@media (min-width: 720px) {
+  #logModal .modal, #editModal .modal { border-radius: 18px; }
+}
+#logModal .modal-header h2 { font-size: 19px; font-weight: 680; letter-spacing: -0.01em; }
+#logModal .modal-close, #editModal .modal-close {
+  border-radius: 9px; width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+}
+
+/* primary textarea */
+#logText {
+  background: var(--panel-deep, var(--panel-2));
+  border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 14px; line-height: 1.5; min-height: 84px; resize: none;
+}
+#logText:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: none;
+}
+
+/* manual-entry inputs — kill the ugly native number spinner everywhere */
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; display: none; margin: 0; }
+#logModal input, #editModal input {
+  background: var(--panel-deep, var(--panel-2));
+  border-radius: 10px;
+}
+#logModal input:focus, #editModal input:focus {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
+}
+
+/* the "Or type it manually" divider header */
+#logModal h3 {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 10.5px; letter-spacing: 0.12em; color: var(--rd-faint); margin-top: 22px;
+}
+#logModal h3::before, #logModal h3::after {
+  content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* autocomplete dropdown — rounded, active highlight, calm source badges */
+#suggestDropdown {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  margin-top: 8px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.4);
+}
+#suggestDropdown .suggest-item {
+  padding: 11px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-left: 2px solid transparent;
+}
+#suggestDropdown .suggest-item:hover,
+#suggestDropdown .suggest-item.active,
+#suggestDropdown .suggest-item[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  border-left-color: var(--accent);
+}
+#suggestDropdown .si-meta { font-variant-numeric: tabular-nums; }
+#suggestDropdown .si-src {
+  border: none;
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
