@@ -27,24 +27,28 @@
 
   #view-history {
     max-width: 1180px;
+    margin-inline: auto;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
     align-items: start;
   }
-  #view-history > * { order: 5; min-width: 0; }                 /* detail cards tile below */
+  /* The wrappers are display:contents, so the cards are grid items but still
+     DOM-descendants (not direct children) — target them with descendant
+     selectors, NOT '>', or none of this placement applies. */
+  #view-history .card { order: 5; min-width: 0; }               /* detail cards tile below */
   /* full-width narrative rows, pinned to the top */
-  #view-history > #plateauBannerWrap,
-  #view-history > #debriefCard,
-  #view-history > #weeklyReviewCard { grid-column: 1 / -1; }
-  #view-history > #plateauBannerWrap { order: 0; }
-  #view-history > #debriefCard       { order: 1; }
-  #view-history > #weeklyReviewCard  { order: 2; }
+  #view-history #plateauBannerWrap,
+  #view-history #debriefCard,
+  #view-history #weeklyReviewCard { grid-column: 1 / -1; }
+  #view-history #plateauBannerWrap { order: 0; }
+  #view-history #debriefCard       { order: 1; }
+  #view-history #weeklyReviewCard  { order: 2; }
   /* hero row: calendar (left) + weight (right) */
-  #view-history > .card:has(#calGrid)       { order: 3; }
-  #view-history > .card:has(#weightHistory) { order: 4; }
+  #view-history .card:has(#calGrid) { order: 3; }
+  #view-history #weightCard         { order: 4; }
   /* an empty plateau banner shouldn't reserve a gap */
-  #view-history > #plateauBannerWrap:empty { display: none; }
+  #view-history #plateauBannerWrap:empty { display: none; }
 }
 @media (min-width: 1440px) {
   #view-history { max-width: 1320px; }
