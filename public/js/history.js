@@ -384,17 +384,16 @@ async function renderWeightCard() {
     }
   }
 
-  // Dot on latest point + big "you are here" callout
+  // Dot on latest point + "you are here" callout.
+  // Callout lives in the reserved TOP margin (above the plot) so it never sits
+  // on the trend line or collide with the projection/goal labels.
   const lastIdx = series.length - 1;
   const lastPt = series[lastIdx];
   let latestCallout = '';
   if (lastPt && lastPt.kg !== null) {
     const cx = xOf(lastIdx);
-    const cy = yOf(lastPt.kg);
-    // Place label above-left of the dot so it doesn't clip the right edge.
-    const labelX = (cx - 10).toFixed(1);
-    const labelY = (cy - 10).toFixed(1);
-    latestCallout = `<text x="${labelX}" y="${labelY}" text-anchor="end" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg</text>`;
+    const lx = Math.min(W - PAD.r - 18, Math.max(PAD.l + 18, cx));
+    latestCallout = `<text x="${lx.toFixed(1)}" y="10" text-anchor="middle" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg today</text>`;
   }
 
   // Friendly date labels (e.g. "Apr 27" instead of "2026-04-27").
@@ -463,7 +462,7 @@ async function renderWeightCard() {
   if (goalKg) {
     const gy = yOf(goalKg).toFixed(1);
     goalLine = `<line x1="${PAD.l}" y1="${gy}" x2="${W - PAD.r}" y2="${gy}" stroke="var(--accent)" stroke-width="1.25" stroke-dasharray="4 4" opacity="0.7"/>
-                <text x="${W - PAD.r - 4}" y="${(parseFloat(gy) - 4).toFixed(1)}" text-anchor="end" fill="var(--accent)" font-size="10" font-family="inherit" opacity="0.85">goal ${goalKg}</text>`;
+                <text x="${PAD.l + 4}" y="${(parseFloat(gy) - 5).toFixed(1)}" text-anchor="start" fill="var(--accent)" font-size="10" font-family="inherit" opacity="0.85">goal ${goalKg}</text>`;
     const kgToGo = Math.round((last.kg - goalKg) * 100) / 100;
     const goingRightWay = (goalKg < last.kg && kgPerWeek < 0) || (goalKg > last.kg && kgPerWeek > 0);
     if (Math.abs(kgToGo) < 0.1) {
@@ -555,7 +554,7 @@ async function renderWeightCard() {
   }
   const milestonesHtml = milestones.length
     ? `<div class="wt-milestones">${milestones.slice(0, 3).map(m =>
-        `<span class="wt-milestone ${m.tone}">${m.emoji} ${m.label}</span>`
+        `<span class="wt-milestone ${m.tone}">${m.label}</span>`
       ).join('')}</div>`
     : '';
 
@@ -914,7 +913,7 @@ function renderDebriefLocked(card, checklist) {
 function renderDebriefGenerating(card, trigger) {
   const meta = DEBRIEF_TRIGGER_META[trigger] || DEBRIEF_TRIGGER_META.weekly;
   card.innerHTML = `
-    <h2>${meta.emoji} ${meta.label}</h2>
+    <h2>${meta.label}</h2>
     <div id="debriefLoaderSlot"></div>
   `;
   if (typeof showAILoader === 'function') showAILoader($('#debriefLoaderSlot'), 'Reading your week…');
@@ -1022,7 +1021,7 @@ function renderDebriefResult(card, debrief, opts = {}) {
 
   card.innerHTML = `
     <div class="db-status ${statusCls}"></div>
-    <h2>${meta.emoji} ${meta.label} <span class="db-when" title="${nextTooltip}">${when}</span></h2>
+    <h2>${meta.label} <span class="db-when" title="${nextTooltip}">${when}</span></h2>
     <div class="db-section db-working">
       <div class="db-section-label">Working</div>
       <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.working) || '—')}</div>
