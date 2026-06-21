@@ -297,13 +297,24 @@ async function renderWeightCard() {
   const allKg = weights.map(w => w.kg);
 
   // Projection: extend the 7-day average forward using current pace (kgPerWeek).
-  // Skip projection if user isn't moving or if there's not enough signal.
-  const PROJECT_DAYS = 21;
+  // When a goal is set AND the user is moving the right way, project all the
+  // way to the goal weight — that makes the chart's projection line and the
+  // ETA copy below tell the same story. Otherwise fall back to a 21-day cap.
   const lastAvgKgRaw = (() => {
     for (let i = avgSeries.length - 1; i >= 0; i--) if (avgSeries[i].kg !== null) return avgSeries[i].kg;
     return null;
   })();
   const canProject = Math.abs(kgPerWeek) >= 0.05 && lastAvgKgRaw !== null && series.length >= 7;
+  let PROJECT_DAYS = 21;
+  if (canProject && goalKg) {
+    const towardGoal = (goalKg < lastAvgKgRaw && kgPerWeek < 0) || (goalKg > lastAvgKgRaw && kgPerWeek > 0);
+    if (towardGoal) {
+      const daysToGoal = Math.abs((lastAvgKgRaw - goalKg) / kgPerWeek) * 7;
+      // Cap at 16 weeks (112d) so a sluggish pace doesn't compress the chart into a sliver,
+      // and at min 14d so an almost-there goal still shows visible projection.
+      PROJECT_DAYS = Math.max(14, Math.min(112, Math.round(daysToGoal)));
+    }
+  }
   const projectedEndKg = canProject ? lastAvgKgRaw + (kgPerWeek * (PROJECT_DAYS / 7)) : null;
   const totalLen = series.length + (canProject ? PROJECT_DAYS : 0);
 
@@ -393,6 +404,8 @@ async function renderWeightCard() {
     : null;
 
   // Projection: dashed gray line extending forward from the last 7-day avg point.
+  // When extending to the goal, the endpoint label becomes the ETA date so the
+  // chart and the "you hit X kg around ..." copy below tell the same story.
   let projectionLine = '';
   let todayDivider = '';
   if (canProject && lastAvgIdx !== -1) {
@@ -400,9 +413,15 @@ async function renderWeightCard() {
     const py1 = yOf(lastAvgKgRaw).toFixed(1);
     const px2 = xOf(series.length - 1 + PROJECT_DAYS).toFixed(1);
     const py2 = yOf(projectedEndKg).toFixed(1);
+    const reachingGoal = goalKg && Math.abs(projectedEndKg - goalKg) < 0.2;
+    const projDate = new Date(lastD.getTime() + PROJECT_DAYS * dayMs);
+    const endLabel = reachingGoal
+      ? `🎯 ${projDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+      : `~${projectedEndKg.toFixed(1)} kg`;
+    const endColor = reachingGoal ? 'var(--accent)' : 'var(--text-dim)';
     projectionLine = `<line x1="${px1}" y1="${py1}" x2="${px2}" y2="${py2}" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.55" class="wt-projection"/>
-                      <circle cx="${px2}" cy="${py2}" r="2.5" fill="var(--text-dim)" opacity="0.6"/>
-                      <text x="${(parseFloat(px2) - 4).toFixed(1)}" y="${(parseFloat(py2) - 6).toFixed(1)}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit" opacity="0.7">~${projectedEndKg.toFixed(1)} kg</text>`;
+                      <circle cx="${px2}" cy="${py2}" r="${reachingGoal ? 3.5 : 2.5}" fill="${endColor}" opacity="${reachingGoal ? 0.9 : 0.6}"/>
+                      <text x="${(parseFloat(px2) - 4).toFixed(1)}" y="${(parseFloat(py2) - 7).toFixed(1)}" text-anchor="end" fill="${endColor}" font-size="${reachingGoal ? 11 : 10}" font-weight="${reachingGoal ? 600 : 400}" font-family="inherit" opacity="${reachingGoal ? 0.95 : 0.75}">${endLabel}</text>`;
     const tx = xOf(series.length - 1).toFixed(1);
     todayDivider = `<line x1="${tx}" y1="${PAD.t}" x2="${tx}" y2="${H - PAD.b}" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="2 3" opacity="0.35"/>`;
   }
@@ -412,6 +431,31 @@ async function renderWeightCard() {
   const dSign  = totalDelta > 0 ? '+' : '';
   const paceColor = kgPerWeek < -1 ? 'var(--warn)' : kgPerWeek < 0 ? 'var(--accent)' : kgPerWeek > 0 ? 'var(--danger)' : 'var(--text-dim)';
   const paceSign  = kgPerWeek > 0 ? '+' : '';
+
+  // Pace verdict — turns "−0.74 kg/week" from a raw number into a verdict the
+  // user can act on. Uses % of body weight as the yardstick (~0.5-1% is the
+  // sustainable cut range; >1% trends toward muscle loss / unsustainable).
+  // For gaining (lean bulk), the safe band is roughly 0.25-0.5% per week.
+  let paceVerdict = '';
+  if (Math.abs(kgPerWeek) >= 0.05 && last.kg) {
+    const pctOfBody = Math.abs(kgPerWeek) / last.kg * 100;
+    const losing = kgPerWeek < 0;
+    if (losing) {
+      if (pctOfBody < 0.3)      paceVerdict = 'gentle — sustainable';
+      else if (pctOfBody < 0.7) paceVerdict = 'ideal cut rate';
+      else if (pctOfBody < 1.0) paceVerdict = 'upper end — sustainable short-term';
+      else if (pctOfBody < 1.5) paceVerdict = 'aggressive — watch energy & strength';
+      else                       paceVerdict = 'very aggressive — likely losing muscle';
+    } else {
+      if (pctOfBody < 0.2)      paceVerdict = 'gentle — lean bulk';
+      else if (pctOfBody < 0.4) paceVerdict = 'lean bulk rate';
+      else if (pctOfBody < 0.7) paceVerdict = 'fast — expect some fat gain';
+      else                       paceVerdict = 'very fast — mostly fat at this pace';
+    }
+  }
+  const paceVerdictHtml = paceVerdict
+    ? `<div class="ws-stat-sub">${paceVerdict}</div>`
+    : '';
 
   // Goal weight line + ETA computation
   let goalLine = '';
@@ -531,6 +575,7 @@ async function renderWeightCard() {
       <div class="ws-stat">
         <div class="ws-stat-num" style="color:${paceColor};">${paceSign}${kgPerWeek.toFixed(2)} kg</div>
         <div class="ws-stat-lbl">per week</div>
+        ${paceVerdictHtml}
       </div>
     </div>
 
