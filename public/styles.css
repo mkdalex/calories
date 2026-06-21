@@ -929,6 +929,50 @@
   .db-thumb:disabled { cursor: default; opacity: 0.85; }
   .db-feedback-state { font-style: italic; }
 
+  /* Status band — coloured strip at the top of the debrief card. Glanceable
+     "good week / drifting / alert" signal before the user reads the details. */
+  #debriefCard { position: relative; overflow: hidden; }
+  .db-status {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 3px; border-radius: var(--radius-card) var(--radius-card) 0 0;
+  }
+  .db-status.db-status-good  { background: var(--accent); }
+  .db-status.db-status-warn  { background: var(--warn); }
+  .db-status.db-status-alert { background: var(--danger); }
+
+  /* Trend phrases under the Working section. Dim and small so they read as
+     context, not as another finding. */
+  .db-trend {
+    margin-top: 4px; font-size: 11.5px; color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  /* Clickable date chip on Leak / Try sections — opens the calendar to that day. */
+  .db-date-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-top: 6px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px;
+    font-size: 11px; font-weight: 600; color: var(--info);
+    cursor: pointer; font-family: inherit;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .db-date-chip:hover { border-color: var(--info); background: var(--info-soft, var(--panel-2)); }
+
+  /* Thumbs-down follow-up: "What was off?" buttons. */
+  .db-reason-wrap {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin-left: 4px;
+  }
+  .db-reason-label { color: var(--text-dim); font-size: 11px; }
+  .db-reason-btn {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px; font-size: 11px; color: var(--text); cursor: pointer;
+    font-family: inherit;
+  }
+  .db-reason-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .db-reason-btn:disabled { opacity: 0.5; cursor: default; }
+
   /* ---------- Protein adherence ---------- */
   .pa-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 8px 0 12px; }
   .pa-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }

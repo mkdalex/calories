@@ -884,6 +884,28 @@ function stripDebriefPrefix(s) {
   return String(s).replace(DEBRIEF_PREFIX_RE, '');
 }
 
+// Tapping a date chip inside the debrief card jumps to that day in the
+// History calendar. Switches view if we're not already on History.
+function jumpToCalendarDate(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+  if (typeof setActiveView === 'function') setActiveView('history');
+  const [y, m] = iso.split('-').map(Number);
+  calYear  = y;
+  calMonth = m - 1;
+  renderCalendar();
+  calSelectedDate = iso;
+  renderCalDetail(iso);
+  // Highlight the cell after the next paint.
+  requestAnimationFrame(() => {
+    const cell = document.querySelector(`.cal-cell[data-date="${iso}"]`);
+    if (cell) {
+      document.querySelectorAll('.cal-cell.selected').forEach(c => c.classList.remove('selected'));
+      cell.classList.add('selected');
+      cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+}
+
 function renderDebriefResult(card, debrief, opts = {}) {
   const meta = DEBRIEF_TRIGGER_META[debrief.trigger] || DEBRIEF_TRIGGER_META.weekly;
   const when = new Date(debrief.generated_at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -909,19 +931,67 @@ function renderDebriefResult(card, debrief, opts = {}) {
     ? `<div class="db-other">+${otherCount} other alert${otherCount === 1 ? '' : 's'} this week — <button class="db-link" id="debriefShowOther">view</button></div>`
     : '';
   const fb = debrief.feedback;
+  // Status band:
+  //   green  → on-plan (no real leak being flagged)
+  //   amber  → off-plan weekly review (general drift)
+  //   red    → triggered alert (plateau / drift / drop / streak break)
+  const statusCls = debrief.on_plan
+    ? 'db-status-good'
+    : (debrief.trigger && debrief.trigger !== 'weekly')
+      ? 'db-status-alert'
+      : 'db-status-warn';
+
+  // Trend lines snapshot — short phrases under the WORKING headline
+  // ("3rd losing week in a row", "Last week +0.4 kg · pace picking up").
+  const trendLinesHtml = (Array.isArray(debrief.trend_lines) && debrief.trend_lines.length)
+    ? `<div class="db-trend">${debrief.trend_lines.map(escapeHtml).join(' · ')}</div>`
+    : '';
+
+  // Clickable date chip — appears beside the leak/try text when the AI cited a
+  // specific day. Tapping jumps to that day in the History calendar.
+  const dateChip = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso + 'T00:00:00');
+    const label = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return `<button type="button" class="db-date-chip" data-jump-date="${escapeHtml(iso)}" title="Open this day in the calendar">📅 ${label} →</button>`;
+  };
+
+  // Thumbs-down follow-up: replace the inline state with 4 quick "what was off?"
+  // buttons. Reason gets posted alongside the down vote; persisted server-side
+  // for prompt tuning. If a reason is already saved, show the cooled-down state.
+  const reasonLabels = {
+    wrong_leak: 'Wrong leak',
+    too_vague: 'Too vague',
+    not_actionable: 'Not actionable',
+    felt_generic: 'Felt generic'
+  };
+  const downFollowUp = (() => {
+    if (debrief.feedback_reason && reasonLabels[debrief.feedback_reason]) {
+      return `<span class="db-feedback-state">Noted: ${reasonLabels[debrief.feedback_reason]}.</span>`;
+    }
+    const opts = Object.entries(reasonLabels)
+      .map(([k, v]) => `<button class="db-reason-btn" data-reason="${k}" type="button">${v}</button>`)
+      .join('');
+    return `<div class="db-reason-wrap"><span class="db-reason-label">What was off?</span>${opts}</div>`;
+  })();
+
   card.innerHTML = `
+    <div class="db-status ${statusCls}"></div>
     <h2>${meta.emoji} ${meta.label} <span class="db-when" title="${nextTooltip}">${when}</span></h2>
     <div class="db-section db-working">
       <div class="db-section-label">Working</div>
       <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.working) || '—')}</div>
+      ${trendLinesHtml}
     </div>
     <div class="db-section db-leak">
       <div class="db-section-label">Leak</div>
       <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.leak) || '—')}</div>
+      ${dateChip(debrief.leak_date)}
     </div>
     <div class="db-section db-try">
       <div class="db-section-label">Try this week</div>
       <div class="db-section-text">${escapeHtml(stripDebriefPrefix(debrief.try_this) || '—')}</div>
+      ${dateChip(debrief.try_date)}
     </div>
     ${otherBanner}
     <div class="db-feedback">
@@ -931,10 +1001,34 @@ function renderDebriefResult(card, debrief, opts = {}) {
       ${fb === 'up'
         ? `<span class="db-feedback-state">Glad it helped.</span>`
         : fb === 'down'
-        ? `<span class="db-feedback-state">Noted — <button class="db-link" id="debriefRegen">try once more?</button></span>`
+        ? downFollowUp
         : ''}
     </div>
   `;
+
+  // Wire up the date chips → jump to the calendar day in History.
+  card.querySelectorAll('.db-date-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const iso = btn.dataset.jumpDate;
+      if (!iso || typeof jumpToCalendarDate !== 'function') return;
+      jumpToCalendarDate(iso);
+    });
+  });
+
+  // Wire up the reason buttons → POST reason, re-render in the noted state.
+  card.querySelectorAll('.db-reason-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const reason = btn.dataset.reason;
+      card.querySelectorAll('.db-reason-btn').forEach(b => b.disabled = true);
+      try {
+        await api(`/api/debrief/${debrief.id}/feedback`, { method: 'POST', body: { value: 'down', reason } });
+        debrief.feedback_reason = reason;
+        renderDebriefResult(card, debrief, opts);
+      } catch (_) {
+        card.querySelectorAll('.db-reason-btn').forEach(b => b.disabled = false);
+      }
+    });
+  });
 
   card.querySelectorAll('.db-thumb').forEach(btn => btn.addEventListener('click', async () => {
     const val = btn.dataset.fb;

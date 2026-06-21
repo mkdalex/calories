@@ -90,11 +90,17 @@ OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════
 
 STRICT JSON only, no preamble, no markdown:
-{"working":"<…>","leak":"<…>","try":"<…>"}
+{"working":"<…>","leak":"<…>","try":"<…>","leak_date":"<YYYY-MM-DD or omit>","try_date":"<YYYY-MM-DD or omit>"}
 
 Max 80 words across all three sections combined.
 
 Every claim cites a specific number from the brief.
+
+OPTIONAL leak_date / try_date:
+  If a section references a specific day (e.g. "Wed had 2,864 kcal" or "Saturday is the day"), include the ISO date of that day from the brief's daily_breakdown_last_7. The client renders it as a clickable chip the user can tap to jump to that day's meals. Omit the field entirely if no single day is being cited.
+
+DO NOT repeat trend context already in derived_insights.trend_lines:
+  The client renders those lines under the Working section automatically. Phrases like "3rd losing week in a row" or "pace picking up" should not appear in your output — they're shown right next to it.
 
 WRITE LIKE A HUMAN COACH, NOT A SCRIPT:
   - Do NOT prefix the value with the section name. We render "Working" /

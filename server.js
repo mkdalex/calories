@@ -1095,6 +1095,31 @@ function buildDebriefBrief(req) {
 
   const weight7  = weightBlock(inWindow(7));
   const weight28raw = weightBlock(inWindow(28));
+
+  // Rolling 7-day weight buckets for the last 5 weeks — used to spot
+  // "Nth winning/losing week in a row" and pace direction. Median-of-bucket
+  // is more robust than first/last on noisy daily weigh-ins.
+  const weeklyBuckets = [];
+  for (let i = 0; i < 5; i++) {
+    const winEndMs = today.getTime() - i * 7 * dayMs;
+    const winStartMs = winEndMs - 7 * dayMs;
+    const inWin = weights.filter(w => {
+      const t = new Date(w.date + 'T00:00:00').getTime();
+      return t >= winStartMs && t <= winEndMs;
+    });
+    if (!inWin.length) { weeklyBuckets.push(null); continue; }
+    const sorted = [...inWin].sort((a, b) => a.kg - b.kg);
+    weeklyBuckets.push(round1(sorted[Math.floor(sorted.length / 2)].kg));
+  }
+  // deltas[0] = this week - last week, deltas[1] = last week - 2-weeks-ago, ...
+  const weeklyDeltas = [];
+  for (let i = 0; i < weeklyBuckets.length - 1; i++) {
+    if (weeklyBuckets[i] != null && weeklyBuckets[i + 1] != null) {
+      weeklyDeltas.push(round1(weeklyBuckets[i] - weeklyBuckets[i + 1]));
+    } else {
+      weeklyDeltas.push(null);
+    }
+  }
   let weight28 = weight28raw;
   // Add predicted-vs-actual gap to the 28-day block only (long-window math).
   if (weight28raw && stats && stats.tdee) {
@@ -1236,6 +1261,35 @@ function buildDebriefBrief(req) {
       if (ins.on_plan) {
         ins.on_plan_summary = `last_7: avg ${s7.avg_kcal} kcal vs ${stats.kcal_goal} goal, avg protein ${s7.avg_protein}g vs ${stats.protein_g} target, weight ${weight7.delta_kg} kg over ${weight7.span_days}d.`;
       }
+      // Trend lines — pre-rendered short phrases the client shows under the
+      // "Working" headline. Computed server-side so the AI doesn't have to
+      // and so the wording stays consistent.
+      const trendLines = [];
+      const targetDir = goalDelta < 0 ? -1 : goalDelta > 0 ? 1 : 0;
+      // Count consecutive weeks matching the goal direction (most recent first).
+      let streak = 0;
+      for (const d of weeklyDeltas) {
+        if (d == null) break;
+        if (targetDir < 0 && d < -0.05)      streak++;
+        else if (targetDir > 0 && d > 0.05)  streak++;
+        else if (targetDir === 0 && Math.abs(d) < 0.3) streak++;
+        else break;
+      }
+      if (streak >= 2) {
+        const ordinal = streak === 2 ? '2nd' : streak === 3 ? '3rd' : `${streak}th`;
+        const verb = targetDir < 0 ? 'losing' : targetDir > 0 ? 'gaining' : 'on-target';
+        trendLines.push(`${ordinal} ${verb} week in a row`);
+      }
+      // Pace direction vs last week.
+      const thisWk = weeklyDeltas[0];
+      const lastWk = weeklyDeltas[1];
+      if (thisWk != null && lastWk != null) {
+        const a = Math.abs(thisWk), b = Math.abs(lastWk);
+        const tag = a > b + 0.1 ? 'pace picking up' : a < b - 0.1 ? 'pace slowing' : 'steady pace';
+        const lastStr = lastWk >= 0 ? `+${lastWk}` : `${lastWk}`;
+        trendLines.push(`Last week ${lastStr} kg · ${tag}`);
+      }
+      if (trendLines.length) ins.trend_lines = trendLines;
       return ins;
     })(),
     // Raw meal log for AI fuzzy categorization. Compact format to save tokens.
@@ -1358,6 +1412,15 @@ app.post('/api/debrief', async (req, res) => {
   // so we don't have to clean it on every render.
   const stripPrefix = (s) =>
     String(s || '').replace(/^\s*(?:WORKING|LEAK|TRY(?:\s+THIS\s+WEEK)?)\s*[:\-–—]\s*/i, '').slice(0, 400);
+  // Accept the optional date refs only if they look like ISO YYYY-MM-DD.
+  const isoDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').trim()) ? String(s).trim() : null;
+  // Snapshot the trend lines + on_plan flag server-side computed for THIS
+  // week so the client renders the same wording / status colour on every
+  // re-view of the debrief, even months later.
+  const trendLines = (brief.derived_insights && Array.isArray(brief.derived_insights.trend_lines))
+    ? brief.derived_insights.trend_lines.slice(0, 2)
+    : null;
+  const onPlanSnap = !!(brief.derived_insights && brief.derived_insights.on_plan);
   const entry = {
     id: newId(),
     trigger,
@@ -1366,7 +1429,12 @@ app.post('/api/debrief', async (req, res) => {
     working: stripPrefix(data.working),
     leak:    stripPrefix(data.leak),
     try_this: stripPrefix(data.try),
+    leak_date: isoDate(data.leak_date),
+    try_date: isoDate(data.try_date),
+    trend_lines: trendLines,
+    on_plan: onPlanSnap,
     feedback: null,
+    feedback_reason: null,
     forced: force ? true : undefined
   };
   await withFileLock(req.dataFiles.debriefs, () => {
@@ -1380,14 +1448,25 @@ app.post('/api/debrief', async (req, res) => {
   res.json({ debrief: entry, cached: false });
 });
 
+// Allow-list of reasons we accept from the thumbs-down follow-up. Keeps free
+// text out so the persisted reasons stay groupable for prompt tuning.
+const DEBRIEF_FEEDBACK_REASONS = new Set([
+  'wrong_leak', 'too_vague', 'not_actionable', 'felt_generic'
+]);
 app.post('/api/debrief/:id/feedback', async (req, res) => {
   const { id } = req.params;
   const value = req.body && req.body.value;
+  const reason = req.body && req.body.reason;
   if (value !== 'up' && value !== 'down') return res.status(400).json({ error: 'value must be up|down' });
+  if (reason != null && !DEBRIEF_FEEDBACK_REASONS.has(reason)) return res.status(400).json({ error: 'invalid reason' });
   await withFileLock(req.dataFiles.debriefs, () => {
     const arr = readJson(req.dataFiles.debriefs, []);
     const i = arr.findIndex(d => d.id === id);
-    if (i >= 0) { arr[i].feedback = value; writeJson(req.dataFiles.debriefs, arr); }
+    if (i >= 0) {
+      arr[i].feedback = value;
+      if (reason) arr[i].feedback_reason = reason;
+      writeJson(req.dataFiles.debriefs, arr);
+    }
   });
   res.json({ ok: true });
 });
