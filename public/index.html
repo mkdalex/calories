@@ -272,9 +272,11 @@
     <!-- ========== HISTORY VIEW ========== -->
     <div class="view hidden" id="view-history">
       <div id="plateauBannerWrap"></div>
+      <!-- Narrative banners span full width above the two columns -->
+      <div class="card" id="debriefCard"></div>
+      <div class="card" id="weeklyReviewCard"></div>
       <div class="dash-grid">
         <div class="dash-col-left">
-          <div class="card" id="debriefCard"></div>
           <div class="card" id="weightCard">
             <h2>Weight</h2>
             <div class="field">
@@ -291,15 +293,7 @@
             </div>
             <div id="weightHistory"></div>
           </div>
-          <div class="card" id="weeklyReviewCard"></div>
           <div class="card" id="proteinAdherenceCard"></div>
-          <div class="card" id="predictedActualCard"></div>
-          <div class="card" id="kcalTrendCard">
-            <h2>Calorie trend — 30 days</h2>
-            <div id="kcalTrendStats" class="kcal-trend-stats"></div>
-            <div id="kcalTrendChart"></div>
-          </div>
-          <div class="card" id="dowPatternCard"></div>
           <div class="card" id="sourceQualityCard"></div>
         </div>
         <div class="dash-col-right">
@@ -312,6 +306,13 @@
             <div class="cal-grid" id="calGrid"></div>
             <div id="calDetail"></div>
           </div>
+          <div class="card" id="predictedActualCard"></div>
+          <div class="card" id="kcalTrendCard">
+            <h2>Calorie trend — 30 days</h2>
+            <div id="kcalTrendStats" class="kcal-trend-stats"></div>
+            <div id="kcalTrendChart"></div>
+          </div>
+          <div class="card" id="dowPatternCard"></div>
         </div>
       </div>
     </div>

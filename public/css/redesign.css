@@ -10,48 +10,27 @@
    ============================================================================ */
 
 /* ---------------------------------------------------------------------------
-   0. DESKTOP LAYOUT — fill the width (History only)
-   Your .view is capped at max-width:720px and centred, so on a wide screen
-   History is a skinny column with big empty gutters. #view-history beats the
-   .view rule on specificity (ID > class), so this widens HISTORY ONLY and turns
-   it into a 2-column dashboard: narrative banners span full width, calendar +
-   weight sit as the hero row, the rest tile beneath. Other tabs are untouched.
---------------------------------------------------------------------------- */
-@media (min-width: 1024px) {
-  /* Flatten the legacy .dash-grid wrappers so the history cards become
-     direct grid children of #view-history — otherwise the selectors below
-     (which expect .card to be a direct child) never match. */
-  #view-history .dash-grid,
-  #view-history .dash-col-left,
-  #view-history .dash-col-right { display: contents; }
+   0. DESKTOP LAYOUT — History dashboard
+   The app already does the heavy lifting: on desktop .dash-col-left /
+   .dash-col-right are INDEPENDENT flex columns (so each side packs tightly
+   with no row-lock gaps), and on mobile the wrappers are display:contents
+   so everything collapses to a single stack. We don't fight that here.
 
-  #view-history {
-    max-width: 1180px;
-    margin-inline: auto;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    align-items: start;
-  }
-  /* The wrappers are display:contents, so the cards are grid items but still
-     DOM-descendants (not direct children) — target them with descendant
-     selectors, NOT '>', or none of this placement applies. */
-  #view-history .card { order: 5; min-width: 0; }               /* detail cards tile below */
-  /* full-width narrative rows, pinned to the top */
-  #view-history #plateauBannerWrap,
-  #view-history #debriefCard,
-  #view-history #weeklyReviewCard { grid-column: 1 / -1; }
-  #view-history #plateauBannerWrap { order: 0; }
-  #view-history #debriefCard       { order: 1; }
-  #view-history #weeklyReviewCard  { order: 2; }
-  /* hero row: calendar (left) + weight (right) */
-  #view-history .card:has(#calGrid) { order: 3; }
-  #view-history #weightCard         { order: 4; }
-  /* an empty plateau banner shouldn't reserve a gap */
-  #view-history #plateauBannerWrap:empty { display: none; }
-}
-@media (min-width: 1440px) {
-  #view-history { max-width: 1320px; }
+   The markup (index.html) now puts the two narrative banners — the AI review
+   and "Last 7 days" — as full-width blocks ABOVE .dash-grid, and splits the
+   remaining cards into the two columns so Weight + Calendar sit as the hero
+   row. All this needs from CSS is equal hero columns (instead of the app's
+   default 1.55fr/1fr) so the chart and the calendar both get room.
+
+   Everything is gated behind the app's own 1000px desktop breakpoint, so the
+   phone layout is byte-for-byte unchanged. --------------------------------- */
+@media (min-width: 1000px) {
+  #view-history .dash-grid { grid-template-columns: 1fr 1fr; }
+  /* The banners live outside the columns now — give them the same rhythm
+     as the cards inside the columns. */
+  #view-history > #debriefCard,
+  #view-history > #weeklyReviewCard { margin-bottom: 16px; }
+  #view-history > #plateauBannerWrap:empty { display: none; }
 }
 
 /* A couple of local tokens layered on top of yours (theme-safe via color-mix) */
