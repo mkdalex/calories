@@ -416,7 +416,7 @@ async function renderWeightCard() {
     const reachingGoal = goalKg && Math.abs(projectedEndKg - goalKg) < 0.2;
     const projDate = new Date(lastD.getTime() + PROJECT_DAYS * dayMs);
     const endLabel = reachingGoal
-      ? `🎯 ${projDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+      ? projDate.toLocaleDateString([], { month: 'short', day: 'numeric' })
       : `~${projectedEndKg.toFixed(1)} kg`;
     const endColor = reachingGoal ? 'var(--accent)' : 'var(--text-dim)';
     projectionLine = `<line x1="${px1}" y1="${py1}" x2="${px2}" y2="${py2}" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.55" class="wt-projection"/>
