@@ -18,6 +18,13 @@
    weight sit as the hero row, the rest tile beneath. Other tabs are untouched.
 --------------------------------------------------------------------------- */
 @media (min-width: 1024px) {
+  /* Flatten the legacy .dash-grid wrappers so the history cards become
+     direct grid children of #view-history — otherwise the selectors below
+     (which expect .card to be a direct child) never match. */
+  #view-history .dash-grid,
+  #view-history .dash-col-left,
+  #view-history .dash-col-right { display: contents; }
+
   #view-history {
     max-width: 1180px;
     display: grid;
