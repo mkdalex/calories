@@ -9,6 +9,7 @@ A self-hosted calorie + protein tracker focused on the two metrics that actually
 - **Today view** — kcal ring, protein bar, water bottle, day-of-day pacing, meal-period grouping (breakfast/lunch/dinner)
 - **History** — calendar grid, 30-day kcal trend, day-of-week pattern chart, last-7-days review card
 - **TDEE calibration** — auto-corrects your maintenance calories based on observed weight + intake
+- **Comeback flow** — come back after a week or more away and the app leads with a recap of your last stretch, asks for a fresh weigh-in (your targets are built on it), and lets you pick a **Reset week**: seven days at maintenance where the only thing scored is whether you logged. On day 8 it prompts for a real goal, using the week you just recorded instead of a guess.
 - **Templates + favorites** — one-tap log meals you eat often
 - **Cost-capped** — daily token + dollar caps prevent runaway AI spend
 

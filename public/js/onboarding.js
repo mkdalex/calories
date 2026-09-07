@@ -20,10 +20,10 @@ let onboardingState = null;
 
 async function maybeShowOnboarding() {
   let data;
-  try { data = await api('/api/profile'); } catch (_) { return; }
+  try { data = await api('/api/profile'); } catch (_) { return false; }
   // Skip if a complete profile already exists
   if (data && data.profile && data.profile.height_cm && data.profile.weight_kg && data.profile.age) {
-    return;
+    return false;
   }
   onboardingState = {
     step: 1,
@@ -35,6 +35,7 @@ async function maybeShowOnboarding() {
   };
   buildOnboardingShell();
   renderOnboardingStep();
+  return true;
 }
 
 function buildOnboardingShell() {

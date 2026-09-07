@@ -328,10 +328,35 @@ const GOALS = {
   steady:      { delta: -500, label: 'Steady loss',   desc: '~0.5 kg / week' },
   aggressive:  { delta: -750, label: 'Aggressive',    desc: '~0.75 kg / week' },
   maintain:    { delta: 0,    label: 'Maintain',      desc: 'Stay current weight' },
-  gain:        { delta: 300,  label: 'Gain',          desc: 'Slow muscle gain' }
+  gain:        { delta: 300,  label: 'Gain',          desc: 'Slow muscle gain' },
+  // Re-entry mode after a logging gap. No deficit on purpose: the only thing being
+  // asked of you for a week is that you log at all. Expires on its own (see
+  // resetMeta) and the client then prompts for a real goal, using fresh data.
+  reset:       { delta: 0,    label: 'Reset week',    desc: 'Rebuild the habit — no deficit' }
 };
+const RESET_DAYS = 7;
 
-function computeStats(profile) {
+// Progress through a Reset week. Never mutates the profile — an expired reset stays
+// selected until the user picks its replacement, so nothing changes silently under them.
+function resetMeta(profile, today) {
+  if (!profile || profile.goal !== 'reset' || !profile.reset_started) return null;
+  const startD = new Date(profile.reset_started + 'T00:00:00');
+  const todayD = new Date(today + 'T00:00:00');
+  const elapsed = Math.floor((todayD - startD) / 86400000);
+  const day = Math.min(Math.max(elapsed + 1, 1), RESET_DAYS);
+  const endD = new Date(startD);
+  endD.setDate(endD.getDate() + RESET_DAYS - 1);
+  return {
+    started: profile.reset_started,
+    day,
+    of: RESET_DAYS,
+    ends: fmtDate(endD),
+    expired: elapsed >= RESET_DAYS,
+    days_left: Math.max(RESET_DAYS - elapsed, 0)
+  };
+}
+
+function computeStats(profile, req) {
   if (!profile || !profile.weight_kg || !profile.height_cm || !profile.age || !profile.sex) {
     return null;
   }
@@ -356,8 +381,15 @@ function computeStats(profile) {
   const carb_g = Math.round((kcal_goal - protein_g * 4 - fat_g * 9) / 4);
   const fiber_g = Math.round(kcal_goal * 14 / 1000);
 
+  const reset_meta = resetMeta(profile, todayStr(req));
+
   const lossPerWeek = goal.delta < 0 ? Math.round(Math.abs(goal.delta) * 7 / 7700 * 100) / 100 : 0;
-  const explainer = `Your body burns about ${tdee.toLocaleString()} calories a day just existing and moving around — that's your TDEE. ` +
+  const explainer = reset_meta
+    ? `You're on day ${reset_meta.day} of a ${reset_meta.of}-day reset. Your target is ${kcal_goal.toLocaleString()} — that's your TDEE, no deficit. ` +
+      `Eating this holds your weight steady, which is the point: the only thing being asked of you this week is that you log. ` +
+      `Protein stays at ${protein_g}g because that's what protects the muscle you already have. ` +
+      `On day ${reset_meta.of + 1} you pick a real goal — and by then you'll have a week of your own data to pick it with, instead of guessing.`
+    : `Your body burns about ${tdee.toLocaleString()} calories a day just existing and moving around — that's your TDEE. ` +
     (goal.delta < 0
       ? `To lose roughly ${lossPerWeek} kg a week, eat ${kcal_goal.toLocaleString()} — that creates a ${Math.abs(goal.delta)}-calorie gap each day, and 7,700 calories ≈ 1 kg of fat. `
       : goal.delta > 0
@@ -369,27 +401,182 @@ function computeStats(profile) {
       ? `Your protein target is ${protein_g}g (2.0 g/kg of current weight) — higher ratio while cutting to preserve muscle. Set a goal weight in Profile to lock it.`
       : `Your protein target is ${protein_g}g — this protects your muscle while you change weight.`);
 
-  return { bmr, tdee, tdee_predicted, tdee_calibrated, kcal_goal, protein_g, fat_g, carb_g, fiber_g, weight_kg, activity: act, goal_meta: goal, explainer };
+  return { bmr, tdee, tdee_predicted, tdee_calibrated, kcal_goal, protein_g, fat_g, carb_g, fiber_g, weight_kg, activity: act, goal_meta: goal, reset_meta, explainer };
 }
 
 // ---------- /api/profile ----------
 app.get('/api/profile', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
-  res.json({ profile, stats: computeStats(profile), activity_options: ACTIVITY, goal_options: GOALS });
+  res.json({ profile, stats: computeStats(profile, req), activity_options: ACTIVITY, goal_options: GOALS });
 });
 app.post('/api/profile', async (req, res) => {
+  const today = todayStr(req);
   const profile = await withFileLock(req.dataFiles.profile, () => {
     const existing = readJson(req.dataFiles.profile, {}) || {};
     const merged = { ...existing, ...(req.body || {}) };
+    // Reset is a dated mode, not just a delta — selecting it anywhere (here or the
+    // comeback flow) has to start its clock, and leaving it has to stop it, or the
+    // goal and the seven-day strip drift apart.
+    if (merged.goal === 'reset') {
+      if (!merged.reset_started) merged.reset_started = today;
+      if (existing.goal && existing.goal !== 'reset') merged.pre_reset_goal = existing.goal;
+    } else if (merged.goal) {
+      delete merged.reset_started;
+      delete merged.pre_reset_goal;
+    }
     writeJson(req.dataFiles.profile, merged);
     return merged;
   });
-  res.json({ profile, stats: computeStats(profile) });
+  res.json({ profile, stats: computeStats(profile, req) });
+});
+
+// ---------- /api/comeback ----------
+// Gap detection + a recap of the stretch you were in before you stopped.
+// The recap exists so the return screen can lead with what you DID, not with a
+// zeroed streak and four months of empty calendar cells.
+const COMEBACK_MIN_GAP_DAYS = 7;
+
+function comebackTier(gapDays) {
+  if (gapDays < COMEBACK_MIN_GAP_DAYS) return 'none';
+  if (gapDays < 21) return 'short';
+  if (gapDays < 90) return 'long';
+  return 'dormant';
+}
+
+// The run of logged days ending at `endDate`, tolerating up to `slack` skipped days
+// so one missed Tuesday doesn't chop a three-week stretch in half.
+function lastActiveStretch(loggedDates, endDate, slack = 2) {
+  if (!loggedDates.length) return null;
+  let start = endDate;
+  for (let i = loggedDates.length - 1; i > 0; i--) {
+    const cur = new Date(loggedDates[i] + 'T00:00:00');
+    const prev = new Date(loggedDates[i - 1] + 'T00:00:00');
+    if (Math.round((cur - prev) / 86400000) > slack + 1) break;
+    start = loggedDates[i - 1];
+  }
+  return { start, end: endDate };
+}
+
+app.get('/api/comeback', (req, res) => {
+  const today = todayStr(req);
+  const log = readJson(req.dataFiles.log, {});
+  const weights = readJson(req.dataFiles.weight, []);
+  const profile = readJson(req.dataFiles.profile, null);
+  const stats = computeStats(profile, req);
+
+  const loggedDates = Object.keys(log).filter(d => (log[d] || []).length > 0).sort();
+  // No profile yet — that's first-run onboarding's job, not ours.
+  if (!profile || !stats) return res.json({ show: false, reason: 'no_profile' });
+  if (!loggedDates.length) return res.json({ show: false, reason: 'never_logged' });
+
+  const lastLogged = loggedDates[loggedDates.length - 1];
+  const gapDays = Math.round(
+    (new Date(today + 'T00:00:00') - new Date(lastLogged + 'T00:00:00')) / 86400000
+  );
+  const tier = comebackTier(gapDays);
+
+  // Already welcomed back for this gap? `comeback_ack` stores the last-logged date the
+  // user was greeted about, so a fresh gap later re-arms it but a reload today doesn't.
+  const acked = profile.comeback_ack === lastLogged;
+
+  const stretch = lastActiveStretch(loggedDates, lastLogged);
+  let recap = null;
+  if (stretch) {
+    const inStretch = loggedDates.filter(d => d >= stretch.start && d <= stretch.end);
+    let totalKcal = 0, totalProtein = 0;
+    inStretch.forEach(d => {
+      (log[d] || []).forEach(e => { totalKcal += e.kcal || 0; totalProtein += e.protein || 0; });
+    });
+    const wIn = weights.filter(w => w.date >= stretch.start && w.date <= today).sort((a, b) => a.date.localeCompare(b.date));
+    recap = {
+      start: stretch.start,
+      end: stretch.end,
+      days_logged: inStretch.length,
+      avg_kcal: inStretch.length ? Math.round(totalKcal / inStretch.length) : null,
+      avg_protein: inStretch.length ? round1(totalProtein / inStretch.length) : null,
+      weight_start: wIn.length ? wIn[0].kg : null,
+      weight_end: wIn.length > 1 ? wIn[wIn.length - 1].kg : null,
+      weight_delta_kg: wIn.length > 1 ? Math.round((wIn[wIn.length - 1].kg - wIn[0].kg) * 100) / 100 : null
+    };
+  }
+
+  const lastWeight = weights.length ? weights[weights.length - 1] : null;
+  const weightAgeDays = lastWeight
+    ? Math.round((new Date(today + 'T00:00:00') - new Date(lastWeight.date + 'T00:00:00')) / 86400000)
+    : null;
+
+  // A hand-calibrated TDEE is only as good as the body it was measured on. Surface it
+  // rather than dropping it — the user decides whether it still describes them.
+  const staleTdee = stats.tdee_calibrated && gapDays >= 60
+    ? { override: stats.tdee, predicted: stats.tdee_predicted, diff: stats.tdee - stats.tdee_predicted, calibrated_at: lastWeight ? lastWeight.date : null }
+    : null;
+
+  res.json({
+    show: tier !== 'none' && !acked,
+    tier,
+    gap_days: gapDays,
+    last_logged: lastLogged,
+    acked,
+    recap,
+    last_weight: lastWeight,
+    weight_age_days: weightAgeDays,
+    stale_tdee: staleTdee,
+    current_goal: profile.goal || null,
+    total_days_logged: loggedDates.length
+  });
+});
+
+// Finish a comeback: records the fresh weight, sets the chosen goal, and stamps the
+// acknowledgement so the screen doesn't reappear. One call so a half-applied comeback
+// (goal set, weight missing) isn't reachable by closing the tab mid-flow.
+app.post('/api/comeback/complete', async (req, res) => {
+  const { weight_kg, goal, keep_tdee_override, last_logged } = req.body || {};
+  const today = todayStr(req);
+
+  if (goal && !GOALS[goal]) return res.status(400).json({ error: 'unknown goal' });
+  const w = weight_kg === undefined || weight_kg === null || weight_kg === '' ? null : Number(weight_kg);
+  if (w !== null && (!Number.isFinite(w) || w < 30 || w > 250)) {
+    return res.status(400).json({ error: 'weight must be 30-250 kg' });
+  }
+
+  if (w !== null) {
+    await withFileLock(req.dataFiles.weight, () => {
+      const weights = readJson(req.dataFiles.weight, []);
+      const existing = weights.findIndex(e => e.date === today);
+      if (existing >= 0) weights[existing].kg = w;
+      else weights.push({ date: today, kg: w });
+      weights.sort((a, b) => a.date.localeCompare(b.date));
+      writeJson(req.dataFiles.weight, weights);
+    });
+  }
+
+  const profile = await withFileLock(req.dataFiles.profile, () => {
+    const p = readJson(req.dataFiles.profile, {}) || {};
+    if (w !== null) p.weight_kg = w;
+    if (goal) {
+      // Remember what they were on so the day-8 prompt can offer it back.
+      if (goal === 'reset') {
+        if (p.goal && p.goal !== 'reset') p.pre_reset_goal = p.goal;
+        p.reset_started = today;
+      } else {
+        delete p.reset_started;
+        delete p.pre_reset_goal;
+      }
+      p.goal = goal;
+    }
+    if (keep_tdee_override === false) delete p.tdee_override;
+    if (last_logged) p.comeback_ack = last_logged;
+    p.last_comeback_at = today;
+    writeJson(req.dataFiles.profile, p);
+    return p;
+  });
+
+  res.json({ profile, stats: computeStats(profile, req) });
 });
 
 app.get('/api/calibrate', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
   if (!stats) return res.json({ can_calibrate: false, reason: 'Set up your profile first.' });
 
   const log = readJson(req.dataFiles.log, {});
@@ -500,7 +687,7 @@ app.get('/api/log', (req, res) => {
     fiber: a.fiber + (e.fiber || 0)
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
   const isToday = !req.query.date || req.query.date === todayStr(req);
   res.json({
     date,
@@ -786,7 +973,7 @@ app.get('/api/log-range', (req, res) => {
   if (!start || !end) return res.status(400).json({ error: 'start and end required' });
   const log = readJson(req.dataFiles.log, {});
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
   const goal = stats ? stats.kcal_goal : null;
   const result = {};
   const startD = new Date(start + 'T00:00:00');
@@ -876,7 +1063,7 @@ app.get('/api/protein-adherence', (req, res) => {
   const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
   const log = readJson(req.dataFiles.log, {});
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
   if (!stats) return res.json({ empty: true });
 
   const target = stats.protein_g;
@@ -1000,7 +1187,7 @@ function buildDebriefBrief(req) {
   const training = readJson(req.dataFiles.training, {});
   const customs = readJson(req.dataFiles.custom_foods, {});
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
   // Goal direction drives ALL on-plan logic below; declared early.
   const goalDelta = stats && stats.goal_meta ? stats.goal_meta.delta : 0;
 
@@ -1578,7 +1765,7 @@ app.get('/api/weekly-review', (req, res) => {
   const log = readJson(req.dataFiles.log, {});
   const weights = readJson(req.dataFiles.weight, []);
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile);
+  const stats = computeStats(profile, req);
 
   const endStr = req.query.end || todayStr(req);
   const endD = new Date(endStr + 'T00:00:00');
@@ -2609,6 +2796,7 @@ if (require.main === module) {
     readJson, writeJson, withFileLock,
     normalizeFoodName, customLookup, isRelevantMatch,
     initialFinals, applyCustomFood, applySanityCaps,
-    computeFavorites
+    computeFavorites,
+    computeStats, resetMeta, comebackTier, lastActiveStretch, GOALS, RESET_DAYS
   };
 }

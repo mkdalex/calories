@@ -4,7 +4,7 @@ async function loadTemplates() {
   if (!wrap) return;
   const templates = await api('/api/templates');
   if (!templates.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">My templates</div>
+  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">${cbReEntryLabel('My templates', 'Your templates — still here, one tap')}</div>
     <div class="template-pills">` +
     templates.map(t => `
       <button class="template-pill" data-id="${t.id}">
@@ -62,7 +62,7 @@ async function loadFavorites() {
   const wrap = $('#favWrap');
   const favs = await api('/api/favorites');
   if (!favs.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">Frequent foods</div>
+  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">${cbReEntryLabel('Frequent foods', 'What you used to eat — no typing, no AI call')}</div>
     <div class="fav-pills">` +
     favs.map((f, i) => `
       <button class="fav-pill" data-fav-idx="${i}">

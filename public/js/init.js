@@ -85,5 +85,8 @@ if (sbQuickLog) {
   // (median from the user's prior calls across all devices).
   if (typeof prefetchLoaderStats === 'function') prefetchLoaderStats();
   loadToday();
-  maybeShowOnboarding();
+  // First-run wizard wins if there's no profile at all; otherwise check whether
+  // they're returning from a gap and owe themselves a re-entry.
+  const onboarding = await maybeShowOnboarding();
+  if (!onboarding) maybeShowComeback();
 })();

@@ -164,6 +164,9 @@ function renderZoneBar(data) {
 function renderToday() {
   const data = state.today;
   const banner = $('#setupBanner');
+  // Reset week (or its day-8 prompt) sits above everything — during a reset it, not
+  // the ring, is what the week is actually being judged on.
+  if (typeof renderResetStrip === 'function') renderResetStrip(data);
   if (!data.stats) {
     banner.innerHTML = `<div class="setup-needed"><strong>Set up your profile first</strong><br/>Tap the Profile tab and fill in your stats so we can calculate your daily target.</div>`;
     $('#ringWrap').innerHTML = '';
@@ -332,9 +335,14 @@ function renderToday() {
     renderZoneBar(data);
   }
 
-  // Streak + weekly avg
+  // Streak + weekly avg. Suppressed entirely during a reset week: the reset strip
+  // above already counts the only thing that matters, and a second counter reading
+  // "1 day streak" next to it just makes a fresh start look small.
   const streakEl = $('#streakWrap');
-  if (data.stats && (data.streak > 0 || data.weekly_avg_kcal)) {
+  const inReset = !!(data.stats && data.stats.reset_meta && !data.stats.reset_meta.expired);
+  if (inReset) {
+    streakEl.innerHTML = '';
+  } else if (data.stats && (data.streak > 0 || data.weekly_avg_kcal)) {
     const parts = [];
     if (data.streak > 0) parts.push(`<div class="item"><div class="num">${data.streak}</div><div class="lbl">day streak</div></div>`);
     if (data.weekly_avg_kcal) parts.push(`<div class="item"><div class="num">${data.weekly_avg_kcal.toLocaleString()}</div><div class="lbl">7-day avg kcal</div></div>`);
@@ -347,7 +355,9 @@ function renderToday() {
   const list = $('#mealList');
   const entries = data.entries || [];
   if (!entries.length) {
-    list.innerHTML = `<div class="empty">No meals logged yet. Tap <strong>+ Log meal</strong> to start.</div>`;
+    list.innerHTML = inReset
+      ? `<div class="gap-empty"><strong>Nothing logged today</strong>Log one meal and the day counts. It doesn't have to be the whole day, and it doesn't have to hit the number.</div>`
+      : `<div class="empty">No meals logged yet. Tap <strong>+ Log meal</strong> to start.</div>`;
   } else {
     // Group entries by meal period, inserting header divs when period changes
     let lastPeriod = null;

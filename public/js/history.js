@@ -667,7 +667,7 @@ async function renderWeeklyReview() {
     api('/api/logging-stats').catch(() => null)
   ]);
   if (r.empty || !r.days_logged) {
-    card.innerHTML = `<h2>Last 7 days</h2><div class="empty" style="padding:12px 0;">Nothing logged in the last 7 days.</div>`;
+    card.innerHTML = `<h2>Last 7 days</h2>` + cbEmptyState(`<div class="empty" style="padding:12px 0;">Nothing logged in the last 7 days.</div>`);
     return;
   }
   const prev = r.previous;
@@ -1170,7 +1170,9 @@ function renderDowPattern(startStr, endStr, rangeData) {
   const data = buckets.map((b, i) => ({ name: dowNames[i], avg: b.count > 0 ? Math.round(b.sum / b.count) : null, count: b.count }));
   const totalDays = data.reduce((a, d) => a + d.count, 0);
   if (totalDays < 7) {
-    el.innerHTML = `<h2>Day-of-week pattern</h2><div class="empty" style="padding:12px 0;">Log ${7 - totalDays} more day${totalDays === 6 ? '' : 's'} to see your weekday patterns.</div>`;
+    el.innerHTML = `<h2>Day-of-week pattern</h2>` + (totalDays === 0
+      ? cbEmptyState(`<div class="empty" style="padding:12px 0;">Log 7 more days to see your weekday patterns.</div>`)
+      : `<div class="empty" style="padding:12px 0;">Log ${7 - totalDays} more day${totalDays === 6 ? '' : 's'} to see your weekday patterns.</div>`);
     return;
   }
   const validAvgs = data.filter(d => d.avg !== null).map(d => d.avg);
@@ -1215,7 +1217,7 @@ function renderKcalTrend(startStr, endStr, rangeData) {
   const goal = days.find(d => d.goal)?.goal || null;
   const loggedDays = days.filter(d => d.kcal !== null);
   if (!loggedDays.length) {
-    $('#kcalTrendChart').innerHTML = '<div class="empty" style="padding:20px 0;">No data logged yet.</div>';
+    $('#kcalTrendChart').innerHTML = cbEmptyState('<div class="empty" style="padding:20px 0;">No data logged yet.</div>');
     $('#kcalTrendStats').innerHTML = '';
     return;
   }
