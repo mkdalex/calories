@@ -8,173 +8,24 @@ let calSelectedDate = null;
 async function renderPredictedActual() {
   const card = $('#predictedActualCard');
   if (!card) return;
-  const [weights, profile] = await Promise.all([
-    api('/api/weight'),
-    api('/api/profile')
-  ]);
-  const tdee = profile && profile.stats ? profile.stats.tdee : null;
-  if (!tdee || weights.length < 2) {
-    card.innerHTML = `<h2>Are you on track?</h2>
-      <div style="color:var(--text-dim);font-size:13px;padding:8px 0;">Log at least 2 weights and set up your profile — then I'll compare what your body's actually doing against what the calorie math predicts.</div>`;
-    return;
-  }
-  const first = weights[0];
-  const last = weights[weights.length - 1];
-  const startStr = first.date;
-  const endStr = last.date;
-  const rangeData = await api(`/api/log-range?start=${startStr}&end=${endStr}`);
-
-  // Build day-by-day series
-  const startD = new Date(startStr + 'T00:00:00');
-  const endD = new Date(endStr + 'T00:00:00');
-  const dayMs = 86400000;
-  const series = [];
-  let cumDeficit = 0;
-  const weightByDate = {};
-  weights.forEach(w => weightByDate[w.date] = w.kg);
-  let unloggedDays = 0;
-  for (let t = startD.getTime(); t <= endD.getTime(); t += dayMs) {
-    const d = new Date(t);
-    const ds = fmtDate(d);
-    const dayData = rangeData[ds];
-    const eaten = dayData ? dayData.kcal : null;
-    if (eaten !== null) cumDeficit += (tdee - eaten);
-    else unloggedDays += 1;
-    const predicted = first.kg - cumDeficit / 7700;
-    series.push({ date: ds, predicted, actual: weightByDate[ds] !== undefined ? weightByDate[ds] : null });
-  }
-
-  // Chart
-  const W = 600, H = 200;
-  const PAD = { l: 38, r: 12, t: 14, b: 36 };
-  const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
-  const allKg = [...series.map(s => s.predicted), ...weights.map(w => w.kg)];
-  const yMin = Math.min(...allKg) - 0.4;
-  const yMax = Math.max(...allKg) + 0.4;
-  const yRange = Math.max(0.6, yMax - yMin);
-  const xOf = i => PAD.l + (series.length > 1 ? (i / (series.length - 1)) * chartW : chartW / 2);
-  const yOf = kg => PAD.t + ((yMax - kg) / yRange) * chartH;
-
-  let predPath = '';
-  series.forEach((p, i) => {
-    const cmd = predPath === '' ? 'M' : 'L';
-    predPath += `${cmd}${xOf(i).toFixed(1)},${yOf(p.predicted).toFixed(1)} `;
-  });
-  // Connect all actual weigh-ins as one continuous line (ignoring gaps between weighings)
-  // and drop a dot on each measurement so they're visible even when isolated.
-  let actPath = '';
-  const actDots = [];
-  weights.forEach((w, i) => {
-    const wD = new Date(w.date + 'T00:00:00');
-    const idx = Math.round((wD - startD) / dayMs);
-    const x = xOf(idx);
-    const y = yOf(w.kg);
-    actPath += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)} `;
-    actDots.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="var(--info)"/>`);
-  });
-  const yTicks = [yMax, (yMax + yMin) / 2, yMin].map(v => Math.round(v * 10) / 10);
-  const ticks = yTicks.map(v => `
-    <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="9">${v}</text>
-    <line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" stroke-dasharray="2 4" opacity="0.4"/>
-  `).join('');
-
-  // Verdict
-  const lastPred = series[series.length - 1].predicted;
-  const lastAct = last.kg;
-  const diff = lastAct - lastPred;
-  let verdict, vClass;
-  if (Math.abs(diff) < 0.3) {
-    verdict = `<strong>You're right on track.</strong> Your weight is matching what the math says it should — meaning your TDEE estimate and your logging are both accurate.`;
-    vClass = 'good';
-  } else if (diff > 0) {
-    verdict = `<strong>You're ${diff.toFixed(2)} kg heavier than expected.</strong> Either you're eating more than you're logging${unloggedDays > 2 ? ` (${unloggedDays} unlogged days might explain it)` : ''}, or your real TDEE is lower than ${tdee}. Try the TDEE reality check in Profile.`;
-    vClass = 'warn';
-  } else {
-    verdict = `<strong>You're ${Math.abs(diff).toFixed(2)} kg lighter than expected.</strong> Either your real TDEE is higher than ${tdee} (you're burning more than the formula thinks), or this is water-weight noise. Check the TDEE reality check in Profile in a week.`;
-    vClass = 'good';
-  }
-
-  card.innerHTML = `
-    <h2>Are you on track?</h2>
-    <div class="pa-subtitle">The green line is where your weight <em>should</em> be if you ate exactly what you logged and your burn rate is ${tdee.toLocaleString()} kcal/day. The blue line is what the scale actually says. If they hug each other — your cut is working as planned.</div>
-    <div class="pa-chart">
-      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;">
-        ${ticks}
-        ${predPath ? `<path d="${predPath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
-        ${actPath ? `<path d="${actPath}" fill="none" stroke="var(--info)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
-        ${actDots.join('')}
-        <circle cx="${xOf(series.length - 1).toFixed(1)}" cy="${yOf(lastPred).toFixed(1)}" r="3.5" fill="var(--accent)"/>
-        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="9">${first.date}</text>
-        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="9">${last.date}</text>
-      </svg>
-      <div class="pa-legend">
-        <span><span class="leg-swatch" style="background:var(--accent);"></span> what math predicts (${lastPred.toFixed(2)} kg)</span>
-        <span><span class="leg-swatch" style="background:var(--info);"></span> what the scale shows (${lastAct.toFixed(2)} kg)</span>
-      </div>
-    </div>
-    <div class="pa-verdict pa-${vClass}">${verdict}</div>
-  `;
+  const [review, profile] = await Promise.all([api('/api/calibrate'), api('/api/profile')]);
+  const stats = profile.stats;
+  if (!stats) { card.innerHTML = '<h2>Recent progress</h2><p>Set up a profile to review your targets.</p>'; return; }
+  const label = GoalPolicy.LABELS[stats.goal] || stats.goal_meta.label;
+  card.innerHTML = `<h2>Recent progress · ${escapeHtml(label)}</h2>
+    <p class="history-note">Current goal tracked from ${escapeHtml(stats.goal_started || 'today')}. Your earlier records remain in the weight chart and calendar.</p>
+    ${stats.goal === 'reset' ? '<p>Reset week focuses on recording food. Weight change is not scored.</p>'
+      : review.can_calibrate ? `
+      <p>Recorded weight: <strong>${review.weight_start} → ${review.weight_end} kg</strong> over ${review.days_span} days.</p>
+      <p class="history-note">${review.days_logged}/${review.days_span} days contain food entries. Review omitted meals before using these records to adjust your target.</p>`
+      : `<p>${escapeHtml(review.reason || 'More recent records are needed before reviewing your target.')}</p>`}
+    <button class="btn btn-secondary" type="button" onclick="setActiveView('profile')">Review target in Profile</button>`;
 }
 
-// ===== Plateau detector =====
+// Weight and calorie records are shown without speculative plateau diagnoses.
 async function renderPlateauBanner() {
   const wrap = $('#plateauBannerWrap');
-  if (!wrap) return;
-  wrap.innerHTML = '';
-  const [weights, profile] = await Promise.all([
-    api('/api/weight'),
-    api('/api/profile')
-  ]);
-  if (weights.length < 14 || !profile || !profile.stats) return;
-
-  // Compute 7-day rolling average for the LAST 7 days vs the 7 days BEFORE that
-  const lastDate = new Date(weights[weights.length - 1].date + 'T00:00:00');
-  const dayMs = 86400000;
-  const recent = weights.filter(w => {
-    const d = new Date(w.date + 'T00:00:00');
-    return (lastDate - d) <= 7 * dayMs;
-  });
-  const prior = weights.filter(w => {
-    const d = new Date(w.date + 'T00:00:00');
-    const days = (lastDate - d) / dayMs;
-    return days > 7 && days <= 14;
-  });
-  if (recent.length < 3 || prior.length < 3) return;
-  const recentAvg = recent.reduce((a, w) => a + w.kg, 0) / recent.length;
-  const priorAvg = prior.reduce((a, w) => a + w.kg, 0) / prior.length;
-  const change = recentAvg - priorAvg;
-
-  // Was user actually in deficit during last 14 days?
-  const startD = new Date(lastDate); startD.setDate(startD.getDate() - 13);
-  const rangeData = await api(`/api/log-range?start=${fmtDate(startD)}&end=${fmtDate(lastDate)}`);
-  const logged = Object.values(rangeData);
-  if (!logged.length) return;
-  const avgEaten = logged.reduce((a, d) => a + d.kcal, 0) / logged.length;
-  const inDeficit = avgEaten <= profile.stats.kcal_goal + 100; // tolerance of 100 kcal
-
-  // Only flag plateau if user is on goal AND has been losing/maintaining target
-  const wantsLoss = profile.stats.goal_meta && profile.stats.goal_meta.delta < 0;
-  if (!wantsLoss) return;
-  if (!inDeficit) return;
-  if (Math.abs(change) > 0.15) return; // moved meaningfully — not a plateau
-
-  wrap.innerHTML = `
-    <div class="plateau-banner">
-      <div class="plateau-icon">📉</div>
-      <div class="plateau-body">
-        <div class="plateau-title">Plateau warning — your weight hasn't moved in 2 weeks</div>
-        <div class="plateau-text">
-          You've been averaging <strong>${Math.round(avgEaten).toLocaleString()} kcal</strong>/day (goal is ${profile.stats.kcal_goal.toLocaleString()}), but your weight only moved <strong>${change > 0 ? '+' : ''}${change.toFixed(2)} kg</strong> over the last 2 weeks.
-          This usually means one of three things:
-          <ul>
-            <li><strong>Your TDEE has drifted lower.</strong> Body adapts during a cut — burn rate drops 5-10% after weeks in deficit. Run the TDEE reality check in Profile to recalibrate.</li>
-            <li><strong>You're under-logging.</strong> Sneaky calories (oil, sauces, weekend eating) add up. Be stricter for a week.</li>
-            <li><strong>You need a refeed.</strong> 3-7 days at maintenance (eat at TDEE) can restart fat loss by recovering hormones.</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  `;
+  if (wrap) wrap.innerHTML = '';
 }
 
 // ===== Source quality breakdown =====
@@ -244,13 +95,8 @@ async function renderSourceQuality() {
 async function renderWeightCard() {
   const wrap = $('#weightHistory');
   if (!wrap) return;
-  const [weights, profileData] = await Promise.all([
-    api('/api/weight'),
-    api('/api/profile').catch(() => null)
-  ]);
-  const goalKg = profileData && profileData.profile && profileData.profile.goal_weight_kg
-    ? Number(profileData.profile.goal_weight_kg)
-    : null;
+  const weights = await api('/api/weight');
+  // Historical chart shows observations only; current goal progress is reviewed separately.
   const inputEl = $('#weightInput');
 
   if (!weights.length) {
@@ -296,31 +142,11 @@ async function renderWeightCard() {
   const chartH = H - PAD.t - PAD.b;
   const allKg = weights.map(w => w.kg);
 
-  // Projection: extend the 7-day average forward using current pace (kgPerWeek).
-  // When a goal is set AND the user is moving the right way, project all the
-  // way to the goal weight — that makes the chart's projection line and the
-  // ETA copy below tell the same story. Otherwise fall back to a 21-day cap.
-  const lastAvgKgRaw = (() => {
-    for (let i = avgSeries.length - 1; i >= 0; i--) if (avgSeries[i].kg !== null) return avgSeries[i].kg;
-    return null;
-  })();
-  const canProject = Math.abs(kgPerWeek) >= 0.05 && lastAvgKgRaw !== null && series.length >= 7;
-  let PROJECT_DAYS = 21;
-  if (canProject && goalKg) {
-    const towardGoal = (goalKg < lastAvgKgRaw && kgPerWeek < 0) || (goalKg > lastAvgKgRaw && kgPerWeek > 0);
-    if (towardGoal) {
-      const daysToGoal = Math.abs((lastAvgKgRaw - goalKg) / kgPerWeek) * 7;
-      // Cap at 16 weeks (112d) so a sluggish pace doesn't compress the chart into a sliver,
-      // and at min 14d so an almost-there goal still shows visible projection.
-      PROJECT_DAYS = Math.max(14, Math.min(112, Math.round(daysToGoal)));
-    }
-  }
-  const projectedEndKg = canProject ? lastAvgKgRaw + (kgPerWeek * (PROJECT_DAYS / 7)) : null;
-  const totalLen = series.length + (canProject ? PROJECT_DAYS : 0);
+  const totalLen = series.length;
 
-  // Expand y-axis to include goal + projected endpoint so nothing clips.
-  const yMin = Math.min(...allKg, goalKg || Infinity, projectedEndKg || Infinity) - 0.5;
-  const yMax = Math.max(...allKg, goalKg || -Infinity, projectedEndKg || -Infinity) + 0.5;
+  // Leave space around the observed weights.
+  const yMin = Math.min(...allKg) - 0.5;
+  const yMax = Math.max(...allKg) + 0.5;
   const yRange = Math.max(0.5, yMax - yMin);
   const xOf = i => PAD.l + (totalLen > 1 ? (i / (totalLen - 1)) * chartW : chartW / 2);
   const yOf = kg => PAD.t + ((yMax - kg) / yRange) * chartH;
@@ -349,219 +175,29 @@ async function renderWeightCard() {
     ${i === 1 ? `<line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" opacity="0.25"/>` : ''}
   `).join('');
 
-  // Determine fill mode for the area under the trend line:
-  //   - has goal weight  → fill from trend line toward goal line ("ground covered")
-  //   - cutting goal but no target weight → soft fill above the line (going down = good)
-  //   - else → subtle ambient fill above the line
-  const profileGoal = profileData && profileData.profile && profileData.profile.goal;
-  const cuttingProfile = profileGoal && profileGoal !== 'maintain' && profileGoal !== 'gain';
-  let fillMode = 'ambient';
-  if (goalKg) fillMode = 'to-goal';
-  else if (cuttingProfile) fillMode = 'above-line';
-
-  // Build the trend-line top edge of the area path
-  const firstAvgIdx = avgSeries.findIndex(p => p.kg !== null);
-  const lastAvgIdx = (() => {
-    for (let i = avgSeries.length - 1; i >= 0; i--) if (avgSeries[i].kg !== null) return i;
-    return -1;
-  })();
-  let areaPath = '';
-  if (firstAvgIdx !== -1 && lastAvgIdx !== -1 && lastAvgIdx > firstAvgIdx) {
-    let top = '';
-    for (let i = firstAvgIdx; i <= lastAvgIdx; i++) {
-      const p = avgSeries[i];
-      if (p.kg === null) continue;
-      top += (top ? 'L' : 'M') + `${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
-    }
-    const xL = xOf(firstAvgIdx).toFixed(1);
-    const xR = xOf(lastAvgIdx).toFixed(1);
-    if (fillMode === 'to-goal') {
-      const yG = yOf(goalKg).toFixed(1);
-      areaPath = `${top}L${xR},${yG} L${xL},${yG} Z`;
-    } else {
-      const yT = PAD.t.toFixed(1);
-      areaPath = `${top}L${xR},${yT} L${xL},${yT} Z`;
-    }
-  }
-
   // Dot on latest point + "you are here" callout.
   // Callout lives in the reserved TOP margin (above the plot) so it never sits
-  // on the trend line or collide with the projection/goal labels.
+  // on the trend line.
+  const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
   const lastIdx = series.length - 1;
   const lastPt = series[lastIdx];
   let latestCallout = '';
   if (lastPt && lastPt.kg !== null) {
     const cx = xOf(lastIdx);
     const lx = Math.min(W - PAD.r - 18, Math.max(PAD.l + 18, cx));
-    latestCallout = `<text x="${lx.toFixed(1)}" y="10" text-anchor="middle" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg today</text>`;
+    latestCallout = `<text x="${lx.toFixed(1)}" y="10" text-anchor="middle" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg · ${niceDate(last.date)}</text>`;
   }
 
-  // Friendly date labels (e.g. "Apr 27" instead of "2026-04-27").
-  const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const projectedEndDateStr = canProject
-    ? new Date(lastD.getTime() + PROJECT_DAYS * dayMs).toLocaleDateString([], { month: 'short', day: 'numeric' })
-    : null;
-
-  // Projection: dashed gray line extending forward from the last 7-day avg point.
-  // When extending to the goal, the endpoint label becomes the ETA date so the
-  // chart and the "you hit X kg around ..." copy below tell the same story.
-  let projectionLine = '';
-  let todayDivider = '';
-  if (canProject && lastAvgIdx !== -1) {
-    const px1 = xOf(lastAvgIdx).toFixed(1);
-    const py1 = yOf(lastAvgKgRaw).toFixed(1);
-    const px2 = xOf(series.length - 1 + PROJECT_DAYS).toFixed(1);
-    const py2 = yOf(projectedEndKg).toFixed(1);
-    const reachingGoal = goalKg && Math.abs(projectedEndKg - goalKg) < 0.2;
-    const projDate = new Date(lastD.getTime() + PROJECT_DAYS * dayMs);
-    const endLabel = reachingGoal
-      ? projDate.toLocaleDateString([], { month: 'short', day: 'numeric' })
-      : `~${projectedEndKg.toFixed(1)} kg`;
-    const endColor = reachingGoal ? 'var(--accent)' : 'var(--text-dim)';
-    projectionLine = `<line x1="${px1}" y1="${py1}" x2="${px2}" y2="${py2}" stroke="var(--text-dim)" stroke-width="1.5" stroke-dasharray="3 4" stroke-linecap="round" opacity="0.55" class="wt-projection"/>
-                      <circle cx="${px2}" cy="${py2}" r="${reachingGoal ? 3.5 : 2.5}" fill="${endColor}" opacity="${reachingGoal ? 0.9 : 0.6}"/>
-                      <text x="${(parseFloat(px2) - 4).toFixed(1)}" y="${(parseFloat(py2) - 7).toFixed(1)}" text-anchor="end" fill="${endColor}" font-size="${reachingGoal ? 11 : 10}" font-weight="${reachingGoal ? 600 : 400}" font-family="inherit" opacity="${reachingGoal ? 0.95 : 0.75}">${endLabel}</text>`;
-    const tx = xOf(series.length - 1).toFixed(1);
-    todayDivider = `<line x1="${tx}" y1="${PAD.t}" x2="${tx}" y2="${H - PAD.b}" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="2 3" opacity="0.35"/>`;
-  }
-
-  // Stats card colours
-  const dColor = totalDelta < 0 ? 'var(--accent)' : totalDelta > 0 ? 'var(--danger)' : 'var(--text-dim)';
-  const dSign  = totalDelta > 0 ? '+' : '';
-  const paceColor = kgPerWeek < -1 ? 'var(--warn)' : kgPerWeek < 0 ? 'var(--accent)' : kgPerWeek > 0 ? 'var(--danger)' : 'var(--text-dim)';
-  const paceSign  = kgPerWeek > 0 ? '+' : '';
-
-  // Pace verdict — turns "−0.74 kg/week" from a raw number into a verdict the
-  // user can act on. Uses % of body weight as the yardstick (~0.5-1% is the
-  // sustainable cut range; >1% trends toward muscle loss / unsustainable).
-  // For gaining (lean bulk), the safe band is roughly 0.25-0.5% per week.
-  let paceVerdict = '';
-  if (Math.abs(kgPerWeek) >= 0.05 && last.kg) {
-    const pctOfBody = Math.abs(kgPerWeek) / last.kg * 100;
-    const losing = kgPerWeek < 0;
-    if (losing) {
-      if (pctOfBody < 0.3)      paceVerdict = 'gentle — sustainable';
-      else if (pctOfBody < 0.7) paceVerdict = 'ideal cut rate';
-      else if (pctOfBody < 1.0) paceVerdict = 'upper end — sustainable short-term';
-      else if (pctOfBody < 1.5) paceVerdict = 'aggressive — watch energy & strength';
-      else                       paceVerdict = 'very aggressive — likely losing muscle';
-    } else {
-      if (pctOfBody < 0.2)      paceVerdict = 'gentle — lean bulk';
-      else if (pctOfBody < 0.4) paceVerdict = 'lean bulk rate';
-      else if (pctOfBody < 0.7) paceVerdict = 'fast — expect some fat gain';
-      else                       paceVerdict = 'very fast — mostly fat at this pace';
-    }
-  }
-  const paceVerdictHtml = paceVerdict
-    ? `<div class="ws-stat-sub">${paceVerdict}</div>`
-    : '';
-
-  // Goal weight line + ETA computation
-  let goalLine = '';
-  let etaHtml = '';
-  if (goalKg) {
-    const gy = yOf(goalKg).toFixed(1);
-    goalLine = `<line x1="${PAD.l}" y1="${gy}" x2="${W - PAD.r}" y2="${gy}" stroke="var(--accent)" stroke-width="1.25" stroke-dasharray="4 4" opacity="0.7"/>
-                <text x="${PAD.l + 4}" y="${(parseFloat(gy) - 5).toFixed(1)}" text-anchor="start" fill="var(--accent)" font-size="10" font-family="inherit" opacity="0.85">goal ${goalKg}</text>`;
-    const kgToGo = Math.round((last.kg - goalKg) * 100) / 100;
-    const goingRightWay = (goalKg < last.kg && kgPerWeek < 0) || (goalKg > last.kg && kgPerWeek > 0);
-    if (Math.abs(kgToGo) < 0.1) {
-      etaHtml = `<div class="weight-eta hit"><strong>You're at your goal weight.</strong> Switch to maintenance in Profile?</div>`;
-    } else if (!goingRightWay || Math.abs(kgPerWeek) < 0.05) {
-      const direction = goalKg < last.kg ? 'lose' : 'gain';
-      etaHtml = `<div class="weight-eta neutral"><strong>${Math.abs(kgToGo)} kg to go</strong> to reach ${goalKg} kg. Not moving toward it yet — current pace is ${kgPerWeek > 0 ? '+' : ''}${kgPerWeek} kg/week, you need to ${direction}.</div>`;
-    } else {
-      const weeksToGoal = Math.abs(kgToGo / kgPerWeek);
-      const eta = new Date(lastD.getTime() + weeksToGoal * 7 * dayMs);
-      const etaStr = eta.toLocaleDateString([], { month: 'long', day: 'numeric', year: eta.getFullYear() !== lastD.getFullYear() ? 'numeric' : undefined });
-      const weeksRounded = Math.round(weeksToGoal * 10) / 10;
-      etaHtml = `<div class="weight-eta on-pace"><strong>${Math.abs(kgToGo)} kg to go.</strong> At ${kgPerWeek > 0 ? '+' : ''}${kgPerWeek} kg/week, you hit <strong>${goalKg} kg around ${etaStr}</strong> (~${weeksRounded} week${weeksRounded === 1 ? '' : 's'}).</div>`;
-    }
-  }
-
-  // Progress bar (only when goal is set + we have at least 2 weigh-ins to define a "start")
-  let progressHtml = '';
-  if (goalKg && weights.length >= 2) {
-    const startKg = first.kg;
-    const totalMoved = startKg - last.kg;            // positive when losing toward a lower goal
-    const targetMove = startKg - goalKg;             // positive when goal is below start
-    const pct = targetMove !== 0
-      ? Math.max(0, Math.min(100, (totalMoved / targetMove) * 100))
-      : 0;
-    const remaining = Math.abs(last.kg - goalKg);
-    const movedAbs = Math.abs(totalMoved).toFixed(2);
-    const movedLabel = totalMoved > 0 ? `−${movedAbs}` : totalMoved < 0 ? `+${movedAbs}` : '0.00';
-    progressHtml = `
-      <div class="wt-progress">
-        <div class="wt-prog-head">
-          <span><span class="wt-prog-side">Start</span> <strong>${startKg.toFixed(1)}</strong></span>
-          <span class="wt-prog-pct"><strong>${pct.toFixed(0)}%</strong> there <span style="color:var(--text-dim);font-weight:400;">· ${movedLabel} kg moved · ${remaining.toFixed(1)} to go</span></span>
-          <span><span class="wt-prog-side">Goal</span> <strong>${goalKg.toFixed(1)}</strong></span>
-        </div>
-        <div class="wt-prog-track">
-          <div class="wt-prog-fill" style="width:${pct.toFixed(1)}%;"></div>
-          <div class="wt-prog-marker" style="left:${pct.toFixed(1)}%;" data-kg="${last.kg.toFixed(1)} kg"></div>
-        </div>
-      </div>`;
-  }
-
-  // Milestones — tiered so something fires whether or not a goal is set.
-  const milestones = [];
-  if (weights.length >= 2) {
-    const startKg = first.kg;
-    const totalMoved = startKg - last.kg;
-    const allKgVals = weights.map(w => w.kg);
-    const allTimeLow = Math.min(...allKgVals);
-    const sinceCutoff = days => {
-      const cutoff = new Date(lastD); cutoff.setDate(cutoff.getDate() - days);
-      const cutoffStr = fmtDate(cutoff);
-      return weights.filter(w => w.date >= cutoffStr).map(w => w.kg);
-    };
-    const within = (a, b) => Math.abs(a - b) < 0.05;
-
-    // Goal-based (most rewarding, listed first)
-    if (goalKg) {
-      if (within(last.kg, goalKg) || (totalMoved > 0 && last.kg <= goalKg)) {
-        milestones.push({ emoji: '🎯', label: 'Goal reached', tone: 'gold' });
-      } else if (Math.abs(last.kg - goalKg) < 1) {
-        milestones.push({ emoji: '🔥', label: 'Within 1 kg of goal', tone: 'green' });
-      } else {
-        const targetMove = startKg - goalKg;
-        if (targetMove > 0 && totalMoved / targetMove >= 0.5 && totalMoved / targetMove < 1) {
-          milestones.push({ emoji: '🎯', label: 'Halfway to goal', tone: 'green' });
-        }
-      }
-    }
-    // Personal bests — most impressive only
-    if (within(last.kg, allTimeLow)) {
-      milestones.push({ emoji: '🏆', label: 'All-time low', tone: 'gold' });
-    } else {
-      for (const days of [90, 60, 30]) {
-        const win = sinceCutoff(days);
-        if (win.length < 3) continue;
-        if (within(last.kg, Math.min(...win))) {
-          milestones.push({ emoji: '📉', label: `Lowest in ${days} days`, tone: 'green' });
-          break;
-        }
-      }
-    }
-    // Round number crossed from start
-    if (Math.abs(totalMoved) >= 1) {
-      const n = Math.floor(Math.abs(totalMoved));
-      const sign = totalMoved > 0 ? '−' : '+';
-      milestones.push({ emoji: totalMoved > 0 ? '✓' : '↗', label: `${sign}${n} kg from start`, tone: 'soft' });
-    }
-  }
-  const milestonesHtml = milestones.length
-    ? `<div class="wt-milestones">${milestones.slice(0, 3).map(m =>
-        `<span class="wt-milestone ${m.tone}">${m.label}</span>`
-      ).join('')}</div>`
-    : '';
+  // Historical changes are neutral observations, not a verdict on the current goal.
+  const dColor = 'var(--text)', paceColor = 'var(--text-dim)';
+  const dSign = totalDelta > 0 ? '+' : '', paceSign = kgPerWeek > 0 ? '+' : '';
+  const paceVerdictHtml = '<div class="ws-stat-sub">historical average, including gaps</div>';
 
   // Recent entries (last 8)
   const recent = [...weights].reverse().slice(0, 8);
 
   wrap.innerHTML = `
+    <p class="history-note">Historical weigh-ins · latest recorded ${niceDate(last.date)}. Add a new weigh-in using Log above when you have a current measurement. This chart preserves all goals and logging gaps.</p>
     <div class="weight-stats">
       <div class="ws-hero">
         <div class="ws-hero-num">${last.kg.toFixed(2)}<span class="ws-hero-unit"> kg</span></div>
@@ -573,47 +209,31 @@ async function renderWeightCard() {
       </div>
       <div class="ws-stat">
         <div class="ws-stat-num" style="color:${paceColor};">${paceSign}${kgPerWeek.toFixed(2)} kg</div>
-        <div class="ws-stat-lbl">per week</div>
+        <div class="ws-stat-lbl">historical kg/week</div>
         ${paceVerdictHtml}
       </div>
     </div>
 
-    ${progressHtml}
-    ${!goalKg && weights.length >= 2 ? `
+    ${weights.length >= 2 ? `
       <div class="wt-moved-hero">
         <div class="wt-moved-num" style="color:${dColor};">${dSign}${totalDelta.toFixed(2)} kg</div>
-        <div class="wt-moved-lbl">moved from your start (${first.kg.toFixed(1)} kg, ${daysSpan} day${daysSpan === 1 ? '' : 's'} ago)</div>
+        <div class="wt-moved-lbl">change between ${niceDate(first.date)} and ${niceDate(last.date)} · includes gaps</div>
       </div>` : ''}
-    ${milestonesHtml}
     <div class="weight-chart">
       <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;font-family:inherit;">
-        <defs>
-          <linearGradient id="wt-area-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="var(--info)" stop-opacity="${fillMode === 'to-goal' ? 0.18 : 0.1}"/>
-            <stop offset="100%" stop-color="var(--info)" stop-opacity="0"/>
-          </linearGradient>
-        </defs>
         ${yTickLabels}
-        ${areaPath ? `<path d="${areaPath}" fill="url(#wt-area-grad)" class="wt-area-fill"/>` : ''}
-        ${goalLine}
-        ${todayDivider}
-        ${projectionLine}
         ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="1.75" stroke-linecap="round" class="wt-trend-line" pathLength="1"/>` : ''}
         ${dailyDots}
         ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="4" fill="var(--info)" stroke="var(--bg)" stroke-width="2" class="wt-latest-dot"/>` : ''}
         ${latestCallout}
         <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="10" font-family="inherit">${niceDate(first.date)}</text>
-        ${canProject ? `<text x="${xOf(series.length - 1).toFixed(1)}" y="${H - 8}" text-anchor="middle" fill="var(--text-dim)" font-size="10" font-family="inherit" opacity="0.7">today</text>` : ''}
-        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${canProject ? projectedEndDateStr : niceDate(last.date)}</text>
+        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${niceDate(last.date)}</text>
       </svg>
       <div class="weight-legend">
         <span><span class="leg-swatch daily-dot"></span> daily weigh-in</span>
         <span><span class="leg-swatch avg"></span> 7-day average</span>
-        ${canProject ? `<span><span class="leg-swatch projection"></span> projection</span>` : ''}
-        ${goalKg ? `<span><span class="leg-swatch goal"></span> goal (${goalKg} kg)</span>` : ''}
       </div>
     </div>
-    ${etaHtml}
 
     <div class="weight-recent">
       <div class="weight-recent-hdr">Recent weigh-ins</div>
@@ -621,7 +241,7 @@ async function renderWeightCard() {
         const prev = recent[i + 1];
         const delta = prev ? Math.round((w.kg - prev.kg) * 100) / 100 : null;
         const dStr = delta === null ? '' : delta === 0 ? 'no change' : (delta > 0 ? '+' : '') + delta.toFixed(2) + ' kg';
-        const dClr = delta === null || delta === 0 ? 'var(--text-dim)' : delta < 0 ? 'var(--accent)' : 'var(--danger)';
+        const dClr = 'var(--text-dim)';
         return `<div class="weight-row" data-date="${w.date}">
           <span class="wr-date">${new Date(w.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
           <span class="wr-kg">${w.kg.toFixed(2)} kg</span>
@@ -661,161 +281,42 @@ async function renderWeightCard() {
 async function renderWeeklyReview() {
   const card = $('#weeklyReviewCard');
   if (!card) return;
-  card.innerHTML = `<h2>Last 7 days</h2><div class="empty" style="padding:8px 0;">Loading…</div>`;
-  const [r, logStats] = await Promise.all([
-    api('/api/weekly-review'),
-    api('/api/logging-stats').catch(() => null)
-  ]);
-  if (r.empty || !r.days_logged) {
-    card.innerHTML = `<h2>Last 7 days</h2>` + cbEmptyState(`<div class="empty" style="padding:12px 0;">Nothing logged in the last 7 days.</div>`);
-    return;
-  }
-  const prev = r.previous;
-  // Format a "vs prev week" delta as a small inline chip.
-  // direction: 'lower-is-better' (kcal vs goal, weight) or 'higher-is-better' (days hit, days logged)
-  const wowChip = (curVal, prevVal, opts = {}) => {
-    if (prev == null || prevVal == null || curVal == null) return '';
-    const diff = curVal - prevVal;
-    if (Math.abs(diff) < (opts.threshold || 0.001)) return ` <span class="wow-chip">±0 vs prev</span>`;
-    const sign = diff > 0 ? '+' : '';
-    const good = opts.higherIsBetter ? diff > 0 : diff < 0;
-    const cls = good ? 'wow-chip good' : 'wow-chip bad';
-    const fmt = opts.format || (v => v.toLocaleString());
-    return ` <span class="${cls}">${sign}${fmt(diff)} vs prev</span>`;
-  };
-
-  const goalRow = r.goal_kcal
-    ? `<div class="wr-stat"><div class="wr-num">${r.days_hit_goal}/${r.days_logged}</div><div class="wr-lbl">days within goal${wowChip(r.days_hit_goal, prev?.days_hit_goal, { higherIsBetter: true, threshold: 0.5 })}</div></div>`
-    : '';
-  const avgVsGoal = r.goal_kcal ? r.avg_kcal - r.goal_kcal : null;
-  const avgClr = avgVsGoal === null ? 'var(--text)' : avgVsGoal > 100 ? 'var(--danger)' : avgVsGoal < -200 ? 'var(--warn)' : 'var(--accent)';
-  const avgKcalDelta = wowChip(r.avg_kcal, prev?.avg_kcal, { threshold: 25 });
-
-  let weightLine = '';
-  if (r.weight_delta_kg !== null) {
-    const sign = r.weight_delta_kg < 0 ? '−' : '+';
-    const clr = r.weight_delta_kg < 0 ? 'var(--accent)' : r.weight_delta_kg > 0 ? 'var(--danger)' : 'var(--text-dim)';
-    const wDelta = wowChip(r.weight_delta_kg, prev?.weight_delta_kg, { threshold: 0.05, format: v => v.toFixed(2) + ' kg' });
-    weightLine = `<div style="font-size:13px;margin-top:8px;">Weight: <strong style="color:${clr};">${sign}${Math.abs(r.weight_delta_kg).toFixed(2)} kg</strong> · ${r.weight_start} → ${r.weight_end} kg${wDelta}</div>`;
-  }
-
-  const macroChips = Object.entries(r.macro_hit_days || {}).map(([k, v]) => {
-    if (!r.macro_targets[k]) return '';
-    const cls = v >= r.days_logged - 1 ? 'good' : v >= Math.ceil(r.days_logged / 2) ? 'mid' : 'bad';
-    const labels = { protein: 'Protein', fat: 'Fat', carb: 'Carbs', fiber: 'Fiber' };
-    return `<span class="wr-chip ${cls}">${labels[k]}: ${v}/${r.days_logged}</span>`;
-  }).join('');
-
-  const topFoods = (r.top_foods || []).length
-    ? `<div style="margin-top:10px;">
-        <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px;">Most-logged foods</div>
-        ${r.top_foods.map(f => `<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;"><span>${escapeHtml(f.name)}</span><span style="color:var(--text-dim);">×${f.count} · ~${f.avg_kcal} kcal</span></div>`).join('')}
-      </div>`
-    : '';
-
-  const heaviestStr = r.heaviest_day ? `${new Date(r.heaviest_day.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })} (${r.heaviest_day.kcal.toLocaleString()})` : '—';
-  const lightestStr = r.lightest_day ? `${new Date(r.lightest_day.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short' })} (${r.lightest_day.kcal.toLocaleString()})` : '—';
-
-  // Logging stats row (streak + meals/day) — gamifies just showing up
-  const streakLine = logStats && logStats.current_streak > 0
-    ? `<div class="streak-row">
-        <div class="streak-pill"><span class="streak-emoji">🔥</span><strong>${logStats.current_streak}</strong> day${logStats.current_streak === 1 ? '' : 's'} logged in a row</div>
-        ${logStats.best_streak > logStats.current_streak ? `<div class="streak-meta">Best ever: ${logStats.best_streak} days</div>` : ''}
-        <div class="streak-meta">${logStats.meals_per_day} meals/day avg · ${logStats.total_days_logged} total days</div>
-      </div>`
-    : '';
-
-  card.innerHTML = `
-    <h2>Last 7 days <span style="font-size:11px;color:var(--text-dim);font-weight:400;">${r.start} → ${r.end}</span></h2>
-    ${streakLine}
-    <div class="wr-stat-grid">
-      <div class="wr-stat"><div class="wr-num" style="color:${avgClr};">${r.avg_kcal.toLocaleString()}</div><div class="wr-lbl">avg kcal/day${avgVsGoal !== null ? ` · ${avgVsGoal > 0 ? '+' : ''}${avgVsGoal} vs goal` : ''}${avgKcalDelta}</div></div>
-      ${goalRow}
-      <div class="wr-stat"><div class="wr-num">${r.days_logged}/7</div><div class="wr-lbl">days logged</div></div>
-    </div>
-    ${weightLine}
-    <div style="margin-top:10px;font-size:13px;color:var(--text-dim);">
-      Heaviest: <strong style="color:var(--text);">${heaviestStr}</strong> · Lightest: <strong style="color:var(--text);">${lightestStr}</strong>
-    </div>
-    ${macroChips ? `<div class="wr-chips">${macroChips}</div>` : ''}
-    ${topFoods}
-  `;
+  const r = await api('/api/weekly-review');
+  if (r.error) { card.innerHTML = '<h2>Last 7 past days</h2><p>Could not load this review.</p>'; return; }
+  card.innerHTML = `<h2>Last 7 past days <span class="goal-note">${r.start} → ${r.end}</span></h2>
+    <p class="history-note">Today is in progress and excluded from this review.</p>
+    ${r.empty ? '<p>No food recorded on past days in this window yet.</p>' : `
+      <div class="wr-stat-grid">
+        <div class="wr-stat"><div class="wr-num">${r.avg_kcal.toLocaleString()}</div><div class="wr-lbl">avg kcal per logged day</div></div>
+        <div class="wr-stat"><div class="wr-num">${r.days_assessed ? `${r.days_hit_goal}/${r.days_assessed}` : '—'}</div><div class="wr-lbl">days within recorded target ±200 kcal</div></div>
+        <div class="wr-stat"><div class="wr-num">${r.days_logged}/7</div><div class="wr-lbl">days with food entries</div></div>
+      </div>
+      <p class="history-note">Average protein: ${r.avg_protein} g per logged day.
+        ${r.reset_days_logged ? `${r.reset_days_logged} reset days recorded without calorie scoring.` : ''}
+        ${r.unknown_target_days ? `${r.unknown_target_days} days have no saved historical target and remain unscored.` : ''}</p>`}
+    <p class="history-note">${escapeHtml(r.note)}</p>`;
 }
 
 async function renderProteinAdherence() {
   const card = $('#proteinAdherenceCard');
   if (!card) return;
-  card.innerHTML = `<h2>Protein adherence <span style="font-size:11px;color:var(--text-dim);font-weight:400;">last 30 days</span></h2><div class="empty" style="padding:8px 0;">Loading…</div>`;
   const r = await api('/api/protein-adherence?days=30');
-  if (r.empty) {
-    card.innerHTML = `<h2>Protein adherence</h2><div class="empty" style="padding:12px 0;">Set up your profile first — we need a protein target to compare against.</div>`;
-    return;
-  }
-  if (!r.days_logged) {
-    card.innerHTML = `<h2>Protein adherence</h2><div class="empty" style="padding:12px 0;">Log some meals to see how often you're hitting your ${r.target} g target.</div>`;
-    return;
-  }
-
-  // Hit-rate colors
-  const hitColor = r.hit_rate >= 80 ? 'var(--accent)' : r.hit_rate >= 60 ? 'var(--warn)' : 'var(--danger)';
-  // Avg vs target color
-  const avgVsTarget = r.avg_protein - r.target;
-  const avgColor = Math.abs(avgVsTarget) < 5 ? 'var(--accent)' : avgVsTarget < 0 ? 'var(--warn)' : 'var(--text)';
-
-  // Sparkline: 30 vertical bars, height = protein / (target * 1.3) capped at 100%
-  const W = 560, H = 60;
-  const PAD = { l: 4, r: 4, t: 4, b: 4 };
-  const chartH = H - PAD.t - PAD.b;
-  const barCount = r.series.length;
-  const barW = (W - PAD.l - PAD.r) / barCount;
-  const yMax = r.target * 1.3;
+  if (r.empty || r.error) { card.innerHTML = '<h2>Protein records</h2><p>Set up your profile to track protein.</p>'; return; }
+  const maximum = Math.max(1, ...r.series.map(d => d.protein || 0));
+  const width = 560 / r.series.length;
   const bars = r.series.map((d, i) => {
-    const x = PAD.l + i * barW;
-    if (d.protein === null) {
-      return `<rect x="${x.toFixed(1)}" y="${H - PAD.b - 2}" width="${(barW - 1).toFixed(1)}" height="2" fill="var(--border)"/>`;
-    }
-    const h = Math.min(chartH, (d.protein / yMax) * chartH);
-    const y = H - PAD.b - h;
-    const fill = d.hit ? 'var(--accent)' : 'var(--text-dim)';
-    const opacity = d.hit ? 0.85 : 0.5;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barW - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="${fill}" opacity="${opacity}"/>`;
+    if (d.protein === null) return '';
+    const height = d.protein / maximum * 54;
+    return `<rect x="${i * width}" y="${58 - height}" width="${Math.max(1, width - 2)}" height="${height}" fill="${d.hit === true ? 'var(--accent)' : 'var(--text-dim)'}"><title>${d.date}: ${d.protein} g${d.target ? `, recorded target ${d.target} g` : ', unscored'}</title></rect>`;
   }).join('');
-  // Target line
-  const targetY = (H - PAD.b - (r.target / yMax) * chartH).toFixed(1);
-  const targetLine = `<line x1="${PAD.l}" y1="${targetY}" x2="${W - PAD.r}" y2="${targetY}" stroke="var(--info)" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>`;
-
-  // Date labels
-  const firstDate = new Date(r.series[0].date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const lastDate = new Date(r.series[r.series.length - 1].date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
-
-  card.innerHTML = `
-    <h2>Protein adherence <span style="font-size:11px;color:var(--text-dim);font-weight:400;">last 30 days</span></h2>
-    <div class="pa-stat-grid">
-      <div class="pa-stat">
-        <div class="pa-num" style="color:${hitColor};">${r.days_hit}/${r.days_logged}</div>
-        <div class="pa-lbl">days hit (${r.hit_rate}%)</div>
-      </div>
-      <div class="pa-stat">
-        <div class="pa-num" style="color:${avgColor};">${r.avg_protein}g</div>
-        <div class="pa-lbl">avg vs ${r.target}g target</div>
-      </div>
-      <div class="pa-stat">
-        <div class="pa-num">${r.longest_streak}</div>
-        <div class="pa-lbl">longest streak${r.current_streak > 0 && r.current_streak === r.longest_streak ? ' · 🔥 active' : r.current_streak > 0 ? ` · ${r.current_streak} now` : ''}</div>
-      </div>
-    </div>
-    <div class="pa-spark" aria-hidden="true">
-      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" style="display:block;">
-        ${bars}
-        ${targetLine}
-      </svg>
-      <div class="pa-spark-axis">
-        <span>${firstDate}</span>
-        <span class="pa-spark-legend"><span class="pa-leg-dot hit"></span>hit ≥90% target</span>
-        <span>${lastDate}</span>
-      </div>
-    </div>
-  `;
+  card.innerHTML = `<h2>Protein records</h2>
+    <p class="history-note">${r.start} → ${r.end}. Today is in progress and excluded.</p>
+    ${r.days_logged ? `<div class="pa-stat-grid">
+      <div class="pa-stat"><div class="pa-num">${r.days_assessed ? `${r.days_hit}/${r.days_assessed}` : '—'}</div><div class="pa-lbl">days at ≥90% of recorded target</div></div>
+      <div class="pa-stat"><div class="pa-num">${r.avg_protein} g</div><div class="pa-lbl">average across ${r.days_logged} logged days</div></div>
+    </div><svg viewBox="0 0 560 60" width="100%" role="img" aria-label="Protein recorded on past days">${bars}</svg>`
+      : '<p>No past food records in this window yet.</p>'}
+    <p class="history-note">Missing days are unknown. Reset days and days without a recorded target are unscored. Food entries may omit meals.</p>`;
 }
 
 // ---------- AI weekly debrief ----------
@@ -875,7 +376,7 @@ async function renderDebriefCard() {
   card.innerHTML = `
     <h2>AI debrief</h2>
     <div class="db-empty">
-      Nothing flagged right now — your data's looking on-track. Want a manual review of the last 7 days anyway?
+      No review is scheduled right now. You can request a review of the available past-day records.
       <button class="btn" id="debriefManualBtn" style="margin-top:10px;">Generate weekly debrief</button>
     </div>`;
   $('#debriefManualBtn').addEventListener('click', () => {
@@ -905,7 +406,7 @@ function renderDebriefLocked(card, checklist) {
   }).join('');
   card.innerHTML = `
     <h2>🤖 AI debrief <span class="db-lock-tag">LOCKED</span></h2>
-    <div class="db-lock-blurb">Unlock by logging consistently — then I'll write you a weekly review with one leak, one win, and one specific change to try.</div>
+    <div class="db-lock-blurb">Log on at least five past days for your current goal to unlock a review of the available records and one practical next step.</div>
     <div class="db-checklist">${items}</div>
   `;
 }
@@ -1160,7 +661,7 @@ function renderDowPattern(startStr, endStr, rangeData) {
   if (!el) return;
   const buckets = Array.from({ length: 7 }, () => ({ sum: 0, count: 0 }));
   Object.entries(rangeData).forEach(([date, info]) => {
-    if (date < startStr || date > endStr) return;
+    if (date < startStr || date > endStr || date >= fmtDate(new Date())) return;
     if (!info || !info.kcal) return;
     const dow = new Date(date + 'T00:00:00').getDay();
     buckets[dow].sum += info.kcal;
@@ -1205,78 +706,31 @@ function renderDowPattern(startStr, endStr, rangeData) {
 }
 
 function renderKcalTrend(startStr, endStr, rangeData) {
-  const days = [];
-  const d = new Date(startStr + 'T00:00:00');
-  const end = new Date(endStr + 'T00:00:00');
-  while (d <= end) {
-    const ds = fmtDate(d);
-    const entry = rangeData[ds];
-    days.push({ date: ds, kcal: entry ? entry.kcal : null, goal: entry ? entry.goal : null });
-    d.setDate(d.getDate() + 1);
-  }
-  const goal = days.find(d => d.goal)?.goal || null;
-  const loggedDays = days.filter(d => d.kcal !== null);
-  if (!loggedDays.length) {
-    $('#kcalTrendChart').innerHTML = cbEmptyState('<div class="empty" style="padding:20px 0;">No data logged yet.</div>');
-    $('#kcalTrendStats').innerHTML = '';
-    return;
-  }
-
-  const avgKcal = Math.round(loggedDays.reduce((a, d) => a + d.kcal, 0) / loggedDays.length);
-  const hitGoal = goal ? loggedDays.filter(d => d.kcal <= goal).length : 0;
-  const avgDiff = goal ? Math.round(avgKcal - goal) : null;
-
-  $('#kcalTrendStats').innerHTML = `
-    <span><strong>${avgKcal.toLocaleString()}</strong> 30d avg</span>
-    ${goal ? `<span>Goal: <strong>${goal.toLocaleString()}</strong></span>` : ''}
-    ${goal ? `<span>Hit goal: <strong>${hitGoal}/${loggedDays.length}</strong> days</span>` : ''}
-    ${avgDiff !== null ? `<span style="color:${avgDiff > 0 ? 'var(--danger)' : 'var(--accent)'};">${avgDiff > 0 ? '+' + avgDiff : avgDiff} avg vs goal</span>` : ''}
-  `;
-
-  const W = 560, H = 80;
-  const allKcals = loggedDays.map(d => d.kcal);
-  const minK = Math.max(0, Math.min(...allKcals) - 200);
-  const maxK = Math.max(...allKcals) + 200;
-  const xOf = (i) => (i / Math.max(1, days.length - 1)) * W;
-  const yOf = (k) => H - ((k - minK) / (maxK - minK)) * H;
-
-  // Actual kcal line (gaps for null days)
-  let pathD = '';
-  days.forEach((d, i) => {
-    if (d.kcal === null) return;
-    const x = xOf(i), y = yOf(d.kcal);
-    pathD += pathD === '' || days[i-1]?.kcal === null ? `M${x},${y}` : `L${x},${y}`;
-  });
-
-  // 7-day rolling average
-  let avgPath = '';
-  days.forEach((_, i) => {
-    if (i < 6) return;
-    const window = days.slice(i-6, i+1).filter(d => d.kcal !== null);
-    if (window.length < 3) return;
-    const avg = window.reduce((a, d) => a + d.kcal, 0) / window.length;
-    const x = xOf(i), y = yOf(avg);
-    avgPath += avgPath === '' ? `M${x},${y}` : `L${x},${y}`;
-  });
-
-  const goalY = goal ? yOf(goal) : null;
-
-  $('#kcalTrendChart').innerHTML = `
-    <svg width="100%" height="${H+2}" viewBox="0 0 ${W} ${H+2}" preserveAspectRatio="none" style="margin-top:4px;">
-      ${goalY !== null ? `<line x1="0" y1="${goalY}" x2="${W}" y2="${goalY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="6 4"/>` : ''}
-      ${pathD ? `<path d="${pathD}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>` : ''}
-      ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="2.5"/>` : ''}
-    </svg>
-    <div style="display:flex;justify-content:space-between;color:var(--text-dim);font-size:11px;margin-top:4px;">
-      <span>${days[0].date}</span>
-      <span style="display:flex;align-items:center;gap:10px;">
-        <span><span style="display:inline-block;width:18px;height:2px;background:rgba(255,255,255,0.5);vertical-align:middle;"></span> daily</span>
-        <span><span style="display:inline-block;width:18px;height:2.5px;background:var(--info);vertical-align:middle;border-radius:2px;"></span> 7d avg</span>
-        ${goal ? `<span><span style="display:inline-block;width:18px;height:1.5px;background:rgba(255,255,255,0.15);vertical-align:middle;border:none;"></span> goal</span>` : ''}
-      </span>
-      <span>${days[days.length-1].date}</span>
-    </div>
-  `;
+  const today = fmtDate(new Date());
+  const records = Object.entries(rangeData).filter(([date]) => date >= startStr && date <= endStr)
+    .map(([date, value]) => ({ date, ...value })).sort((a, b) => a.date.localeCompare(b.date));
+  const past = records.filter(d => d.date < today);
+  const assessed = past.filter(d => ['below', 'within', 'above'].includes(d.assessment));
+  const average = past.length ? Math.round(past.reduce((sum, d) => sum + d.kcal, 0) / past.length) : null;
+  $('#kcalTrendStats').innerHTML = `<span>${average === null ? 'No past-day average yet' : `<strong>${average.toLocaleString()}</strong> kcal average across ${past.length} past logged days`}</span>
+    <span>${assessed.length ? `${assessed.filter(d => d.assessment === 'within').length}/${assessed.length} within recorded target ±200 kcal` : 'No past days with a scorable target'}</span>
+    <span>Today is in progress. Missing days are unknown.</span>`;
+  if (!records.length) { $('#kcalTrendChart').innerHTML = '<p class="history-note">No food entries in this window.</p>'; return; }
+  const W = 560, H = 100, bottom = 82;
+  const span = Math.max(1, GoalPolicy.daysBetween(startStr, endStr));
+  const max = Math.max(1, ...records.flatMap(d => [d.kcal, d.goal || 0])) * 1.1;
+  const x = date => 5 + GoalPolicy.daysBetween(startStr, date) / span * (W - 10);
+  const y = kcal => bottom - kcal / max * 72;
+  let previous = null;
+  const lines = records.map(d => {
+    const line = previous && GoalPolicy.daysBetween(previous.date, d.date) === 1
+      ? `<line x1="${x(previous.date)}" y1="${y(previous.kcal)}" x2="${x(d.date)}" y2="${y(d.kcal)}" stroke="var(--text-dim)" />` : '';
+    previous = d;
+    return line + `<circle cx="${x(d.date)}" cy="${y(d.kcal)}" r="3" fill="${d.date === today ? 'var(--info)' : 'var(--text-dim)'}"><title>${d.date}: ${d.kcal} kcal${d.date === today ? ' so far' : ''}</title></circle>` +
+      (d.goal ? `<line x1="${x(d.date) - 3}" x2="${x(d.date) + 3}" y1="${y(d.goal)}" y2="${y(d.goal)}" stroke="var(--accent)"><title>Recorded target: ${d.goal} kcal</title></line>` : '');
+  }).join('');
+  $('#kcalTrendChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Logged calories and recorded daily targets">${lines}</svg>
+    <div class="intake-legend"><span>${startStr}</span><span>Dots: logged intake · ticks: recorded targets</span><span>${endStr}</span></div>`;
 }
 
 function renderCalendar() {
@@ -1307,15 +761,18 @@ function renderCalendar() {
     if (isSelected) cls += ' selected';
     if (isFuture) cls += ' outside';
     else if (!entry) cls += ' empty-log';
-    else if (goal && entry.kcal <= goal + 200) cls += ' on-target';
-    else if (goal && entry.kcal < goal - 300) cls += ' under';
-    else cls += ' over';
+    else if (isToday) cls += ' in-progress';
+    else if (entry.assessment === 'within') cls += ' on-target';
+    else if (entry.assessment === 'below') cls += ' under';
+    else if (entry.assessment === 'above') cls += ' over';
+    else cls += ' unscored';
 
     let proteinHtml = '';
     if (entry && entry.protein !== undefined) {
       const pg = entry.protein_goal;
-      const hit = pg ? entry.protein >= pg * 0.9 : false;
-      proteinHtml = `<div class="cal-day-protein ${hit ? 'hit' : 'miss'}">${Math.round(entry.protein)}p</div>`;
+      const eligible = !isToday && entry.goal_mode !== 'reset' && pg;
+      const hit = eligible ? entry.protein >= pg * 0.9 : null;
+      proteinHtml = `<div class="cal-day-protein ${hit === null ? '' : hit ? 'hit' : 'miss'}">${Math.round(entry.protein)}p</div>`;
     }
     html += `<div class="${cls}" data-date="${ds}">
       <div class="cal-day-num">${day}</div>
@@ -1365,7 +822,8 @@ async function renderCalDetail(date) {
       </div>
     `).join('');
   }
-  $('#calDetail').innerHTML = `<div class="cal-detail-drawer">${header}${body}</div>`;
+  const contextNote = date === fmtDate(new Date()) ? 'Today is in progress.' : data.stats ? `Recorded goal: ${GoalPolicy.LABELS[data.stats.goal] || data.stats.goal} · ${data.stats.kcal_goal} kcal.` : 'No historical target was recorded for this date; totals are unscored.';
+  $('#calDetail').innerHTML = `<div class="cal-detail-drawer">${header}<p class="history-note">${escapeHtml(contextNote)}</p>${body}</div>`;
   $('#calAddMeal').addEventListener('click', () => openLogModal(date));
   $$('#calDetail .cal-entry-row').forEach(row => {
     row.addEventListener('click', () => {

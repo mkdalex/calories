@@ -1,12 +1,10 @@
 // ---------- Educational content (single source of truth) ----------
 const EDU_PROTEIN_HTML = `
-  <h4>What it does to your physique</h4>
-  <p>When you lift, you tear muscle fibers. <strong>Protein is the raw material your body uses to repair them bigger.</strong> On a cut, eating enough protein is what makes the difference between losing fat and losing muscle.</p>
-  <p>Hit calories but skip protein: <span class="bad">~40% of what you lose is muscle</span>, not fat. You end up lighter but soft and weaker.<br/>
-  Hit both: <span class="good">~85% fat loss</span>, gym strength stays, you look leaner — not just smaller. Hitting your protein target ≈ keeping the gym progress you've already paid for.</p>
-  <h4>How to hit your target</h4>
-  <p>Anchor each meal with a protein source. ~30g protein × 4 meals = 120g. Don't try to cram it all into dinner — it doesn't absorb as well in one hit.</p>
-  <h4>What counts — tap to fill input</h4>
+  <h4>Protein and your goal</h4>
+  <p>Protein supports muscle maintenance and training adaptation. Your daily reference is based on the weight and goal in Profile.</p>
+  <h4>Practical food options</h4>
+  <p>Include protein foods you enjoy across your meals. The amount logged so far is not a judgement on an unfinished day.</p>
+  <h4>Tap a food to fill the input</h4>
   <div class="macro-food-chips" id="proteinChips"></div>
 `;
 

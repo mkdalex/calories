@@ -47,118 +47,42 @@ function buildMacroDonut(data) {
   `;
 }
 
-function buildProjectionChart(currentWeight, lossKgWk) {
-  const WEEKS = 26;
-  const W = 320, H = 82;
-  const PAD = { t: 12, r: 8, b: 24, l: 36 };
-  const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
-  const endWeight = currentWeight - lossKgWk * WEEKS;
-  const maxW = currentWeight + 0.5, minW = endWeight - 0.5;
-  const wRange = maxW - minW;
-  const wx = w => PAD.l + (w / WEEKS) * chartW;
-  const wy = w => PAD.t + ((maxW - w) / wRange) * chartH;
-
-  const pts = Array.from({ length: WEEKS + 1 }, (_, i) => {
-    const w = currentWeight - lossKgWk * i;
-    return `${i === 0 ? 'M' : 'L'}${wx(i).toFixed(1)},${wy(w).toFixed(1)}`;
-  }).join(' ');
-  const areaClose = `L${wx(WEEKS).toFixed(1)},${(PAD.t + chartH).toFixed(1)} L${PAD.l},${(PAD.t + chartH).toFixed(1)} Z`;
-
-  const milestones = [{ wk: 4, label: '4 wks' }, { wk: 13, label: '3 mo' }, { wk: 26, label: '6 mo' }];
-  const dots = milestones.map(m => {
-    const w = currentWeight - lossKgWk * m.wk;
-    const x = wx(m.wk), y = wy(w);
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#4ade80"/>
-      <text x="${x.toFixed(1)}" y="${(PAD.t + chartH + 11).toFixed(1)}" text-anchor="middle" fill="rgba(139,148,158,0.8)" font-size="8.5" font-family="sans-serif">${m.label}</text>
-      <text x="${x.toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" fill="rgba(74,222,128,0.9)" font-size="8.5" font-family="sans-serif">${w.toFixed(1)}</text>`;
-  }).join('');
-
-  return `<div class="proj-chart">
-    <svg viewBox="0 0 ${W} ${H}" width="100%" overflow="visible">
-      <path d="${pts} ${areaClose}" fill="rgba(74,222,128,0.06)"/>
-      <path d="${pts}" fill="none" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round" opacity="0.85"/>
-      ${milestones.map(m => `<line x1="${wx(m.wk).toFixed(1)}" y1="${PAD.t}" x2="${wx(m.wk).toFixed(1)}" y2="${(PAD.t+chartH).toFixed(1)}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3,3"/>`).join('')}
-      <circle cx="${PAD.l}" cy="${wy(currentWeight).toFixed(1)}" r="4" fill="white" opacity="0.8"/>
-      <text x="${PAD.l - 4}" y="${(wy(currentWeight)+3).toFixed(1)}" text-anchor="end" fill="rgba(200,210,220,0.7)" font-size="9" font-family="sans-serif">${currentWeight}kg</text>
-      <text x="${PAD.l - 4}" y="${(wy(endWeight)+3).toFixed(1)}" text-anchor="end" fill="rgba(74,222,128,0.7)" font-size="9" font-family="sans-serif">${endWeight.toFixed(1)}kg</text>
-      ${dots}
-    </svg>
-  </div>`;
+function todayFeedback(data) {
+  if (!data.entries?.length) return 'No meals logged yet. Your intake is unknown until you record it.';
+  if (data.stats.goal === 'reset') return 'Food logged today. Reset week focuses on logging; the targets are references.';
+  const protein = Math.round(data.totals.protein);
+  const remaining = Math.max(0, data.stats.protein_g - protein);
+  return `${data.totals.kcal.toLocaleString()} kcal logged so far. ${protein} of ${data.stats.protein_g} g protein logged${remaining ? ` · ${remaining} g remaining` : ''}. Today is in progress.`;
 }
 
 function renderZoneBar(data) {
   const el = $('#zoneWrap');
-  const { kcal_goal, tdee, goal_meta, weight_kg } = data.stats;
-  const eaten = data.totals.kcal;
-
-  // Bar spans 0 → TDEE + same gap as deficit (symmetric headroom on right)
-  const deficit = tdee - kcal_goal;
-  const maxKcal = tdee + Math.max(deficit, 400);
-
-  // Segment widths as percentages
-  const losePct  = (kcal_goal / maxKcal * 100).toFixed(2);
-  const maintPct = (deficit / maxKcal * 100).toFixed(2);
-  const gainPct  = (100 - losePct - maintPct).toFixed(2);
-
-  // Marker + TDEE tick positions
-  const markerPct = Math.min(eaten / maxKcal * 100, 100).toFixed(2);
-  const tdeePct   = (tdee / maxKcal * 100).toFixed(2);
-  const goalPct   = losePct; // same as goal position
-
-  // Status + projection
-  const lossKgWk = Math.abs(goal_meta.delta) * 7 / 7700;
-  let statusHtml, projRows = [];
-
-  if (eaten <= kcal_goal) {
-    statusHtml = `<span style="color:var(--accent);font-weight:600;">Losing zone</span> — ${kcal_goal - eaten} kcal under your goal. At end-of-day goal: −${lossKgWk.toFixed(2)} kg/week.`;
-  } else if (eaten <= tdee) {
-    const partialLoss = (tdee - eaten) * 7 / 7700;
-    statusHtml = `<span style="color:var(--warn);font-weight:600;">Still losing — just slower</span> — ${eaten - kcal_goal} kcal over your goal but still ${tdee - eaten} under TDEE. At this intake: ~${partialLoss.toFixed(2)} kg/week. You don't stop losing until you hit ${tdee.toLocaleString()}.`;
-  } else {
-    const gainRate = (eaten - tdee) * 7 / 7700;
-    statusHtml = `<span style="color:var(--danger);font-weight:600;">Surplus</span> — ${eaten - tdee} kcal over TDEE. Gaining ~${gainRate.toFixed(2)} kg/week if you stay here.`;
-  }
-
-  let projChart = '';
-  if (weight_kg && goal_meta.delta < 0) {
-    const wk4 = (weight_kg - lossKgWk * 4).toFixed(1);
-    const mo3 = (weight_kg - lossKgWk * 13).toFixed(1);
-    projRows = [
-      { num: `${wk4} kg`, lbl: 'in 4 weeks' },
-      { num: `${mo3} kg`, lbl: 'in 3 months' },
-      { num: `−${lossKgWk.toFixed(2)} kg`, lbl: 'per week' }
-    ];
-    projChart = buildProjectionChart(weight_kg, lossKgWk);
-  }
-
+  const stats = data.stats;
+  const label = GoalPolicy.LABELS[stats.goal] || stats.goal_meta.label;
+  const goal = stats.kcal_goal, maintenance = stats.tdee, eaten = data.totals.kcal;
+  const maximum = Math.max(goal, maintenance, eaten, 1) * 1.15;
+  const position = n => Math.max(0, Math.min(100, n / maximum * 100));
+  const adjustment = goal - maintenance;
+  const plan = stats.goal === 'reset' ? 'Maintenance reference during reset week'
+    : adjustment < 0 ? `${Math.abs(adjustment)} kcal planned deficit`
+    : adjustment > 0 ? `${adjustment} kcal planned surplus` : 'Maintenance target';
   el.innerHTML = `
-    <div class="zone-wrap">
-      <div class="zone-bar-outer">
-        <div class="zone-lose"  style="flex:${losePct}"></div>
-        <div class="zone-maint" style="flex:${maintPct}"></div>
-        <div class="zone-gain"  style="flex:${gainPct}"></div>
-        <div class="zone-tick"  style="left:${goalPct}%"  title="Goal: ${kcal_goal.toLocaleString()} kcal"></div>
-        <div class="zone-tick"  style="left:${tdeePct}%" title="TDEE: ${tdee.toLocaleString()} kcal"></div>
-        <div class="zone-marker" style="left:${markerPct}%" title="${eaten.toLocaleString()} kcal eaten"></div>
+    <div class="card goal-summary">
+      <h2>${escapeHtml(label)}</h2>
+      <p><strong>${goal.toLocaleString()} kcal</strong> daily target · <strong>${stats.protein_g} g</strong> protein</p>
+      <p class="goal-note">${maintenance.toLocaleString()} kcal maintenance estimate · ${plan}.</p>
+      <p class="goal-note">Source: ${stats.target_source === 'saved_override' ? 'saved maintenance override' : 'profile formula'}.
+        ${stats.override_review ? 'The saved override needs review for your current circumstances.' : 'Review using recent food and weight records.'}
+        <button class="goal-link" type="button" onclick="setActiveView('profile')">Review target</button>
+      </p>
+      <div class="intake-track" role="img" aria-label="${eaten} kcal logged, maintenance estimate ${maintenance}, target ${goal}">
+        <div class="intake-fill" style="width:${position(eaten)}%"></div>
+        <span class="intake-tick" style="left:${position(maintenance)}%" title="Maintenance estimate: ${maintenance}"></span>
+        <span class="intake-tick target" style="left:${position(goal)}%" title="Target: ${goal}"></span>
       </div>
-      <div class="zone-axis">
-        <span>0</span>
-        <span class="mid">
-          <span style="color:var(--accent);">${kcal_goal.toLocaleString()}</span> full loss
-        </span>
-        <span class="mid">
-          <span style="color:var(--warn);">${tdee.toLocaleString()}</span> maintain
-        </span>
-        <span>${maxKcal.toLocaleString()}</span>
-      </div>
-      <div class="zone-status">${statusHtml}</div>
-      ${projRows.length ? `
-      <div class="zone-projection" style="margin-top:10px;">
-        ${projRows.map(p => `<div class="proj-item"><div class="proj-num">${p.num}</div><div class="proj-lbl">${p.lbl}</div></div>`).join('')}
-      </div>
-      ${projChart}` : ''}
-    </div>
-  `;
+      <div class="intake-legend"><span>${eaten.toLocaleString()} logged</span><span>Maintenance ${maintenance.toLocaleString()}</span><span>Target ${goal.toLocaleString()}</span></div>
+      <p class="goal-note">${data.entries?.length ? 'Today is in progress. Logged intake does not predict a rate of weight change.' : 'No meals logged today.'}</p>
+    </div>`;
 }
 
 function renderToday() {
@@ -319,17 +243,7 @@ function renderToday() {
     // Macro-remaining suggestions only fire when user has the protein edu card open (saves AI calls)
     if (eduOpen) loadMacroRemaining(data);
 
-    let msg;
-    if (over) {
-      msg = `You're ${eaten - goal} kcal over today. No big deal — eat lighter tomorrow and you're back on track.`;
-    } else if (remaining < 200) {
-      msg = `You have ${remaining} kcal left. That's about a small snack or a light side.`;
-    } else if (remaining < 600) {
-      msg = `You have ${remaining} kcal left. Plenty for a normal-sized meal.`;
-    } else {
-      msg = `You have ${remaining} kcal left. Eat a real meal — don't undereat, you'll just binge later.`;
-    }
-    $('#narrativeWrap').innerHTML = `<div class="narrative">${msg}</div>`;
+    $('#narrativeWrap').innerHTML = `<div class="narrative">${escapeHtml(todayFeedback(data))}</div>`;
 
     // Zone bar
     renderZoneBar(data);
@@ -345,7 +259,7 @@ function renderToday() {
   } else if (data.stats && (data.streak > 0 || data.weekly_avg_kcal)) {
     const parts = [];
     if (data.streak > 0) parts.push(`<div class="item"><div class="num">${data.streak}</div><div class="lbl">day streak</div></div>`);
-    if (data.weekly_avg_kcal) parts.push(`<div class="item"><div class="num">${data.weekly_avg_kcal.toLocaleString()}</div><div class="lbl">7-day avg kcal</div></div>`);
+    if (data.weekly_avg_kcal) parts.push(`<div class="item"><div class="num">${data.weekly_avg_kcal.toLocaleString()}</div><div class="lbl">avg across ${data.weekly_logged_days} past logged day${data.weekly_logged_days === 1 ? '' : 's'} (last 7)</div></div>`);
     streakEl.innerHTML = `<div class="streak-strip">${parts.join('')}</div>`;
   } else {
     streakEl.innerHTML = '';
@@ -459,11 +373,7 @@ function renderHeroExtras(data) {
   const eaten = data.totals.kcal;
   const over = eaten > goal;
   const remaining = goal - eaten;
-  let coach;
-  if (over)               coach = `You're ${eaten - goal} kcal over today. No big deal — eat lighter tomorrow and you're back on track.`;
-  else if (remaining < 200) coach = `${remaining} kcal left — that's a small snack or a light side.`;
-  else if (remaining < 600) coach = `${remaining} kcal left — plenty for a normal-sized meal.`;
-  else                      coach = `${remaining} kcal left. Eat a real meal — don't undereat, you'll just binge later.`;
+  const coach = todayFeedback(data);
 
   wrap.innerHTML = `
     <div class="hero-stats">
@@ -498,96 +408,13 @@ const PERIOD_ICON = { Breakfast: '🌅', Lunch: '☀️', Snack: '🍎', Dinner:
 // ---------- DAY STATUS ----------
 function renderDayStatus(data) {
   const el = $('#dayStatusWrap');
-  if (!el || !data.stats) { if (el) el.innerHTML = ''; return; }
-
-  const now = new Date();
-  const t = now.getHours() + now.getMinutes() / 60;
-  const EATING_START = 7, EATING_END = 21;
-  const hoursLeft = Math.max(0, EATING_END - t);
-  const hoursLeftStr = hoursLeft > 0
-    ? `${Math.floor(hoursLeft)}h ${Math.round((hoursLeft % 1) * 60)}m left`
-    : 'After 9pm';
-
-  // Pacing: linear ramp 7am→9pm
-  const windowFrac = Math.max(0, Math.min(1, (t - EATING_START) / (EATING_END - EATING_START)));
-  const paceTarget = Math.round(data.stats.kcal_goal * windowFrac);
-  const eaten = data.totals.kcal;
-  const paceGap = eaten - paceTarget;
-  const remaining = data.stats.kcal_goal - eaten;
-
-  let paceText, paceClass;
-  if (windowFrac === 0) { paceText = 'Before eating window'; paceClass = 'warn'; }
-  else if (Math.abs(paceGap) < 150) { paceText = 'On pace'; paceClass = 'good'; }
-  else if (paceGap > 0) { paceText = `+${paceGap} kcal ahead`; paceClass = paceGap > 500 ? 'over' : 'warn'; }
-  else { paceText = `${Math.abs(paceGap)} kcal behind pace`; paceClass = 'warn'; }
-
-  // Meal detection
-  const entries = data.entries || [];
-  const inWindow = (s, e) => entries.some(en => {
-    if (!en.time) return false;
-    const h = new Date(en.time).getHours() + new Date(en.time).getMinutes() / 60;
-    return h >= s && h < e;
-  });
-  const hasBreakfast = inWindow(5, 10.5);
-  const hasLunch     = inWindow(10.5, 15);
-  const hasDinner    = inWindow(17, 22.5);
-  const snackCount   = entries.filter(en => {
-    if (!en.time) return false;
-    const h = new Date(en.time).getHours() + new Date(en.time).getMinutes() / 60;
-    const isBf = h >= 5 && h < 10.5, isLu = h >= 10.5 && h < 15, isDi = h >= 17 && h < 22.5;
-    return !isBf && !isLu && !isDi;
-  }).length;
-
-  // Meal chips (only show slots that are reachable at this time)
-  const chips = [];
-  if (t >= 5) {
-    const c = hasBreakfast ? 'done' : t > 10.5 ? 'skipped' : 'upcoming';
-    chips.push(`<span class="ds-chip ${c}">🌅 Breakfast${hasBreakfast ? ' ✓' : t > 10.5 ? ' —' : ''}</span>`);
-  }
-  if (t >= 10.5) {
-    const c = hasLunch ? 'done' : t > 15 ? 'skipped' : 'upcoming';
-    chips.push(`<span class="ds-chip ${c}">☀️ Lunch${hasLunch ? ' ✓' : t > 15 ? ' —' : ''}</span>`);
-  }
-  if (t >= 17) {
-    const c = hasDinner ? 'done' : t > 22.5 ? 'skipped' : 'upcoming';
-    chips.push(`<span class="ds-chip ${c}">🌙 Dinner${hasDinner ? ' ✓' : t > 22.5 ? ' —' : ''}</span>`);
-  }
-  if (snackCount > 0) chips.push(`<span class="ds-chip snack">🍎 ${snackCount} snack${snackCount !== 1 ? 's' : ''}</span>`);
-
-  // Time-aware advice
-  let advice;
-  if (t < 7) {
-    advice = 'Early start. Eat breakfast to fuel your metabolism and avoid hunger crashes later.';
-  } else if (t < 10.5 && !hasBreakfast) {
-    advice = 'No breakfast logged — skipping it usually leads to overeating at lunch and dinner.';
-  } else if (t >= 10.5 && t < 15 && !hasLunch) {
-    advice = remaining > 600
-      ? `Lunchtime. ${remaining} kcal left — a proper meal now keeps you fuelled through the afternoon.`
-      : `Lunchtime. ${remaining} kcal left, keep lunch moderate.`;
-  } else if (t >= 17 && t < 21 && !hasDinner) {
-    if (remaining > 500) advice = `Dinner time — ${remaining} kcal left. Have a real meal, don't snack it away.`;
-    else if (remaining > 200) advice = `${remaining} kcal left. A light dinner — protein + veg — and you're done.`;
-    else advice = `Only ${remaining} kcal left. Small snack or call it a day.`;
-  } else if (t >= 21) {
-    if (remaining > 300) advice = `After 9pm — if you're genuinely hungry, a light protein snack. Otherwise carry those ${remaining} kcal into tomorrow.`;
-    else advice = remaining > 0 ? `You're done. ${remaining} kcal left unused is fine — sleep is the best macro now.` : 'Hit your goal. Rest up.';
-  } else if (paceGap < -300) {
-    advice = `${Math.abs(paceGap)} kcal behind pace — ${hoursLeft > 2 ? `${Math.floor(hoursLeft)}h left, get a proper meal in` : 'not much time left, eat something substantial'}.`;
-  } else if (paceGap > 500) {
-    advice = 'Pacing fast today — keep the next meal on the lighter side to stay on track.';
-  } else {
-    advice = `Good pacing. ${hoursLeft > 3 ? `${Math.floor(hoursLeft)}h left in your eating window.` : hoursLeft > 0 ? 'Wrap up with dinner.' : 'Eating window closing.'}`;
-  }
-
-  el.innerHTML = `
-    <div class="day-status-card">
-      <div class="ds-meal-chips">${chips.join('')}</div>
-      <div class="ds-meta-row">
-        <span class="ds-pace ${paceClass}">${paceText}</span>
-        <span class="ds-time-left">${hoursLeftStr}</span>
-      </div>
-      <div class="ds-advice">${advice}</div>
-    </div>`;
+  if (!el) return;
+  if (!data.stats) { el.innerHTML = ''; return; }
+  const count = (data.entries || []).length;
+  el.innerHTML = `<div class="day-status-card">
+    <div class="ds-meta-row"><span>Today · In progress</span><span>${count} meal entr${count === 1 ? 'y' : 'ies'} logged</span></div>
+    <div class="ds-advice">Log meals when it suits you. Past days with missing food are incomplete records, so review them before relying on averages.</div>
+  </div>`;
 }
 
 // ---------- GAP FILL ----------
@@ -619,7 +446,7 @@ const GAP_FOODS = [
 function renderGapFill(data) {
   const wrap = $('#gapFillWrap');
   if (!wrap) return;
-  if (!data.stats) { wrap.innerHTML = ''; return; }
+  if (!data.stats || data.stats.goal === 'reset') { wrap.innerHTML = ''; return; }
 
   const { remaining_kcal, remaining_protein, remaining_fat, remaining_carb, remaining_fiber } = data;
   const hour = new Date().getHours();
@@ -659,7 +486,7 @@ function renderGapFill(data) {
 
   wrap.innerHTML = `
     <div class="gap-fill-card">
-      <h4>You're low on ${label} — smart picks to catch up:</h4>
+      <h4>Options for your remaining ${label} target:</h4>
       ${scored.map(s => `
         <div class="gap-fill-item">
           <span class="gf-name">${escapeHtml(s.name)}</span>

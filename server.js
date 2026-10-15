@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const OpenAI = require('openai');
+const GoalPolicy = require('./public/js/goal-policy');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.CALORIES_DATA_DIR || path.join(__dirname, 'data');
@@ -383,34 +384,74 @@ function computeStats(profile, req) {
 
   const reset_meta = resetMeta(profile, todayStr(req));
 
-  const lossPerWeek = goal.delta < 0 ? Math.round(Math.abs(goal.delta) * 7 / 7700 * 100) / 100 : 0;
-  const explainer = reset_meta
-    ? `You're on day ${reset_meta.day} of a ${reset_meta.of}-day reset. Your target is ${kcal_goal.toLocaleString()} — that's your TDEE, no deficit. ` +
-      `Eating this holds your weight steady, which is the point: the only thing being asked of you this week is that you log. ` +
-      `Protein stays at ${protein_g}g because that's what protects the muscle you already have. ` +
-      `On day ${reset_meta.of + 1} you pick a real goal — and by then you'll have a week of your own data to pick it with, instead of guessing.`
-    : `Your body burns about ${tdee.toLocaleString()} calories a day just existing and moving around — that's your TDEE. ` +
-    (goal.delta < 0
-      ? `To lose roughly ${lossPerWeek} kg a week, eat ${kcal_goal.toLocaleString()} — that creates a ${Math.abs(goal.delta)}-calorie gap each day, and 7,700 calories ≈ 1 kg of fat. `
-      : goal.delta > 0
-      ? `To slowly gain muscle, eat ${kcal_goal.toLocaleString()} — that's ${goal.delta} calories above what you burn. `
-      : `To stay at your current weight, eat ${kcal_goal.toLocaleString()}. `) +
-    (cutting && goalKg && goalKg < weight_kg
-      ? `Your protein target is ${protein_g}g — pegged to your goal weight (${goalKg} kg × 2.0 g/kg) so it doesn't drift down as you lose. Defending muscle during a cut.`
-      : cutting
-      ? `Your protein target is ${protein_g}g (2.0 g/kg of current weight) — higher ratio while cutting to preserve muscle. Set a goal weight in Profile to lock it.`
-      : `Your protein target is ${protein_g}g — this protects your muscle while you change weight.`);
+  const targetSource = tdee_calibrated ? 'saved_override' : 'formula';
+  const overrideAge = profile.tdee_override_set_at
+    ? GoalPolicy.daysBetween(profile.tdee_override_set_at, todayStr(req)) : null;
+  const baseline = profile.tdee_override_profile;
+  const overrideReview = tdee_calibrated && (overrideAge === null || overrideAge > 42 ||
+    !baseline || baseline.activity !== profile.activity ||
+    Math.abs(weight_kg - baseline.weight_kg) / baseline.weight_kg > 0.05);
+  const adjustment = goal.delta < 0 ? `${Math.abs(goal.delta)} kcal planned deficit`
+    : goal.delta > 0 ? `${goal.delta} kcal planned surplus` : 'maintenance target';
+  const explainer = `${GoalPolicy.LABELS[profile.goal] || 'Lose fat'}: ${kcal_goal.toLocaleString()} kcal/day, based on a ${tdee.toLocaleString()} kcal maintenance estimate and ${adjustment}. ` +
+    (reset_meta ? 'Reset week focuses on logging; calorie and protein numbers are references. ' : '') +
+    `Protein reference: ${protein_g} g/day. Targets are estimates to review using recent records.`;
+  return { bmr, tdee, tdee_predicted, tdee_calibrated, kcal_goal, protein_g, fat_g, carb_g, fiber_g,
+    weight_kg, activity: act, goal_meta: goal, goal: profile.goal || 'steady', reset_meta, explainer,
+    target_source: targetSource, override_review: !!overrideReview,
+    override_set_at: profile.tdee_override_set_at || null,
+    goal_started: profile.goal_started || null };
+}
 
-  return { bmr, tdee, tdee_predicted, tdee_calibrated, kcal_goal, protein_g, fat_g, carb_g, fiber_g, weight_kg, activity: act, goal_meta: goal, reset_meta, explainer };
+// Record only known targets, from the date they were observed. Never invent old targets.
+function recordGoalContext(existing, updated, today, req) {
+  const history = Array.isArray(existing.goal_history) ? [...existing.goal_history] : [];
+  const changedGoal = existing.goal !== updated.goal;
+  updated.goal_started = changedGoal ? today : existing.goal_started || today;
+  if (Number(updated.tdee_override) !== Number(existing.tdee_override)) {
+    updated.tdee_override_set_at = updated.tdee_override ? today : null;
+    updated.tdee_override_profile = updated.tdee_override
+      ? { activity: updated.activity, weight_kg: updated.weight_kg } : null;
+  }
+  const stats = computeStats(updated, req);
+  if (stats) {
+    const context = { goal: stats.goal, kcal_goal: stats.kcal_goal, protein_g: stats.protein_g,
+      fat_g: stats.fat_g, carb_g: stats.carb_g, fiber_g: stats.fiber_g,
+      tdee: stats.tdee, target_source: stats.target_source };
+    const previous = history[history.length - 1];
+    const same = previous && Object.keys(context).every(key => previous[key] === context[key]);
+    if (!same) {
+      // A day's final saved target applies to that calendar day.
+      if (previous && previous.effective_from === today) history.pop();
+      history.push({ effective_from: today, ...context });
+    }
+  }
+  updated.goal_history = history;
+  return updated;
+}
+function historicalContext(profile, date, req) {
+  const known = GoalPolicy.contextAt(profile && profile.goal_history, date);
+  if (known) return known;
+  if (date !== todayStr(req)) return null;
+  const stats = computeStats(profile, req);
+  return stats ? { goal: stats.goal, kcal_goal: stats.kcal_goal, protein_g: stats.protein_g,
+    fat_g: stats.fat_g, carb_g: stats.carb_g, fiber_g: stats.fiber_g, tdee: stats.tdee } : null;
 }
 
 // ---------- /api/profile ----------
-app.get('/api/profile', (req, res) => {
-  const profile = readJson(req.dataFiles.profile, null);
+app.get('/api/profile', async (req, res) => {
+  const profile = await withFileLock(req.dataFiles.profile, () => {
+    const existing = readJson(req.dataFiles.profile, null);
+    if (!existing || !computeStats(existing, req) || existing.goal_history?.length) return existing;
+    const updated = recordGoalContext(existing, { ...existing }, todayStr(req), req);
+    writeJson(req.dataFiles.profile, updated);
+    return updated;
+  });
   res.json({ profile, stats: computeStats(profile, req), activity_options: ACTIVITY, goal_options: GOALS });
 });
 app.post('/api/profile', async (req, res) => {
   const today = todayStr(req);
+  if (req.body?.goal && !GOALS[req.body.goal]) return res.status(400).json({ error: 'unknown goal' });
   const profile = await withFileLock(req.dataFiles.profile, () => {
     const existing = readJson(req.dataFiles.profile, {}) || {};
     const merged = { ...existing, ...(req.body || {}) };
@@ -424,6 +465,12 @@ app.post('/api/profile', async (req, res) => {
       delete merged.reset_started;
       delete merged.pre_reset_goal;
     }
+    // Explicitly re-applying the same estimate still refreshes its review context.
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'tdee_override') && merged.tdee_override) {
+      merged.tdee_override_set_at = today;
+      merged.tdee_override_profile = { activity: merged.activity, weight_kg: merged.weight_kg };
+    }
+    recordGoalContext(existing, merged, today, req);
     writeJson(req.dataFiles.profile, merged);
     return merged;
   });
@@ -552,6 +599,7 @@ app.post('/api/comeback/complete', async (req, res) => {
 
   const profile = await withFileLock(req.dataFiles.profile, () => {
     const p = readJson(req.dataFiles.profile, {}) || {};
+    const previous = { ...p };
     if (w !== null) p.weight_kg = w;
     if (goal) {
       // Remember what they were on so the day-8 prompt can offer it back.
@@ -567,6 +615,7 @@ app.post('/api/comeback/complete', async (req, res) => {
     if (keep_tdee_override === false) delete p.tdee_override;
     if (last_logged) p.comeback_ack = last_logged;
     p.last_comeback_at = today;
+    recordGoalContext(previous, p, today, req);
     writeJson(req.dataFiles.profile, p);
     return p;
   });
@@ -578,67 +627,15 @@ app.get('/api/calibrate', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile, req);
   if (!stats) return res.json({ can_calibrate: false, reason: 'Set up your profile first.' });
-
-  const log = readJson(req.dataFiles.log, {});
-  const weights = readJson(req.dataFiles.weight, []);
-  if (weights.length < 2) {
-    return res.json({ can_calibrate: false, reason: 'Need at least 2 weight entries.', tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee, calibrated: stats.tdee_calibrated });
-  }
-
-  // Use weight entries spanning the longest window with kcal log coverage (min 14 days)
-  const sortedW = [...weights].sort((a, b) => a.date.localeCompare(b.date));
-  const first = sortedW[0];
-  const last = sortedW[sortedW.length - 1];
-  const firstD = new Date(first.date + 'T00:00:00');
-  const lastD = new Date(last.date + 'T00:00:00');
-  const daysSpan = Math.round((lastD - firstD) / 86400000);
-
-  if (daysSpan < 14) {
-    return res.json({ can_calibrate: false, reason: `Need at least 14 days between weight entries (currently ${daysSpan}).`, tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee, calibrated: stats.tdee_calibrated });
-  }
-
-  // Sum kcal logged in the window
-  let totalKcal = 0, daysLogged = 0;
-  forEachDateInRange(firstD, lastD, ds => {
-    const entries = log[ds] || [];
-    if (entries.length) {
-      totalKcal += entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      daysLogged += 1;
-    }
-  });
-
-  if (daysLogged < 10) {
-    return res.json({ can_calibrate: false, reason: `Need at least 10 logged days in the window (have ${daysLogged} of ${daysSpan}).`, tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee, calibrated: stats.tdee_calibrated });
-  }
-
-  const avgKcal = totalKcal / daysLogged;
-  const weightDeltaKg = last.kg - first.kg;
-  // TDEE = avg_eaten - (weight_change_kg * 7700 / days). If lost weight, weight_delta is negative → TDEE > eaten.
-  const impliedTdee = Math.round(avgKcal - (weightDeltaKg * 7700 / daysSpan));
-
-  // Sanity guards
-  const safeImplied = Math.max(1200, Math.min(5000, impliedTdee));
-  const diff = safeImplied - stats.tdee_predicted;
-
-  res.json({
-    can_calibrate: true,
-    tdee_predicted: stats.tdee_predicted,
-    tdee_current: stats.tdee,
-    tdee_implied: safeImplied,
-    diff,
-    calibrated: stats.tdee_calibrated,
-    days_span: daysSpan,
-    days_logged: daysLogged,
-    weight_start: first.kg,
-    weight_end: last.kg,
-    weight_delta_kg: Math.round(weightDeltaKg * 100) / 100,
-    avg_kcal: Math.round(avgKcal),
-    weight_start_date: first.date,
-    weight_end_date: last.date
-  });
+  const result = GoalPolicy.calibrationWindow(readJson(req.dataFiles.log, {}),
+    readJson(req.dataFiles.weight, []), todayStr(req), profile.goal_started || todayStr(req));
+  res.json({ ...result, tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee,
+    calibrated: stats.tdee_calibrated, override_review: stats.override_review,
+    override_set_at: stats.override_set_at,
+    diff: result.can_calibrate ? result.tdee_implied - stats.tdee : null });
 });
 
-// ---------- Streak + weekly avg ----------
+// ---------- Streak + weekly avg ----------// ---------- Streak + weekly avg ----------
 // Consecutive days the user logged anything. Today is allowed to be empty
 // (you haven't eaten yet at 7am), but once any previous day is empty the
 // streak ends. Going over kcal does NOT break it — over-goal days still
@@ -659,22 +656,13 @@ function computeStreak(log) {
   return streak;
 }
 
-function computeWeeklyAvg(log) {
-  let totalKcal = 0, days = 0;
-  const d = new Date();
-  for (let i = 0; i < 7; i++) {
-    const ds = fmtDate(d);
-    const entries = log[ds] || [];
-    if (entries.length) {
-      totalKcal += entries.reduce((a, e) => a + (e.kcal || 0), 0);
-      days++;
-    }
-    d.setDate(d.getDate() - 1);
-  }
-  return days > 0 ? Math.round(totalKcal / days) : null;
+function computeWeeklyAvg(log, today) {
+  const past = Object.keys(log).filter(date => date >= GoalPolicy.shiftDate(today, -7) && date < today && log[date].length);
+  const total = past.reduce((sum, date) => sum + log[date].reduce((n, e) => n + (Number(e.kcal) || 0), 0), 0);
+  return { average: past.length ? Math.round(total / past.length) : null, days: past.length };
 }
 
-// ---------- /api/log ----------
+// ---------- /api/log ----------// ---------- /api/log ----------
 app.get('/api/log', (req, res) => {
   const date = req.query.date || todayStr(req);
   const log = readJson(req.dataFiles.log, {});
@@ -687,7 +675,10 @@ app.get('/api/log', (req, res) => {
     fiber: a.fiber + (e.fiber || 0)
   }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
   const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile, req);
+  let stats = computeStats(profile, req);
+  const context = historicalContext(profile, date, req);
+  if (date !== todayStr(req)) stats = context ? { ...context, goal_meta: GOALS[context.goal] } : null;
+  const weekly = computeWeeklyAvg(log, todayStr(req));
   const isToday = !req.query.date || req.query.date === todayStr(req);
   res.json({
     date,
@@ -700,7 +691,9 @@ app.get('/api/log', (req, res) => {
     remaining_fiber: stats ? stats.fiber_g - totals.fiber : null,
     stats,
     streak: isToday ? computeStreak(log) : undefined,
-    weekly_avg_kcal: isToday ? computeWeeklyAvg(log) : undefined
+    weekly_avg_kcal: isToday ? weekly.average : undefined,
+    weekly_logged_days: isToday ? weekly.days : undefined,
+    assessment: GoalPolicy.assess(date, todayStr(req), totals.kcal, context, entries.length > 0)
   });
 });
 
@@ -799,7 +792,12 @@ app.post('/api/weight', async (req, res) => {
   if (isLatest) {
     await withFileLock(req.dataFiles.profile, () => {
       const profile = readJson(req.dataFiles.profile, null);
-      if (profile) { profile.weight_kg = Number(kg); writeJson(req.dataFiles.profile, profile); }
+      if (profile) {
+        const previous = { ...profile };
+        profile.weight_kg = Number(kg);
+        recordGoalContext(previous, profile, todayStr(req), req);
+        writeJson(req.dataFiles.profile, profile);
+      }
     });
   }
   res.json({ entry });
@@ -852,7 +850,12 @@ app.delete('/api/weight/:date', async (req, res) => {
   if (latestKg !== null) {
     await withFileLock(req.dataFiles.profile, () => {
       const profile = readJson(req.dataFiles.profile, null);
-      if (profile) { profile.weight_kg = latestKg; writeJson(req.dataFiles.profile, profile); }
+      if (profile) {
+        const previous = { ...profile };
+        profile.weight_kg = latestKg;
+        recordGoalContext(previous, profile, todayStr(req), req);
+        writeJson(req.dataFiles.profile, profile);
+      }
     });
   }
   res.json({ ok: true });
@@ -983,7 +986,10 @@ app.get('/api/log-range', (req, res) => {
     if (!entries.length) return;
     const kcal = entries.reduce((a, e) => a + (e.kcal || 0), 0);
     const protein = round1(entries.reduce((a, e) => a + (e.protein || 0), 0));
-    result[ds] = { kcal, protein, goal, protein_goal: stats ? stats.protein_g : null, entries_count: entries.length };
+    const context = historicalContext(profile, ds, req);
+    result[ds] = { kcal, protein, goal: context?.kcal_goal || null, goal_mode: context?.goal || null,
+      protein_goal: context?.protein_g || null, entries_count: entries.length,
+      assessment: GoalPolicy.assess(ds, todayStr(req), kcal, context, true) };
   });
   res.json(result);
 });
@@ -1061,58 +1067,30 @@ app.delete('/api/training/:date', async (req, res) => {
 // against the hit rate but do break streaks.
 app.get('/api/protein-adherence', (req, res) => {
   const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
-  const log = readJson(req.dataFiles.log, {});
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile, req);
   if (!stats) return res.json({ empty: true });
-
-  const target = stats.protein_g;
-  const hitThreshold = target * 0.9;
-  const endStr = todayStr(req);
-  const endD = new Date(endStr + 'T00:00:00');
-  const startD = new Date(endD); startD.setDate(startD.getDate() - (days - 1));
-
+  const today = todayStr(req), end = GoalPolicy.shiftDate(today, -1);
+  const start = GoalPolicy.shiftDate(end, -(days - 1));
+  const log = readJson(req.dataFiles.log, {});
   const series = [];
-  let daysLogged = 0;
-  let daysHit = 0;
-  let totalProtein = 0;
-  let currentStreak = 0;
-  let longestStreak = 0;
-  let trailingStreak = 0;
-
-  forEachDateInRange(startD, endD, ds => {
-    const entries = log[ds] || [];
-    if (!entries.length) {
-      series.push({ date: ds, protein: null, hit: false });
-      currentStreak = 0;
-      return;
-    }
-    const protein = entries.reduce((a, e) => a + (e.protein || 0), 0);
-    const hit = protein >= hitThreshold;
-    daysLogged++;
-    totalProtein += protein;
-    if (hit) {
-      daysHit++;
-      currentStreak++;
-      longestStreak = Math.max(longestStreak, currentStreak);
-      trailingStreak = currentStreak;
-    } else {
-      currentStreak = 0;
-      trailingStreak = 0;
-    }
-    series.push({ date: ds, protein: round1(protein), hit, target });
-  });
-
-  res.json({
-    target,
-    days_logged: daysLogged,
-    days_hit: daysHit,
-    hit_rate: daysLogged ? Math.round(daysHit / daysLogged * 100) : 0,
-    avg_protein: daysLogged ? round1(totalProtein / daysLogged) : 0,
-    longest_streak: longestStreak,
-    current_streak: trailingStreak,
-    series
-  });
+  let logged = 0, assessed = 0, hits = 0, total = 0, streak = 0, longest = 0;
+  for (let date = start; date <= end; date = GoalPolicy.shiftDate(date, 1)) {
+    const entries = log[date] || [];
+    const context = historicalContext(profile, date, req);
+    if (!entries.length) { series.push({ date, protein: null, hit: null }); streak = 0; continue; }
+    const protein = round1(entries.reduce((sum, e) => sum + (Number(e.protein) || 0), 0));
+    logged++; total += protein;
+    const eligible = !!context && context.goal !== 'reset';
+    const hit = eligible ? protein >= context.protein_g * 0.9 : null;
+    if (eligible) assessed++;
+    if (hit) { hits++; streak++; longest = Math.max(longest, streak); } else streak = 0;
+    series.push({ date, protein, hit, target: eligible ? context.protein_g : null });
+  }
+  res.json({ target: stats.protein_g, days_logged: logged, days_assessed: assessed, days_hit: hits,
+    hit_rate: assessed ? Math.round(hits / assessed * 100) : null,
+    avg_protein: logged ? round1(total / logged) : null, longest_streak: longest, current_streak: streak,
+    series, start, end, today_in_progress: true });
 });
 
 // ---------- /api/debrief ----------
@@ -1191,8 +1169,8 @@ function buildDebriefBrief(req) {
   // Goal direction drives ALL on-plan logic below; declared early.
   const goalDelta = stats && stats.goal_meta ? stats.goal_meta.delta : 0;
 
-  const today = new Date();
-  const todayKey = todayStr(req);
+  const todayKey = GoalPolicy.shiftDate(todayStr(req), -1);
+  const today = new Date(todayKey + 'T12:00:00');
   const dayMs = 86400000;
 
   // Windows: this week (last 7), prior week (8–14), last 28 days
@@ -1215,7 +1193,7 @@ function buildDebriefBrief(req) {
     const end   = new Date(todayKey + 'T00:00:00');
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const ds = fmtDate(d);
-      if ((log[ds] || []).length) out.push(aggDay(ds));
+      if (ds >= (profile?.goal_started || todayStr(req)) && (log[ds] || []).length) out.push(aggDay(ds));
     }
     return out;
   };
@@ -1225,17 +1203,9 @@ function buildDebriefBrief(req) {
   const days28 = collect(win28Start);
   const prior7 = days14.filter(d => d.date < win7Start);
 
-  // "On plan" interpretation respects the user's goal direction:
-  //   Cutter: at or BELOW the kcal_goal (ceiling). Under is winning.
-  //   Maintainer: within ±200 of the goal (both directions matter).
-  //   Gainer: at or ABOVE the kcal_goal (floor). Over is winning.
-  // Sending the AI both raw and direction-aware counts so it can't conflate them.
-  const kcalOnPlan = (d) => {
-    if (!stats) return false;
-    if (goalDelta < 0) return d.kcal <= stats.kcal_goal;
-    if (goalDelta > 0) return d.kcal >= stats.kcal_goal;
-    return d.kcal >= stats.kcal_goal - 200 && d.kcal <= stats.kcal_goal + 200;
-  };
+  // Same bounded target range as Today, Calendar and weekly review.
+  const kcalOnPlan = d => GoalPolicy.assess(d.date, todayStr(req), d.kcal,
+    historicalContext(profile, d.date, req), true) === 'within';
   const summary = (days) => {
     if (!days.length) return null;
     const totalK = days.reduce((a, d) => a + d.kcal, 0);
@@ -1246,12 +1216,15 @@ function buildDebriefBrief(req) {
       days_logged: days.length,
       avg_kcal: Math.round(totalK / days.length),
       avg_protein: round1(totalP / days.length),
-      // "on plan" = correct side of the goal for THIS user (cutter: under ceiling, etc.)
+      // Compare against the bounded range for each day’s recorded target.
       days_kcal_on_plan: stats ? days.filter(kcalOnPlan).length : null,
       // raw boundary counts so AI can see both directions explicitly
       days_over_kcal_goal:  goal ? days.filter(d => d.kcal > goal).length : null,
       days_under_kcal_goal: goal ? days.filter(d => d.kcal < goal).length : null,
-      days_hit_protein:     proteinT ? days.filter(d => d.protein >= proteinT * 0.9).length : null
+      days_hit_protein: proteinT ? days.filter(d => {
+        const context = historicalContext(profile, d.date, req);
+        return context && context.goal !== 'reset' && d.protein >= context.protein_g * 0.9;
+      }).length : null
     };
   };
 
@@ -1265,7 +1238,7 @@ function buildDebriefBrief(req) {
 
   // Weight deltas per window — labeled explicitly so the AI can't conflate the
   // 28-day trend with the 7-day review. Each block self-describes via span_days.
-  const inWindow = (n) => weights.filter(w => w.date >= fmtDate(new Date(today.getTime() - n * dayMs)));
+  const inWindow = (n) => weights.filter(w => w.date >= GoalPolicy.shiftDate(todayKey, -n) && w.date >= (profile?.goal_started || todayStr(req)) && w.date <= todayKey);
   const weightBlock = (winWeights) => {
     if (!winWeights || winWeights.length < 2) return null;
     const first = winWeights[0], last = winWeights[winWeights.length - 1];
@@ -1292,7 +1265,7 @@ function buildDebriefBrief(req) {
     const winStartMs = winEndMs - 7 * dayMs;
     const inWin = weights.filter(w => {
       const t = new Date(w.date + 'T00:00:00').getTime();
-      return t >= winStartMs && t <= winEndMs;
+      return t >= winStartMs && t <= winEndMs && w.date >= (profile?.goal_started || todayStr(req));
     });
     if (!inWin.length) { weeklyBuckets.push(null); continue; }
     const sorted = [...inWin].sort((a, b) => a.kg - b.kg);
@@ -1310,8 +1283,8 @@ function buildDebriefBrief(req) {
   let weight28 = weight28raw;
   // Add predicted-vs-actual gap to the 28-day block only (long-window math).
   if (weight28raw && stats && stats.tdee) {
-    const inSpan = days28.filter(d => d.date >= weight28raw.start_date && d.date <= weight28raw.end_date);
-    if (inSpan.length >= Math.min(5, weight28raw.span_days)) {
+    const inSpan = days28.filter(d => d.date >= weight28raw.start_date && d.date < weight28raw.end_date);
+    if (weight28raw.span_days >= 14 && inSpan.length >= Math.ceil(weight28raw.span_days * 0.9)) {
       const avgEaten = inSpan.reduce((a, d) => a + d.kcal, 0) / inSpan.length;
       const dailyDeficit = stats.tdee - avgEaten;
       const predictedDelta = round1(-(dailyDeficit * weight28raw.span_days / 7700));
@@ -1371,8 +1344,11 @@ function buildDebriefBrief(req) {
       dow: DOW[dt.getDay()],
       kcal: d.kcal,
       protein: d.protein,
-      hit_kcal: stats ? d.kcal >= stats.kcal_goal - 200 && d.kcal <= stats.kcal_goal + 200 : null,
-      hit_protein: stats ? d.protein >= stats.protein_g * 0.9 : null
+      hit_kcal: historicalContext(profile, d.date, req) ? kcalOnPlan(d) : null,
+      hit_protein: (() => {
+        const context = historicalContext(profile, d.date, req);
+        return context && context.goal !== 'reset' ? d.protein >= context.protein_g * 0.9 : null;
+      })()
     };
     if (trEntry && trEntry.types && trEntry.types.length) {
       row.training_types = trEntry.types;
@@ -1399,6 +1375,8 @@ function buildDebriefBrief(req) {
   return {
     user_context: {
       goal: profile && profile.goal,
+      goal_started: profile && profile.goal_started,
+      data_note: 'Only past logged days in this goal period are included. A logged day may still omit meals. Do not infer intake on missing days. Training records are optional. Target comparisons use a bounded 200 kcal tolerance.',
       is_cutting:     goalDelta < 0,
       is_maintaining: goalDelta === 0,
       is_gaining:     goalDelta > 0,
@@ -1432,7 +1410,7 @@ function buildDebriefBrief(req) {
       if (!s7 || !stats || !weight7) return ins;
       const cutterOnPlan =
         goalDelta < 0 &&
-        s7.days_kcal_on_plan / s7.days_logged >= 0.7 &&        // ≥70% days under ceiling
+        s7.days_kcal_on_plan / s7.days_logged >= 0.7 &&        // ≥70% of logged days within their recorded range
         s7.avg_protein >= stats.protein_g * 0.95 &&            // protein basically hit
         weight7.delta_kg <= -0.1;                              // weight actually dropping
       const maintainerOnPlan =
@@ -1495,7 +1473,7 @@ function buildDebriefBrief(req) {
 function detectDebriefTriggers(brief, alreadyGenerated) {
   const triggers = [];
   const isoWeek = isoWeekKey(new Date());
-  const alreadyThisWeek = (t) => alreadyGenerated.some(d => d.iso_week === isoWeek && d.trigger === t);
+  const alreadyThisWeek = (t) => alreadyGenerated.some(d => d.iso_week === isoWeek && d.trigger === t && d.goal_started === brief.user_context.goal_started && d.goal === brief.user_context.goal);
 
   // Need minimum data to fire anything
   if (!brief.last_7 || brief.last_7.days_logged < DEBRIEF_MIN_DAYS) return triggers;
@@ -1531,10 +1509,11 @@ function detectDebriefTriggers(brief, alreadyGenerated) {
 function debriefUnlockChecklist(brief) {
   const checks = [];
   checks.push({ key: 'profile', label: 'Profile complete', done: !!(brief.user_context && brief.user_context.kcal_goal) });
+  checks.push({ key: 'goal', label: 'Nutrition review available outside reset week', done: brief.user_context?.goal !== 'reset' });
   const dayCount = (brief.last_7 && brief.last_7.days_logged) || 0;
   checks.push({
     key: 'meals',
-    label: `${dayCount}/${DEBRIEF_MIN_DAYS} days logged this week`,
+    label: `${dayCount}/${DEBRIEF_MIN_DAYS} past days logged in the last week for this goal`,
     done: dayCount >= DEBRIEF_MIN_DAYS,
     progress: { current: dayCount, target: DEBRIEF_MIN_DAYS }
   });
@@ -1547,7 +1526,7 @@ app.get('/api/debrief', (req, res) => {
   const checklist = debriefUnlockChecklist(brief);
   const unlocked = checklist.every(c => c.done);
   const triggers = unlocked ? detectDebriefTriggers(brief, existing) : [];
-  const recent = existing.slice(-5).reverse();
+  const recent = existing.filter(d => d.goal === brief.user_context.goal && d.goal_started === brief.user_context.goal_started).slice(-5).reverse();
   res.json({
     unlocked,
     checklist,
@@ -1571,7 +1550,7 @@ app.post('/api/debrief', async (req, res) => {
   // useful when the user gives a 👎 and wants a re-roll, or when prompt has been tuned.
   const force = !!(req.body && req.body.force);
   if (!force) {
-    const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger);
+    const cached = existing.find(d => d.iso_week === isoWeek && d.trigger === trigger && d.goal === brief.user_context.goal && d.goal_started === brief.user_context.goal_started);
     if (cached) return res.json({ debrief: cached, cached: true });
   }
 
@@ -1612,6 +1591,8 @@ app.post('/api/debrief', async (req, res) => {
     id: newId(),
     trigger,
     iso_week: isoWeek,
+    goal: brief.user_context.goal,
+    goal_started: brief.user_context.goal_started,
     generated_at: new Date().toISOString(),
     working: stripPrefix(data.working),
     leak:    stripPrefix(data.leak),
@@ -1627,7 +1608,8 @@ app.post('/api/debrief', async (req, res) => {
   await withFileLock(req.dataFiles.debriefs, () => {
     const arr = readJson(req.dataFiles.debriefs, []);
     // If forcing a regenerate, drop the prior cached entry for this (week, trigger).
-    const filtered = force ? arr.filter(d => !(d.iso_week === isoWeek && d.trigger === trigger)) : arr;
+    const filtered = force ? arr.filter(d => !(d.iso_week === isoWeek && d.trigger === trigger &&
+      d.goal === entry.goal && d.goal_started === entry.goal_started)) : arr;
     filtered.push(entry);
     while (filtered.length > DEBRIEF_KEEP) filtered.shift();
     writeJson(req.dataFiles.debriefs, filtered);
@@ -1718,131 +1700,37 @@ app.get('/api/logging-stats', (req, res) => {
   res.json({ current_streak: streak, best_streak: bestStreak, meals_per_day: mealsPerDay, total_days_logged: totalDaysLogged });
 });
 
-function compute7DayBlock(log, weights, stats, startStr, endStr) {
-  const startD = new Date(startStr + 'T00:00:00');
-  const endD = new Date(endStr + 'T00:00:00');
-  const dayTotals = [];
-  forEachDateInRange(startD, endD, ds => {
-    const entries = log[ds] || [];
-    if (!entries.length) return;
-    const t = entries.reduce((a, e) => ({
-      kcal: a.kcal + (e.kcal || 0),
-      protein: a.protein + (e.protein || 0),
-      fat: a.fat + (e.fat || 0),
-      carb: a.carb + (e.carb || 0),
-      fiber: a.fiber + (e.fiber || 0)
-    }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
-    dayTotals.push({ date: ds, ...t, entries });
-  });
-  if (!dayTotals.length) return { days_logged: 0, empty: true };
-
-  const goal = stats ? stats.kcal_goal : null;
-  const proteinT = stats ? stats.protein_g : null;
-  const totalK = dayTotals.reduce((a, d) => a + d.kcal, 0);
-  const totalP = dayTotals.reduce((a, d) => a + d.protein, 0);
-  const daysHitGoal = goal ? dayTotals.filter(d => d.kcal >= goal - 200 && d.kcal <= goal + 200).length : 0;
-
-  const weightsInWindow = weights.filter(w => w.date >= startStr && w.date <= endStr);
-  const weight_start = weightsInWindow[0] ? weightsInWindow[0].kg : null;
-  const weight_end = weightsInWindow.length ? weightsInWindow[weightsInWindow.length - 1].kg : null;
-  const weight_delta = weight_start !== null && weight_end !== null && weightsInWindow.length >= 2
-    ? Math.round((weight_end - weight_start) * 100) / 100
-    : null;
-
-  return {
-    days_logged: dayTotals.length,
-    avg_kcal: Math.round(totalK / dayTotals.length),
-    avg_protein: round1(totalP / dayTotals.length),
-    days_hit_goal: daysHitGoal,
-    weight_delta_kg: weight_delta,
-    weight_start,
-    weight_end,
-    dayTotals
-  };
+function compute7DayBlock(log, weights, profile, start, end, req) {
+  const days = [];
+  for (let date = start; date <= end; date = GoalPolicy.shiftDate(date, 1)) {
+    const entries = log[date] || [];
+    if (!entries.length) continue;
+    const kcal = entries.reduce((sum, e) => sum + (Number(e.kcal) || 0), 0);
+    const protein = round1(entries.reduce((sum, e) => sum + (Number(e.protein) || 0), 0));
+    const context = historicalContext(profile, date, req);
+    days.push({ date, kcal, protein, context, assessment: GoalPolicy.assess(date, todayStr(req), kcal, context, true) });
+  }
+  const assessed = days.filter(d => ['below', 'within', 'above'].includes(d.assessment));
+  return { days_logged: days.length, empty: !days.length,
+    avg_kcal: days.length ? Math.round(days.reduce((sum, d) => sum + d.kcal, 0) / days.length) : null,
+    avg_protein: days.length ? round1(days.reduce((sum, d) => sum + d.protein, 0) / days.length) : null,
+    days_assessed: assessed.length, days_hit_goal: assessed.filter(d => d.assessment === 'within').length,
+    reset_days_logged: days.filter(d => d.assessment === 'reset').length,
+    unknown_target_days: days.filter(d => d.assessment === 'unknown').length, dayTotals: days };
 }
-
 app.get('/api/weekly-review', (req, res) => {
+  const today = todayStr(req);
+  const yesterday = GoalPolicy.shiftDate(today, -1);
+  const end = req.query.end && /^\d{4}-\d{2}-\d{2}$/.test(req.query.end) && req.query.end < today
+    ? req.query.end : yesterday;
+  const start = GoalPolicy.shiftDate(end, -6);
+  const profile = readJson(req.dataFiles.profile, null);
   const log = readJson(req.dataFiles.log, {});
   const weights = readJson(req.dataFiles.weight, []);
-  const profile = readJson(req.dataFiles.profile, null);
-  const stats = computeStats(profile, req);
-
-  const endStr = req.query.end || todayStr(req);
-  const endD = new Date(endStr + 'T00:00:00');
-  const startD = new Date(endD); startD.setDate(startD.getDate() - 6);
-  const startStr = fmtDate(startD);
-  // Previous 7-day window for comparison
-  const prevEndD = new Date(startD); prevEndD.setDate(prevEndD.getDate() - 1);
-  const prevStartD = new Date(prevEndD); prevStartD.setDate(prevStartD.getDate() - 6);
-  const prevStartStr = fmtDate(prevStartD);
-  const prevEndStr = fmtDate(prevEndD);
-
-  const current = compute7DayBlock(log, weights, stats, startStr, endStr);
-  const previous = compute7DayBlock(log, weights, stats, prevStartStr, prevEndStr);
-
-  if (current.empty) {
-    return res.json({ start: startStr, end: endStr, days_logged: 0, empty: true });
-  }
-
-  const goal = stats ? stats.kcal_goal : null;
-  const proteinT = stats ? stats.protein_g : null;
-  const fatT = stats ? stats.fat_g : null;
-  const carbT = stats ? stats.carb_g : null;
-  const fiberT = stats ? stats.fiber_g : null;
-
-  const inRange = (val, target) => target && val >= target * 0.8 && val <= target * 1.2;
-  const macro_hit_days = {
-    protein: proteinT ? current.dayTotals.filter(d => inRange(d.protein, proteinT)).length : 0,
-    fat: fatT ? current.dayTotals.filter(d => inRange(d.fat, fatT)).length : 0,
-    carb: carbT ? current.dayTotals.filter(d => inRange(d.carb, carbT)).length : 0,
-    fiber: fiberT ? current.dayTotals.filter(d => d.fiber >= fiberT * 0.8).length : 0
-  };
-
-  // Top foods (most logged by name, normalized)
-  const foodCounts = {};
-  current.dayTotals.forEach(d => d.entries.forEach(e => {
-    const key = String(e.name || '').toLowerCase().trim().slice(0, 60);
-    if (!key) return;
-    if (!foodCounts[key]) foodCounts[key] = { name: e.name, count: 0, total_kcal: 0 };
-    foodCounts[key].count += 1;
-    foodCounts[key].total_kcal += e.kcal || 0;
-  }));
-  const top_foods = Object.values(foodCounts)
-    .filter(f => f.count >= 2)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3)
-    .map(f => ({ name: f.name, count: f.count, avg_kcal: Math.round(f.total_kcal / f.count) }));
-
-  // Best/worst day
-  const sorted = [...current.dayTotals].sort((a, b) => a.kcal - b.kcal);
-  const lightestDay = sorted[0];
-  const heaviestDay = sorted[sorted.length - 1];
-
-  res.json({
-    start: startStr,
-    end: endStr,
-    days_logged: current.days_logged,
-    avg_kcal: current.avg_kcal,
-    avg_protein: current.avg_protein,
-    total_kcal: current.dayTotals.reduce((a, d) => a + d.kcal, 0),
-    goal_kcal: goal,
-    days_hit_goal: current.days_hit_goal,
-    macro_hit_days,
-    macro_targets: { protein: proteinT, fat: fatT, carb: carbT, fiber: fiberT },
-    top_foods,
-    weight_delta_kg: current.weight_delta_kg,
-    weight_start: current.weight_start,
-    weight_end: current.weight_end,
-    lightest_day: { date: lightestDay.date, kcal: lightestDay.kcal },
-    heaviest_day: { date: heaviestDay.date, kcal: heaviestDay.kcal },
-    previous: previous.empty ? null : {
-      days_logged: previous.days_logged,
-      avg_kcal: previous.avg_kcal,
-      avg_protein: previous.avg_protein,
-      days_hit_goal: previous.days_hit_goal,
-      weight_delta_kg: previous.weight_delta_kg
-    }
-  });
+  const current = compute7DayBlock(log, weights, profile, start, end, req);
+  res.json({ ...current, start, end, today_in_progress: !!(log[today] || []).length,
+    note: 'Averages include only past days with food entries. Missing days are unknown; entries do not prove a full day was logged.',
+    previous: compute7DayBlock(log, weights, profile, GoalPolicy.shiftDate(start, -7), GoalPolicy.shiftDate(start, -1), req) });
 });
 
 // ---------- /api/templates ----------
@@ -2797,6 +2685,6 @@ if (require.main === module) {
     normalizeFoodName, customLookup, isRelevantMatch,
     initialFinals, applyCustomFood, applySanityCaps,
     computeFavorites,
-    computeStats, resetMeta, comebackTier, lastActiveStretch, GOALS, RESET_DAYS
+    computeStats, recordGoalContext, historicalContext, compute7DayBlock, resetMeta, comebackTier, lastActiveStretch, GOALS, RESET_DAYS
   };
 }

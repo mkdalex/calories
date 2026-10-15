@@ -85,98 +85,66 @@ async function loadProfile() {
 }
 
 function renderExplainer() {
-  if (!state.stats) {
-    $('#profileExplainer').innerHTML = '';
-    return;
-  }
-  const tdeeBadge = state.stats.tdee_calibrated
-    ? `<span style="font-size:10px;background:rgba(74,222,128,0.15);color:var(--accent);padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">CALIBRATED</span>`
-    : '';
+  if (!state.stats) { $('#profileExplainer').innerHTML = ''; return; }
+  const s = state.stats;
+  const source = s.target_source === 'saved_override' ? 'Saved maintenance override' : 'Profile formula';
+  const date = s.override_set_at ? `Saved on ${escapeHtml(s.override_set_at)}.` : 'Original save date is unknown.';
   $('#profileExplainer').innerHTML = `
-    <div class="card">
-      <h2>Your numbers</h2>
-      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 12px;">
-        <div><div style="color: var(--text-dim); font-size: 12px;"><span class="gloss" data-tip="${GLOSSARY.BMR}">BMR</span></div><div style="font-size: 22px; font-weight: 600;">${state.stats.bmr.toLocaleString()}</div></div>
-        <div><div style="color: var(--text-dim); font-size: 12px;"><span class="gloss" data-tip="${GLOSSARY.TDEE}">TDEE</span>${tdeeBadge}</div><div style="font-size: 22px; font-weight: 600;">${state.stats.tdee.toLocaleString()}</div></div>
-        <div><div style="color: var(--text-dim); font-size: 12px;">Daily goal</div><div style="font-size: 22px; font-weight: 600; color: var(--accent);">${state.stats.kcal_goal.toLocaleString()}</div></div>
-        <div><div style="color: var(--text-dim); font-size: 12px;">Protein</div><div style="font-size: 22px; font-weight: 600;">${state.stats.protein_g}g</div></div>
+    <div class="card goal-summary">
+      <h2>Your target · ${escapeHtml(GoalPolicy.LABELS[s.goal] || s.goal_meta.label)}</h2>
+      <div class="wr-stat-grid">
+        <div class="wr-stat"><div class="wr-num">${s.kcal_goal.toLocaleString()}</div><div class="wr-lbl">kcal daily target</div></div>
+        <div class="wr-stat"><div class="wr-num">${s.protein_g} g</div><div class="wr-lbl">protein reference</div></div>
+        <div class="wr-stat"><div class="wr-num">${s.tdee.toLocaleString()}</div><div class="wr-lbl">active maintenance estimate</div></div>
       </div>
-      <div class="narrative">${glossify(state.stats.explainer)}</div>
+      <p>${escapeHtml(s.explainer)}</p>
+      <p class="goal-note"><strong>${source}</strong>. Formula estimate: ${s.tdee_predicted.toLocaleString()} kcal.
+        ${s.tdee_calibrated ? `${date} ${s.override_review ? 'Review this override: its age or profile context is uncertain or has changed.' : ''}` : ''}
+      </p>
+      <p class="goal-note">${s.goal_started ? `Current goal tracked from ${escapeHtml(s.goal_started)}.` : 'Goal history will be recorded from your next saved profile.'} Older records without a known target remain unscored.</p>
+      <p class="goal-note">Changing profile fields takes effect after Save profile. A saved maintenance override remains active until you reset or replace it.</p>
     </div>
-    <div class="card" id="calibrateCard"></div>
-    <div class="card">
-      <h2>How this works</h2>
-      <div class="edu-card" style="margin-top: 0;">${EDU_PROTEIN_HTML}</div>
-    </div>
-  `;
+    <div class="card" id="calibrateCard"></div>`;
   renderCalibrate();
 }
 
 async function renderCalibrate() {
   const card = $('#calibrateCard');
   if (!card) return;
-  card.innerHTML = `<h2>TDEE reality check</h2><div style="color:var(--text-dim);font-size:13px;padding:6px 0;">Loading…</div>`;
+  card.innerHTML = '<h2>Review maintenance estimate</h2><div class="empty">Loading…</div>';
   let r;
-  try { r = await api('/api/calibrate'); } catch (e) { card.innerHTML = `<h2>TDEE reality check</h2><div class="empty">Error loading.</div>`; return; }
-  const intro = `<div style="color:var(--text-dim);font-size:12px;margin-bottom:8px;line-height:1.5;">Compares your <span class="gloss" data-tip="${GLOSSARY.TDEE}">TDEE</span> formula against what your real weight + log data implies. Adjust the formula if reality says otherwise.</div>`;
-  if (!r.can_calibrate) {
-    const resetBtn = r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset" style="margin-top:8px;font-size:13px;padding:8px 14px;">Reset to predicted (${r.tdee_predicted})</button>` : '';
-    card.innerHTML = `<h2>TDEE reality check</h2>${intro}<div style="color:var(--text-dim);font-size:13px;">${escapeHtml(r.reason)}</div>${resetBtn}`;
-    if (resetBtn) {
-      $('#tdeeReset').addEventListener('click', async () => {
-        await api('/api/profile', { method: 'POST', body: { tdee_override: null } });
-        showToast('TDEE reset to predicted');
-        loadProfile();
-      });
-    }
-    return;
+  try { r = await api('/api/calibrate'); } catch (_) {
+    card.innerHTML = '<h2>Review maintenance estimate</h2><p>Could not load the records. Try again later.</p>'; return;
   }
-  const diff = r.diff;
-  const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
-  const diffColor = Math.abs(diff) < 50 ? 'var(--accent)' : Math.abs(diff) < 150 ? 'var(--warn)' : 'var(--danger)';
-  const verdict = Math.abs(diff) < 50
-    ? `<span style="color:var(--accent);font-weight:600;">Your formula is on point.</span> Real-world data lines up with the prediction.`
-    : diff > 0
-    ? `<span style="color:var(--warn);font-weight:600;">Your real TDEE looks higher.</span> You're burning ~${diff} kcal/day more than predicted — you can eat that much more and still hit your goal.`
-    : `<span style="color:var(--warn);font-weight:600;">Your real TDEE looks lower.</span> You're burning ~${Math.abs(diff)} kcal/day less than predicted — current goal will lose weight slower than expected.`;
-
-  const wDelta = r.weight_delta_kg;
-  const wDeltaStr = wDelta < 0 ? `−${Math.abs(wDelta)}` : wDelta > 0 ? `+${wDelta}` : '0';
-  const wColor = wDelta < 0 ? 'var(--accent)' : wDelta > 0 ? 'var(--danger)' : 'var(--text-dim)';
-
-  card.innerHTML = `
-    <h2>TDEE reality check</h2>
-    ${intro}
-    <div class="calibrate-grid">
-      <div class="cal-stat"><div class="cal-num">${r.tdee_predicted.toLocaleString()}</div><div class="cal-lbl">predicted</div></div>
-      <div class="cal-stat"><div class="cal-num" style="color:${diffColor};">${r.tdee_implied.toLocaleString()}</div><div class="cal-lbl">implied</div></div>
-      <div class="cal-stat"><div class="cal-num" style="color:${diffColor};">${diffStr}</div><div class="cal-lbl">diff</div></div>
-    </div>
-    <div style="font-size:13px;margin:10px 0;line-height:1.5;">${verdict}</div>
-    <div style="font-size:12px;color:var(--text-dim);line-height:1.5;">
-      Based on <strong style="color:var(--text);">${r.days_logged} logged days</strong> over ${r.days_span} days,
-      averaging <strong style="color:var(--text);">${r.avg_kcal.toLocaleString()} kcal/day</strong>,
-      weight <strong style="color:${wColor};">${wDeltaStr} kg</strong> (${r.weight_start} → ${r.weight_end} kg).
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-      ${Math.abs(diff) >= 50 ? `<button class="btn" id="tdeeUse" style="font-size:13px;padding:10px 16px;">Use ${r.tdee_implied.toLocaleString()} as my TDEE</button>` : ''}
-      ${r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset" style="font-size:13px;padding:10px 16px;">Reset to predicted</button>` : ''}
-    </div>
-  `;
-  if ($('#tdeeUse')) {
-    $('#tdeeUse').addEventListener('click', async () => {
-      await api('/api/profile', { method: 'POST', body: { tdee_override: r.tdee_implied } });
-      showToast(`TDEE set to ${r.tdee_implied.toLocaleString()}`);
-      loadProfile();
+  const reset = r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset">Reset to formula (${r.tdee_predicted.toLocaleString()} kcal)</button>` : '';
+  card.innerHTML = `<h2>Review maintenance estimate</h2>
+    <p class="goal-note">Uses recent food and weight records from the current goal period, up to 42 days. Today’s intake is excluded.</p>
+    <p>Active estimate: <strong>${r.tdee_current?.toLocaleString() || '—'} kcal</strong> · Formula: ${r.tdee_predicted?.toLocaleString() || '—'} kcal</p>
+    ${r.can_calibrate ? `
+      <p>Recent records suggest approximately <strong>${r.tdee_implied.toLocaleString()} kcal</strong> for maintenance.</p>
+      <p class="goal-note">${r.weight_start_date} → ${r.weight_end_date}: ${r.days_logged}/${r.days_span} days with food entries, ${r.avg_kcal.toLocaleString()} kcal average on logged days. Weight: ${r.weight_start} → ${r.weight_end} kg.</p>
+      <p class="goal-note">${escapeHtml(r.caveat)}</p>
+      <label class="calibration-confirm"><input type="checkbox" id="calibrationConfirm"> I’ve reviewed this period’s food logs for omitted meals.</label>
+      <button class="btn" id="tdeeUse" disabled>Use ${r.tdee_implied.toLocaleString()} kcal as maintenance</button>
+    ` : `<p>${escapeHtml(r.reason || 'Not enough recent data to recalibrate.')}</p>`}
+    ${reset}`;
+  const apply = $('#tdeeUse');
+  if (apply) {
+    $('#calibrationConfirm').addEventListener('change', e => { apply.disabled = !e.target.checked; });
+    apply.addEventListener('click', async () => {
+      apply.disabled = true;
+      try {
+        const saved = await api('/api/profile', { method: 'POST', body: { tdee_override: r.tdee_implied } });
+        if (saved.error) throw new Error(saved.error);
+        showToast('Maintenance estimate updated'); await loadProfile();
+      } catch (e) { showToast(e.message || 'Could not save'); apply.disabled = false; }
     });
   }
-  if ($('#tdeeReset')) {
-    $('#tdeeReset').addEventListener('click', async () => {
-      await api('/api/profile', { method: 'POST', body: { tdee_override: null } });
-      showToast('TDEE reset to predicted');
-      loadProfile();
-    });
-  }
+  if ($('#tdeeReset')) $('#tdeeReset').addEventListener('click', async () => {
+    const saved = await api('/api/profile', { method: 'POST', body: { tdee_override: null } });
+    if (saved.error) return showToast(saved.error);
+    showToast('Using the profile formula'); loadProfile();
+  });
 }
 
 async function loadMyFoods() {

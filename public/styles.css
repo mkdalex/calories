@@ -1461,3 +1461,19 @@
     }
   }
 
+
+/* Goal context and honest progress states */
+.goal-summary h2 { margin-bottom: 12px; }
+.goal-summary p { line-height: 1.6; margin: 10px 0; }
+.goal-note { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+.goal-link { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0 4px; font: inherit; text-decoration: underline; }
+.intake-track { position: relative; height: 18px; background: var(--panel-2); border-radius: 8px; margin: 18px 0 10px; overflow: hidden; }
+.intake-fill { height: 100%; background: var(--accent); opacity: .65; }
+.intake-tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text-dim); }
+.intake-tick.target { background: var(--text); }
+.intake-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.calibration-confirm { display: block; margin: 16px 0; font-size: 13px; }
+#calibrateCard button { margin: 6px 8px 0 0; }
+.cal-cell.in-progress { border: 1px dashed var(--info); }
+.cal-cell.unscored .cal-day-kcal, .cal-cell.in-progress .cal-day-kcal { color: var(--text); }
+.history-note { margin: 10px 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; }

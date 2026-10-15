@@ -384,7 +384,7 @@ function renderResetDone(el, days, logged, doneCount, meta) {
     ? `${doneCount} of ${meta.of} days logged. The habit's back — that was the point.`
     : doneCount >= 2
     ? `${doneCount} of ${meta.of} days logged. Not perfect, but you're logging again, which is more than a week ago.`
-    : `You logged ${doneCount} ${doneCount === 1 ? 'day' : 'days'}. That's a slow start — worth picking the gentlest option below rather than a hard cut.`;
+    : `Food was recorded on ${doneCount} ${doneCount === 1 ? 'day' : 'days'}. Missing logs do not tell us what you ate or how your training went.`;
 
   el.innerHTML = `
     <div class="reset-done">
@@ -395,7 +395,7 @@ function renderResetDone(el, days, logged, doneCount, meta) {
         ${avgKcal ? `<div class="reset-done-stat"><div class="reset-done-num">${avgKcal.toLocaleString()}</div><div class="reset-done-lbl">avg kcal</div></div>` : ''}
         ${avgProtein ? `<div class="reset-done-stat"><div class="reset-done-num">${avgProtein}g</div><div class="reset-done-lbl">avg protein</div></div>` : ''}
       </div>
-      <p>Now you can pick a goal against real numbers instead of a guess.</p>
+      <p>Choose the goal you want to work toward. These logs show recording activity; they do not establish your maintenance needs.</p>
       <div class="cb-cards" id="resetGoalPick">
         ${CB_INTENTS.filter(o => o.id !== 'reset').map(o => `
           <button class="cb-card-option" data-id="${o.id}">

@@ -6,10 +6,10 @@ A self-hosted calorie + protein tracker focused on the two metrics that actually
 
 - **Plain-English meal logging** — AI parses your text into items + macros
 - **Database verification** — USDA Foundation lab data + FatSecret + OpenFoodFacts cross-check the AI's estimates
-- **Today view** — kcal ring, protein bar, water bottle, day-of-day pacing, meal-period grouping (breakfast/lunch/dinner)
+- **Today view** — kcal ring, protein bar, water bottle, in-progress daily totals, meal-period grouping (breakfast/lunch/dinner)
 - **History** — calendar grid, 30-day kcal trend, day-of-week pattern chart, last-7-days review card
-- **TDEE calibration** — auto-corrects your maintenance calories based on observed weight + intake
-- **Comeback flow** — come back after a week or more away and the app leads with a recap of your last stretch, asks for a fresh weigh-in (your targets are built on it), and lets you pick a **Reset week**: seven days at maintenance where the only thing scored is whether you logged. On day 8 it prompts for a real goal, using the week you just recorded instead of a guess.
+- **TDEE calibration** — offers a maintenance estimate for review when enough recent weight and food records exist
+- **Comeback flow** — come back after a week or more away and the app leads with a recap of your last stretch, asks for a fresh weigh-in (your targets are built on it), and lets you pick a **Reset week**: seven days at maintenance where the only thing scored is whether you logged. On day 8 it prompts you to choose your next goal. Logging coverage alone is not a maintenance calibration.
 - **Templates + favorites** — one-tap log meals you eat often
 - **Cost-capped** — daily token + dollar caps prevent runaway AI spend
 
@@ -91,6 +91,14 @@ Each Discord user gets their own data directory under `data/users/<discord_id>/`
 - **Saving food values**: when AI gets something wrong (low/medium confidence), click `Save as my food` to teach the app the correct value. Next time you log that food, it skips AI and uses your value.
 - **Templates**: log a meal once, then click `+ Template` to save the combo. One tap to log it again.
 - **Keyboard shortcuts**: `1`–`5` switch tabs, `L` opens the log modal, `Esc` closes modals.
+
+## Goals and data confidence
+
+Fat loss, maintenance and muscle gain use the same recorded-target comparison: within 200 kcal either side of that day's target. This is a display tolerance, not a prediction of weight change. Reset week focuses on logging and does not score nutrition targets.
+
+Today remains in progress and is excluded from past-day averages and reviews. Missing days are unknown. Historical targets are stored from the first profile load or save after this update; earlier records remain visible without a fabricated target.
+
+Maintenance review uses the current goal period within the last 42 days. It requires at least four weigh-ins spanning 14 days, a weigh-in within the last seven days, at least 14 logged past days, 90% logging coverage, and no missing gap longer than two days. These are conservative app eligibility rules, not a guarantee that intake is complete. Users review omitted meals before applying an estimate. Saved overrides remain active until explicitly reset or replaced; their source and review status are shown in Profile.
 
 ## Cost & API usage
 

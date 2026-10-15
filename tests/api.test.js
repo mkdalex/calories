@@ -282,3 +282,14 @@ test('export/csv: returns text/csv with the header row', async () => {
   const text = await r.text();
   assert.match(text, /^date,time,name,kcal,protein_g,fat_g,carb_g,fiber_g,source/);
 });
+
+test('favorites: route defaults to eight and supports a larger search limit', async () => {
+  for (let i = 0; i < 12; i++) {
+    await request('POST', '/api/log', { body: { name: 'limit-test-' + i, kcal: 100 } });
+  }
+  const normal = await request('GET', '/api/favorites');
+  const expanded = await request('GET', '/api/favorites?limit=12');
+  assert.equal(normal.status, 200);
+  assert.equal(normal.data.length, 8);
+  assert.equal(expanded.data.length, 12);
+});

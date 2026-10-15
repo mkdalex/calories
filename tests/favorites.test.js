@@ -26,12 +26,12 @@ test('computeFavorites', async (t) => {
     assert.equal(favs[2].count, 1);
   });
 
-  await t.test('returns at most 8 favorites', () => {
+  await t.test('returns all favorites so the route can apply its requested limit', () => {
     const log = { '2026-05-15': [] };
     for (let i = 0; i < 12; i++) {
       log['2026-05-15'].push(e({ name: `food-${i}` }));
     }
-    assert.equal(computeFavorites(log).length, 8);
+    assert.equal(computeFavorites(log).length, 12);
   });
 
   await t.test('groups case-insensitively by name', () => {
