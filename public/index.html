@@ -47,15 +47,16 @@
     <link rel="stylesheet" href="/css/onboarding.css" />
     <link rel="stylesheet" href="/css/comeback.css" />
     <link rel="stylesheet" href="/css/login.css" />
-    <link rel="stylesheet" href="/css/redesign.css" />
     <link rel="stylesheet" href="/css/shell.css" />
     <link rel="stylesheet" href="/css/log-sheet.css" />
+    <link rel="stylesheet" href="/css/trends.css" />
+    <link rel="stylesheet" href="/css/screens.css" />
   </head>
   <body>
     <!-- ========== LOGIN SCREEN (hidden by default; auth.js shows if no session) ========== -->
     <div class="login-screen hidden" id="loginScreen">
       <div class="login-card">
-        <div class="login-emoji">🍎</div>
+        <span class="brand-mark" aria-hidden="true"></span>
         <h1>Calories</h1>
         <p>Sign in with Discord to track your meals.</p>
         <a href="/auth/discord" class="discord-btn">
@@ -144,6 +145,7 @@
       <div id="resetWrap"></div>
       <div class="today-grid">
         <div class="today-main">
+          <section class="composer-host" id="composerHost" aria-label="Log a meal"></section>
           <form class="quick-log" id="quickLog" autocomplete="off">
             <svg class="ql-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>
             <label class="sr-only" for="quickLogInput">What did you eat?</label>
@@ -159,6 +161,7 @@
             <div class="section-head">
               <h2 id="mealsTitle">Meals</h2>
               <span id="mealsCount"></span>
+              <span id="mealsSum"></span>
             </div>
             <div id="mealList"></div>
             <div class="meal-slots" id="mealSlots"></div>
@@ -171,6 +174,7 @@
             <div id="macroWrap"></div>
           </div>
           <div id="gapFillWrap"></div>
+          <div id="weekWrap"></div>
           <div id="waterWrap"></div>
         </div>
       </div>
@@ -182,9 +186,9 @@
       <div class="card" id="gymStatsCard"></div>
       <div class="card">
         <div class="gym-week-header">
-          <button class="gym-nav-btn" id="gymPrevWeek" aria-label="Previous week">&#8249;</button>
+          <button class="gym-nav-btn" id="gymPrevWeek" type="button" aria-label="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
           <span class="gym-week-label" id="gymWeekLabel"></span>
-          <button class="gym-nav-btn" id="gymNextWeek" aria-label="Next week">&#8250;</button>
+          <button class="gym-nav-btn" id="gymNextWeek" type="button" aria-label="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
         </div>
         <div class="gym-week" id="gymWeek"></div>
       </div>
@@ -203,7 +207,7 @@
         <div class="gym-picker-section-title">Specific muscles / activity</div>
         <div class="gym-picker-chips" id="gymPickerMuscles"></div>
         <div class="field gym-cardio-box hidden" id="gymPickerCardioBox" style="margin-top:14px;">
-          <label>🔥 Cardio calories burned <span style="color:var(--text-dim);font-size:11px;">— from the treadmill / app</span></label>
+          <label for="gymPickerCardioKcal">Cardio calories burned <span class="label-note">from the treadmill or app</span></label>
           <input id="gymPickerCardioKcal" type="number" min="1" max="5000" step="10" placeholder="e.g. 300" />
         </div>
         <div class="field" style="margin-top:14px;">
@@ -226,49 +230,56 @@
 
     <!-- ========== HISTORY VIEW ========== -->
     <div class="view hidden" id="view-history">
-      <header class="view-head"><h1>Trends</h1></header>
-      <div id="plateauBannerWrap"></div>
-      <!-- Narrative banners span full width above the two columns -->
-      <div class="card" id="debriefCard"></div>
-      <div class="card" id="weeklyReviewCard"></div>
+      <header class="view-head trends-head">
+        <h1>Trends</h1>
+        <div class="range-toggle" role="group" aria-label="Time range">
+          <button type="button" data-range="7" aria-pressed="true">7D</button>
+          <button type="button" data-range="30" aria-pressed="false">30D</button>
+          <button type="button" data-range="90" aria-pressed="false">90D</button>
+        </div>
+      </header>
       <div class="dash-grid">
         <div class="dash-col-left">
-          <div class="card" id="weightCard">
-            <h2>Weight</h2>
-            <div class="field">
-              <label>Today's weight (kg)</label>
-              <div style="display: flex; gap: 8px">
-                <input
-                  id="weightInput"
-                  type="number"
-                  step="0.1"
-                  placeholder="85.0"
-                />
-                <button class="btn" id="weightSave">Log</button>
-              </div>
-            </div>
-            <div id="weightHistory"></div>
-          </div>
-          <div class="card" id="proteinAdherenceCard"></div>
-          <div class="card" id="sourceQualityCard"></div>
-        </div>
-        <div class="dash-col-right">
-          <div class="card" id="calendarCard">
-            <div class="cal-header">
-              <button class="cal-nav-btn" id="calPrev">&#8249;</button>
-              <span class="cal-month-label" id="calMonthLabel"></span>
-              <button class="cal-nav-btn" id="calNext">&#8250;</button>
-            </div>
-            <div class="cal-grid" id="calGrid"></div>
-            <div id="calDetail"></div>
-          </div>
-          <div class="card" id="predictedActualCard"></div>
-          <div class="card" id="kcalTrendCard">
-            <h2>Calorie trend — 30 days</h2>
+          <section class="trend-card" id="kcalTrendCard" aria-labelledby="kcalTrendTitle">
+            <h2 class="sr-only" id="kcalTrendTitle">Calories</h2>
             <div id="kcalTrendStats" class="kcal-trend-stats"></div>
             <div id="kcalTrendChart"></div>
-          </div>
-          <div class="card" id="dowPatternCard"></div>
+          </section>
+          <div class="trend-tiles" id="trendTiles"></div>
+          <section class="trend-card" id="weightCard" aria-labelledby="weightTitle">
+            <div id="weightHistory"></div>
+            <form class="weigh-in hidden" id="weighInForm">
+              <label class="sr-only" for="weightInput">Weight in kg</label>
+              <input id="weightInput" type="number" inputmode="decimal" step="0.1" placeholder="Weight in kg" />
+              <button class="btn" id="weightSave" type="submit">Log</button>
+            </form>
+          </section>
+          <div class="trend-card" id="debriefCard"></div>
+          <div class="trend-card" id="proteinAdherenceCard"></div>
+        </div>
+        <div class="dash-col-right">
+          <section class="trend-card" id="calendarCard" aria-labelledby="calMonthLabel">
+            <div class="cal-header">
+              <button class="cal-nav-btn" id="calPrev" type="button" aria-label="Previous month">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+              </button>
+              <h2 class="cal-month-label" id="calMonthLabel"></h2>
+              <button class="cal-nav-btn" id="calNext" type="button" aria-label="Next month">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+            </div>
+            <div class="cal-grid" id="calGrid"></div>
+            <div class="cal-legend" aria-hidden="true">
+              <span><i class="dot on"></i>On target</span>
+              <span><i class="dot over"></i>Over</span>
+              <span><i class="dot short"></i>Protein short</span>
+              <span><i class="dot plain"></i>Not scored</span>
+            </div>
+            <div id="calDetail"></div>
+          </section>
+          <div class="trend-card" id="predictedActualCard"></div>
+          <div class="trend-card" id="dowPatternCard"></div>
+          <div class="trend-card" id="sourceQualityCard"></div>
         </div>
       </div>
     </div>
@@ -276,111 +287,52 @@
     <!-- ========== PROFILE VIEW ========== -->
     <div class="view hidden" id="view-profile">
       <header class="view-head"><h1>Profile</h1></header>
-      <div class="card">
-        <h2>Your profile</h2>
-        <div class="row2">
-          <div class="field">
-            <label>Height (cm)</label>
-            <input id="pHeight" type="number" />
+      <div class="profile-grid">
+        <section class="card pf-card" aria-labelledby="pfStatsTitle">
+          <h2 id="pfStatsTitle">Your stats</h2>
+          <div class="row2">
+            <div class="field"><label for="pHeight">Height (cm)</label><input id="pHeight" type="number" inputmode="numeric" /></div>
+            <div class="field"><label for="pWeight">Weight (kg)</label><input id="pWeight" type="number" inputmode="decimal" step="0.1" /></div>
           </div>
-          <div class="field">
-            <label>Weight (kg)</label>
-            <input id="pWeight" type="number" step="0.1" />
+          <div class="row2">
+            <div class="field"><label for="pAge">Age</label><input id="pAge" type="number" inputmode="numeric" /></div>
+            <div class="field">
+              <label for="pSex">Sex</label>
+              <select id="pSex">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </div>
           </div>
-        </div>
-        <div class="row2">
-          <div class="field">
-            <label>Age</label>
-            <input id="pAge" type="number" />
+          <div class="field"><label for="pActivity">Activity level</label><select id="pActivity"></select></div>
+          <div class="row2">
+            <div class="field"><label for="pGoal">Goal</label><select id="pGoal"></select></div>
+            <div class="field"><label for="pGoalWeight">Goal weight (kg)</label><input id="pGoalWeight" type="number" inputmode="decimal" step="0.1" placeholder="Optional" /></div>
           </div>
-          <div class="field">
-            <label>Sex</label>
-            <select id="pSex">
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-            </select>
-          </div>
-        </div>
-        <div class="field">
-          <label>Activity level</label>
-          <select id="pActivity"></select>
-        </div>
-        <div class="row2">
-          <div class="field">
-            <label>Goal</label>
-            <select id="pGoal"></select>
-          </div>
-          <div class="field">
-            <label>Goal weight (kg) <span style="color:var(--text-dim);font-size:11px;">— optional</span></label>
-            <input id="pGoalWeight" type="number" step="0.1" placeholder="e.g. 75" />
-          </div>
-        </div>
-        <button class="btn" id="profileSave">Save profile</button>
-      </div>
-      <div id="profileExplainer"></div>
+          <button class="btn" id="profileSave" type="button">Save profile</button>
+        </section>
+        <div id="profileExplainer"></div>
 
-      <div class="card" style="margin-top: 18px">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          "
-        >
-          <strong>My Templates</strong>
-          <span style="font-size: 12px; color: var(--text-dim)"
-            >Saved meal combos</span
-          >
-        </div>
-        <div
-          id="myTemplatesList"
-          style="font-size: 13px; color: var(--text-dim)"
-        >
-          Loading...
-        </div>
-      </div>
-      <div class="card" style="margin-top: 18px">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          "
-        >
-          <strong>My Foods</strong>
-          <span style="font-size: 12px; color: var(--text-dim)"
-            >Your verified calorie values</span
-          >
-        </div>
-        <div id="myFoodsList" style="font-size: 13px; color: var(--text-dim)">
-          Loading...
-        </div>
-      </div>
-      <div class="card" id="themeCard" style="margin-top: 18px">
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-          "
-        >
-          <strong>Theme</strong>
-          <span style="font-size: 12px; color: var(--text-dim)"
-            >App appearance</span
-          >
-        </div>
-        <div id="themePicker" class="theme-picker"></div>
-      </div>
-      <div class="card" id="backupRestoreCard" style="margin-top: 18px"></div>
-      <div class="card account-card" id="accountCard">
-        <div class="account-user" id="accountUser"></div>
-        <div class="account-actions">
-          <button class="btn btn-secondary" type="button" data-view="dev">Dev tools</button>
-          <button class="btn btn-secondary" type="button" id="logoutBtn">Log out</button>
-        </div>
+        <section class="card pf-card" aria-labelledby="pfTemplatesTitle">
+          <div class="pf-head"><h2 id="pfTemplatesTitle">My templates</h2><span>Saved meal combos</span></div>
+          <div id="myTemplatesList" class="pf-list">Loading…</div>
+        </section>
+        <section class="card pf-card" aria-labelledby="pfFoodsTitle">
+          <div class="pf-head"><h2 id="pfFoodsTitle">My foods</h2><span>Your own calorie values</span></div>
+          <div id="myFoodsList" class="pf-list">Loading…</div>
+        </section>
+        <section class="card pf-card" id="themeCard" aria-labelledby="pfThemeTitle">
+          <div class="pf-head"><h2 id="pfThemeTitle">Theme</h2><span>App appearance</span></div>
+          <div id="themePicker" class="theme-picker"></div>
+        </section>
+        <div class="card pf-card" id="backupRestoreCard"></div>
+        <section class="card pf-card account-card" id="accountCard" aria-label="Account">
+          <div class="account-user" id="accountUser"></div>
+          <div class="account-actions">
+            <button class="btn btn-secondary" type="button" data-view="dev">Dev tools</button>
+            <button class="btn btn-secondary" type="button" id="logoutBtn">Log out</button>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -424,7 +376,17 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Manual
               </button>
             </div>
+            <button class="period-chip inline-only" id="logPeriodInline" type="button" aria-label="Meal period">
+              <span id="logPeriodInlineLabel">Dinner</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
             <button class="sheet-primary" id="logPrimary" type="button" disabled>Type something, or tap a usual</button>
+            <p class="ls-hints inline-only">
+              <span><kbd>Tab</kbd> finish the name</span>
+              <span><kbd>Enter</kbd> log again</span>
+              <span><kbd>Ctrl</kbd><kbd>Enter</kbd> work it out with AI</span>
+              <span><kbd>/</kbd> jump here</span>
+            </p>
           </div>
         </div>
 

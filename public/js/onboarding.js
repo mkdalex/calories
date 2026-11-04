@@ -2,18 +2,18 @@
 // First-run setup wizard. Triggered on page load if no profile exists.
 
 const OB_ACTIVITY = [
-  { id: 'sedentary', emoji: '🪑', name: 'Sedentary',  desc: 'Desk job, no exercise' },
-  { id: 'light',     emoji: '🚶', name: 'Light',      desc: 'Walk often, gym 1–3×/week' },
-  { id: 'moderate',  emoji: '🏃', name: 'Moderate',   desc: 'Gym 3–5×/week' },
-  { id: 'active',    emoji: '💪', name: 'Active',     desc: 'Gym 6–7×/week, hard sessions' },
-  { id: 'athlete',   emoji: '🔥', name: 'Athlete',    desc: '2-a-days or physical job' }
+  { id: 'sedentary', name: 'Sedentary',  desc: 'Desk job, no exercise' },
+  { id: 'light',     name: 'Light',      desc: 'Walk often, gym 1–3×/week' },
+  { id: 'moderate',  name: 'Moderate',   desc: 'Gym 3–5×/week' },
+  { id: 'active',    name: 'Active',     desc: 'Gym 6–7×/week, hard sessions' },
+  { id: 'athlete',   name: 'Athlete',    desc: '2-a-days or physical job' }
 ];
 const OB_GOALS = [
-  { id: 'mild',       emoji: '📉', name: 'Slow loss',     desc: '~0.25 kg/week — easiest to stick to' },
-  { id: 'steady',     emoji: '📉', name: 'Steady loss',   desc: '~0.5 kg/week — most people pick this' },
-  { id: 'aggressive', emoji: '⚡', name: 'Aggressive',    desc: '~0.75 kg/week — hungry but fast' },
-  { id: 'maintain',   emoji: '➖', name: 'Maintain',      desc: 'Stay where you are' },
-  { id: 'gain',       emoji: '📈', name: 'Slow gain',     desc: 'Lean muscle building' }
+  { id: 'mild',       name: 'Slow loss',     desc: '~0.25 kg/week — easiest to stick to' },
+  { id: 'steady',     name: 'Steady loss',   desc: '~0.5 kg/week — most people pick this' },
+  { id: 'aggressive', name: 'Aggressive',    desc: '~0.75 kg/week — hungry but fast' },
+  { id: 'maintain',   name: 'Maintain',      desc: 'Stay where you are' },
+  { id: 'gain',       name: 'Slow gain',     desc: 'Lean muscle building' }
 ];
 
 let onboardingState = null;
@@ -76,7 +76,7 @@ function renderOnboardingStep() {
 function renderObWelcome() {
   $('#obContent').innerHTML = `
     <div class="ob-welcome">
-      <div class="ob-emoji">🍎</div>
+      <span class="brand-mark" aria-hidden="true"></span>
       <h1>Welcome</h1>
       <p>This is a calorie + protein tracker — built around the two numbers that actually matter for body composition.</p>
       <p>We need a few details to calculate your daily targets. Takes about 30 seconds.</p>
@@ -151,7 +151,6 @@ function renderObActivity() {
     <div class="ob-cards">
       ${OB_ACTIVITY.map(a => `
         <button class="ob-card-option ${sel === a.id ? 'active' : ''}" data-id="${a.id}">
-          <span class="ob-card-emoji">${a.emoji}</span>
           <div class="ob-card-text">
             <div class="ob-card-name">${a.name}</div>
             <div class="ob-card-desc">${a.desc}</div>
@@ -185,7 +184,6 @@ function renderObGoal() {
     <div class="ob-cards">
       ${OB_GOALS.map(g => `
         <button class="ob-card-option ${sel === g.id ? 'active' : ''}" data-id="${g.id}">
-          <span class="ob-card-emoji">${g.emoji}</span>
           <div class="ob-card-text">
             <div class="ob-card-name">${g.name}</div>
             <div class="ob-card-desc">${g.desc}</div>
@@ -259,9 +257,9 @@ function renderObSummary() {
     <div class="ob-tips">
       <strong>How to use this app:</strong>
       <ul>
-        <li>Tap <strong>+ Log meal</strong> at the bottom-right to log what you ate. Type plain English ("3 scrambled eggs and toast") — AI parses it.</li>
-        <li>The big green ring shows kcal left. The blue bar tracks protein.</li>
-        <li>Carbs/fat/fiber are hidden by default — tap "All macros" to expand.</li>
+        <li>Tap the green <strong>+</strong> in the bottom bar (or type in the box on Today) and say what you ate in plain English, like "3 scrambled eggs and toast".</li>
+        <li>The ring shows kcal left. The purple bar is protein.</li>
+        <li>Tap your target number on Today for your goal details and all macros.</li>
         <li>You can edit your profile or change goals any time from the Profile tab.</li>
       </ul>
     </div>

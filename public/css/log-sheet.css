@@ -292,3 +292,43 @@ body.sheet-open { overflow: hidden; }
   .ds-ground, .ds-dino .dino-leg-l, .ds-dino .dino-leg-r, .pending-dino .dino-leg-l, .pending-dino .dino-leg-r { animation: none; }
   .parse-step.active .ps-icon { animation-duration: 2.4s; }
 }
+
+/* ---------- Inline composer (desktop Today) ----------
+   The same sheet, mounted at the top of Today instead of in a modal. */
+.inline-only { display: none !important; }
+.sheet.inline {
+  height: auto; max-width: none; overflow: visible; animation: none;
+  padding: 18px; gap: 14px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 22px;
+}
+.sheet.inline .sheet-handle { display: none; }
+.sheet.inline[data-screen="type"] .sheet-head { display: none; }
+.sheet.inline .sheet-date { margin-top: 0; }
+.sheet.inline .ls { flex: none; }
+.sheet.inline .ls-foot { position: static; margin: 0; padding: 0; background: none; }
+.sheet.inline #lsReview .ls-foot { padding-top: 12px; }
+.sheet.inline #lsType .ls-foot { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sheet.inline .ls-tools { display: flex; gap: 8px; margin-right: auto; }
+.sheet.inline .tool-btn { padding: 0 12px; }
+.sheet.inline #lsType .period-chip.inline-only { display: inline-flex !important; height: 44px; border-radius: 12px; }
+.sheet.inline #logPrimary { width: auto; min-height: 44px; padding: 0 18px; border-radius: 12px; font-size: 14px; }
+.sheet.inline .ls-hints.inline-only {
+  display: flex !important; flex-wrap: wrap; gap: 6px 16px; width: 100%; margin: 4px 0 0;
+  font-size: 12px; color: var(--text-dim);
+}
+.ls-hints span { display: inline-flex; align-items: center; gap: 4px; }
+kbd {
+  display: inline-block; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px;
+  font: inherit; font-size: 11px; font-weight: 700; color: color-mix(in srgb, var(--text) 80%, var(--text-dim));
+}
+.sheet.inline #logText { height: 92px; }
+.sheet.inline #logText, .sheet.inline .logtext-ghost { padding: 14px 16px; }
+.sheet.inline .logtext-ghost { background: var(--panel); }
+.sheet.inline .ghost-accept { display: none !important; }
+.sheet.inline .dino-strip { height: 104px; }
+.sheet.inline #lsDone { padding-bottom: 4px; }
+.pick-row.active { background: var(--panel-2); }
+.pick-row.active::after {
+  content: "Enter"; flex: none; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px;
+  font-size: 11px; font-weight: 700; color: color-mix(in srgb, var(--text) 80%, var(--text-dim));
+}

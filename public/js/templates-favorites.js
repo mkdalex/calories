@@ -37,19 +37,17 @@ async function loadMyTemplates() {
   if (!el) return;
   const templates = await api('/api/templates');
   if (!templates.length) {
-    el.innerHTML = '<span style="color:var(--text-dim);">No templates yet. After parsing a meal, click "Save as template" to create one.</span>';
+    el.innerHTML = '<p class="pf-empty">None yet. In a meal review, tap + Template to save one.</p>';
     return;
   }
   el.innerHTML = templates.map(t => `
-    <div class="template-item-row">
-      <div>
-        <span>${escapeHtml(t.name)}</span>
-        <span style="color:var(--text-dim);font-size:11px;margin-left:8px;">${t.totals.kcal} kcal · ${t.items.length} items</span>
+    <div class="pf-row">
+      <div class="pf-row-text">
+        <span class="pf-row-name">${escapeHtml(t.name)}</span>
+        <span class="pf-row-meta">${t.totals.kcal} kcal · ${t.items.length} item${t.items.length === 1 ? '' : 's'}</span>
       </div>
-      <div style="display:flex;gap:6px;">
-        <button onclick="renameTemplate('${t.id}','${escapeHtml(t.name).replace(/'/g,"&#39;")}')" style="font-size:11px;padding:2px 8px;background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer;">Rename</button>
-        <button onclick="deleteTemplate('${t.id}')" style="font-size:11px;padding:2px 8px;background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer;">Remove</button>
-      </div>
+      <button class="pf-row-btn" type="button" onclick="renameTemplate('${t.id}','${escapeHtml(t.name).replace(/'/g,"&#39;")}')">Rename</button>
+      <button class="pf-row-btn" type="button" onclick="deleteTemplate('${t.id}')">Remove</button>
     </div>
   `).join('');
 }

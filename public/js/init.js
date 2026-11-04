@@ -19,6 +19,7 @@ function setActiveView(viewName) {
   const target = document.getElementById("view-" + viewName);
   if (target) target.classList.remove("hidden");
   if (typeof closeRowMenu === "function") closeRowMenu();
+  syncComposer();
   window.scrollTo(0, 0);
   if (viewName === "today")   loadToday();
   if (viewName === "gym")     loadGym();
@@ -78,6 +79,7 @@ onParseJobChange((job) => {
   }
   renderUserChip();
   restoreParseJobs();
+  syncComposer();
   // Warm the AI loader ETA cache so the first parse shows a calibrated estimate
   // (median from the user's prior calls across all devices).
   if (typeof prefetchLoaderStats === 'function') prefetchLoaderStats();

@@ -1,31 +1,270 @@
-// ---------- HISTORY ----------
+// ---------- TRENDS (was History) ----------
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth(); // 0-indexed
-let calRangeData = {}; // date -> { kcal, goal }
+let calRangeData = {}; // date -> { kcal, protein, goal, protein_goal, goal_mode, assessment }
 let calSelectedDate = null;
 
-// ===== Predicted vs Actual — "Are you on track?" =====
+// 7, 30 or 90 days. Remembered per browser; falls back to a week.
+let trendDays = 7;
+try { trendDays = [7, 30, 90].includes(Number(localStorage.getItem('trendRange'))) ? Number(localStorage.getItem('trendRange')) : 7; } catch (_) {}
+
+const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { day: 'numeric', month: 'short' });
+
+function trendWindow() {
+  const end = fmtDate(new Date());
+  return { start: GoalPolicy.shiftDate(end, -(trendDays - 1)), end };
+}
+
+function setTrendRange(days) {
+  trendDays = days;
+  try { localStorage.setItem('trendRange', String(days)); } catch (_) {}
+  syncRangeToggle();
+  renderTrendRange();
+  renderWeightCard();
+}
+
+function syncRangeToggle() {
+  $$('.range-toggle button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.range) === trendDays)));
+}
+
+function renderTrendRange() {
+  const { start, end } = trendWindow();
+  renderKcalTrend(start, end, calRangeData);
+  renderTrendTiles(start, end, calRangeData);
+}
+
+// ===== Calories: daily bars against the target =====
+// Today is drawn as a dashed outline and never counts toward the average.
+function renderKcalTrend(startStr, endStr, rangeData) {
+  const today = fmtDate(new Date());
+  const days = [];
+  for (let d = startStr; d <= endStr; d = GoalPolicy.shiftDate(d, 1)) days.push({ date: d, ...(rangeData[d] || {}) });
+  const past = days.filter(d => d.date < today && d.kcal != null);
+  const average = past.length ? Math.round(past.reduce((s, d) => s + d.kcal, 0) / past.length) : null;
+  const scored = past.filter(d => d.goal && d.goal_mode !== 'reset');
+  const diff = scored.length ? Math.round(scored.reduce((s, d) => s + d.kcal - d.goal, 0) / scored.length) : null;
+
+  $('#kcalTrendStats').innerHTML = `
+    <div class="kt-head">
+      <div class="kt-figure">
+        <span class="kt-label">Daily average</span>
+        <span class="kt-num">${average === null ? '—' : `${average.toLocaleString()} <small>kcal</small>`}</span>
+        <span class="kt-sub">${average === null ? 'No past-day average yet' : `${past.length} logged day${past.length === 1 ? '' : 's'} · today not counted`}</span>
+      </div>
+      ${diff === null ? '' : `<span class="kt-badge ${diff > 0 ? 'over' : ''}">${Math.abs(diff).toLocaleString()} ${diff > 0 ? 'over' : 'under'} target</span>`}
+    </div>`;
+
+  const logged = days.filter(d => d.kcal != null);
+  if (!logged.length) {
+    $('#kcalTrendChart').innerHTML = cbEmptyState('<p class="history-note">Nothing logged in this window.</p>');
+    return;
+  }
+  const target = [...days].reverse().find(d => d.goal && d.goal_mode !== 'reset')?.goal || null;
+  const max = Math.max(1, ...logged.map(d => d.kcal), target || 0) * 1.08;
+  const label = d => d.date === today ? 'Today' : new Date(d.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short' });
+  const bars = days.map(d => {
+    const when = d.date === today ? 'Today' : niceDate(d.date);
+    if (d.kcal == null) return `<span class="kt-col"><span class="kt-bar missing" title="${when}: nothing logged"></span></span>`;
+    const state = d.date === today ? 'in-progress' : !d.goal || d.goal_mode === 'reset' ? 'plain' : d.kcal > d.goal ? 'over' : 'under';
+    const note = state === 'in-progress' ? ' so far' : d.goal ? ` · target ${d.goal.toLocaleString()}` : '';
+    return `<span class="kt-col"><span class="kt-bar ${state}" style="height:${(d.kcal / max * 100).toFixed(1)}%" title="${when}: ${d.kcal.toLocaleString()} kcal${note}"></span></span>`;
+  }).join('');
+  // Short ranges label every day; longer ones just the ends and the middle.
+  const labels = days.length <= 7
+    ? days.map(d => `<span class="${d.date === today ? 'now' : ''}">${label(d)}</span>`).join('')
+    : [days[0], days[Math.floor(days.length / 2)], days[days.length - 1]].map(d => `<span class="${d.date === today ? 'now' : ''}">${d.date === today ? 'Today' : niceDate(d.date)}</span>`).join('');
+  $('#kcalTrendChart').innerHTML = `
+    <div class="kt-plot ${days.length > 30 ? 'dense' : ''}" role="img" aria-label="Daily calories for the last ${days.length} days${target ? ` against a ${target.toLocaleString()} kcal target` : ''}" style="--n:${days.length}">
+      ${target ? `<span class="kt-target" style="bottom:${(target / max * 100).toFixed(1)}%"><span>target ${target.toLocaleString()}</span></span>` : ''}
+      ${bars}
+    </div>
+    <div class="kt-labels ${days.length <= 7 ? 'each' : 'ends'}" style="--n:${days.length}" aria-hidden="true">${labels}</div>
+    <div class="kt-legend" aria-hidden="true">
+      <span><i class="under"></i>Under</span><span><i class="over"></i>Over target</span><span><i class="in-progress"></i>In progress</span>
+    </div>`;
+}
+
+// ===== Two stat tiles: protein days and logging coverage =====
+function renderTrendTiles(startStr, endStr, rangeData) {
+  const today = fmtDate(new Date());
+  const days = [];
+  for (let d = startStr; d <= endStr; d = GoalPolicy.shiftDate(d, 1)) days.push({ date: d, ...(rangeData[d] || {}) });
+  const past = days.filter(d => d.date < today && d.kcal != null);
+  const proteinScored = past.filter(d => d.protein_goal && d.goal_mode !== 'reset');
+  const proteinHit = proteinScored.filter(d => d.protein >= d.protein_goal * 0.9).length;
+  const avgProtein = past.length ? Math.round(past.reduce((s, d) => s + (d.protein || 0), 0) / past.length) : null;
+  const loggedDays = days.filter(d => d.kcal != null).length;
+  const t = typeof state !== 'undefined' ? state.today : null;
+  const streak = t && t.date === today && t.streak > 0 ? `${t.streak}-day streak` : '';
+  $('#trendTiles').innerHTML = `
+    <div class="trend-tile">
+      <span class="tt-label">Protein target hit</span>
+      <span class="tt-num prot">${proteinScored.length ? `${proteinHit} <small>of ${proteinScored.length} days</small>` : '—'}</span>
+      <span class="tt-sub">${avgProtein === null ? 'No past days yet' : `avg ${avgProtein}g`}</span>
+    </div>
+    <div class="trend-tile">
+      <span class="tt-label">Days logged</span>
+      <span class="tt-num">${loggedDays} <small>of ${days.length}</small></span>
+      <span class="tt-sub">${streak || '&nbsp;'}</span>
+    </div>`;
+}
+
+// ===== Weight =====
+// Observations only: latest weigh-in, change across the shown weigh-ins, and distance
+// to a goal weight if one is set. No forecasts.
+async function renderWeightCard() {
+  const wrap = $('#weightHistory');
+  if (!wrap) return;
+  const [weights, profileData] = await Promise.all([api('/api/weight'), api('/api/profile')]);
+  const head = (label, value) => `
+    <div class="wt-head">
+      <div class="wt-figure">${label}${value}</div>
+      <button class="chip-btn ghost" id="weighInToggle" type="button" aria-controls="weighInForm">+ Weigh in</button>
+    </div>`;
+
+  if (!weights.length) {
+    wrap.innerHTML = head('<span class="wt-label" id="weightTitle">Weight</span>', '<span class="wt-sub">No weigh-ins yet.</span>');
+    wireWeighIn();
+    return;
+  }
+
+  const last = weights[weights.length - 1];
+  const { start } = trendWindow();
+  const inRange = weights.filter(w => w.date >= start);
+  // A short window often holds 0-1 weigh-ins; then show the most recent few instead.
+  const shown = inRange.length >= 2 ? inRange : weights.slice(-8);
+  const first = shown[0];
+  const delta = Math.round((last.kg - first.kg) * 10) / 10;
+  const span = GoalPolicy.daysBetween(first.date, last.date);
+
+  const profile = (profileData && profileData.profile) || {};
+  const stats = (profileData && profileData.stats) || {};
+  const goalKg = Number(profile.goal_weight_kg) || null;
+  const towardGoal = goalKg && delta !== 0 && Math.sign(goalKg - first.kg) === Math.sign(delta);
+  const deltaText = shown.length >= 2
+    ? `<span class="wt-delta ${towardGoal ? 'good' : ''}">${delta > 0 ? '+' : delta < 0 ? '−' : ''}${Math.abs(delta).toFixed(1)} kg in ${span} day${span === 1 ? '' : 's'}</span>` : '';
+
+  wrap.innerHTML = head(
+    `<span class="wt-label" id="weightTitle">Weight · ${niceDate(last.date)}</span>`,
+    `<span class="wt-num">${last.kg.toFixed(1)} <small>kg</small></span>${deltaText}`)
+    + weightChart(shown)
+    + goalProgress(weights, last, goalKg, stats.goal_started)
+    + `<details class="weigh-list">
+        <summary>All weigh-ins</summary>
+        ${[...weights].reverse().slice(0, 30).map((w, i, list) => {
+          const prev = list[i + 1];
+          const d = prev ? Math.round((w.kg - prev.kg) * 10) / 10 : null;
+          return `<div class="weight-row">
+            <button class="wr-edit" type="button" data-date="${w.date}" aria-label="Edit weigh-in for ${niceDate(w.date)}">
+              <span class="wr-date">${new Date(w.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+              <span class="wr-kg">${w.kg.toFixed(1)} kg</span>
+              <span class="wr-delta">${d === null ? '' : d === 0 ? 'same' : `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}`}</span>
+            </button>
+            <button class="wr-del" type="button" data-date="${w.date}" aria-label="Delete weigh-in for ${niceDate(w.date)}">×</button>
+          </div>`;
+        }).join('')}
+      </details>`;
+
+  wireWeighIn();
+  wrap.querySelectorAll('.wr-del').forEach(btn => btn.addEventListener('click', async () => {
+    const date = btn.dataset.date;
+    const entry = weights.find(w => w.date === date);
+    await api(`/api/weight/${date}`, { method: 'DELETE' });
+    renderWeightCard();
+    if (entry) {
+      showUndoToast(`Deleted weigh-in for ${niceDate(date)}`, async () => {
+        await api('/api/weight', { method: 'POST', body: { kg: entry.kg, date: entry.date } });
+        renderWeightCard();
+      });
+    }
+  }));
+  wrap.querySelectorAll('.wr-edit').forEach(btn => btn.addEventListener('click', () => {
+    const date = btn.dataset.date;
+    const cur = weights.find(w => w.date === date);
+    if (!cur) return;
+    const val = prompt(`Weight for ${niceDate(date)}:`, cur.kg);
+    if (val === null) return;
+    const kg = Number(val);
+    if (!kg || kg < 30 || kg > 250) return showToast('Enter a weight between 30 and 250');
+    api('/api/weight', { method: 'POST', body: { kg, date } }).then(() => renderWeightCard());
+  }));
+}
+
+function wireWeighIn() {
+  const toggle = $('#weighInToggle');
+  if (toggle) toggle.addEventListener('click', () => {
+    const form = $('#weighInForm');
+    const open = form.classList.toggle('hidden') === false;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) $('#weightInput').focus();
+  });
+}
+
+// Line through the shown weigh-ins, each one labelled (or just the ends and extremes
+// when there are many). Drawn at the card's real width so text stays a readable size.
+function weightChart(points) {
+  if (points.length < 2) return '';
+  const card = $('#weightCard');
+  const W = Math.max(260, Math.round(((card && card.clientWidth) || 350) - 34));
+  const H = 132, top = 22, bottom = 108, left = 8, right = W - 8;
+  const kgs = points.map(p => p.kg);
+  const lo = Math.min(...kgs) - 0.3, hi = Math.max(...kgs) + 0.3;
+  const span = Math.max(1, GoalPolicy.daysBetween(points[0].date, points[points.length - 1].date));
+  const x = p => left + 12 + GoalPolicy.daysBetween(points[0].date, p.date) / span * (right - left - 24);
+  const y = kg => top + (hi - kg) / (hi - lo) * (bottom - top);
+  const minI = kgs.indexOf(Math.min(...kgs)), maxI = kgs.indexOf(Math.max(...kgs));
+  const labelled = points.length <= 8 ? points.map((_, i) => i) : [...new Set([0, minI, maxI, points.length - 1])];
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(p).toFixed(1)} ${y(p.kg).toFixed(1)}`).join(' ');
+  const lastI = points.length - 1;
+  const dots = points.map((p, i) => i === lastI
+    ? `<circle cx="${x(p).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="5.5" class="wc-last"/>`
+    : `<circle cx="${x(p).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="4" class="wc-dot"/>`).join('');
+  const labels = labelled.map(i => {
+    const p = points[i];
+    const anchor = i === 0 ? 'start' : i === lastI ? 'end' : 'middle';
+    return `<text x="${(x(p) + (i === 0 ? -6 : i === lastI ? 6 : 0)).toFixed(1)}" y="${(y(p.kg) - 10).toFixed(1)}" text-anchor="${anchor}" class="${i === lastI ? 'wc-label now' : 'wc-label'}">${p.kg.toFixed(1)}</text>`;
+  }).join('');
+  const mid = points[Math.floor(points.length / 2)];
+  return `
+    <svg class="weight-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Weight from ${points[0].kg} kg on ${niceDate(points[0].date)} to ${points[lastI].kg} kg on ${niceDate(points[lastI].date)}">
+      <line x1="0" y1="${bottom + 6}" x2="${W}" y2="${bottom + 6}" class="wc-axis"/>
+      <path d="${path}" class="wc-line"/>
+      ${dots}${labels}
+      <text x="0" y="${H - 2}" class="wc-date">${niceDate(points[0].date)}</text>
+      ${points.length > 2 ? `<text x="${W / 2}" y="${H - 2}" text-anchor="middle" class="wc-date">${niceDate(mid.date)}</text>` : ''}
+      <text x="${W}" y="${H - 2}" text-anchor="end" class="wc-date">${niceDate(points[lastI].date)}</text>
+    </svg>`;
+}
+
+function goalProgress(weights, last, goalKg, goalStarted) {
+  if (!goalKg) return '';
+  const startW = (goalStarted && weights.find(w => w.date >= goalStarted)) || weights[0];
+  const total = startW.kg - goalKg;
+  const done = startW.kg - last.kg;
+  const pct = total === 0 ? 100 : Math.max(0, Math.min(100, done / total * 100));
+  const left = Math.abs(last.kg - goalKg);
+  const reached = total === 0 || (total > 0 ? last.kg <= goalKg : last.kg >= goalKg);
+  return `
+    <div class="wt-goal">
+      <div class="wt-goal-bar" role="img" aria-label="${Math.round(pct)}% of the way to ${goalKg} kg"><span style="width:${pct.toFixed(0)}%"></span></div>
+      <span>${reached ? `Goal weight of ${goalKg} kg reached` : `${left.toFixed(1)} kg to ${goalKg} kg goal`}</span>
+    </div>`;
+}
+
+// ===== Target check (was "Recent progress") =====
 async function renderPredictedActual() {
   const card = $('#predictedActualCard');
   if (!card) return;
   const [review, profile] = await Promise.all([api('/api/calibrate'), api('/api/profile')]);
   const stats = profile.stats;
-  if (!stats) { card.innerHTML = '<h2>Recent progress</h2><p>Set up a profile to review your targets.</p>'; return; }
+  if (!stats) { card.innerHTML = '<h2>Target check</h2><p class="history-note">Set up a profile first.</p>'; return; }
   const label = GoalPolicy.LABELS[stats.goal] || stats.goal_meta.label;
-  card.innerHTML = `<h2>Recent progress · ${escapeHtml(label)}</h2>
-    <p class="history-note">Current goal tracked from ${escapeHtml(stats.goal_started || 'today')}. Your earlier records remain in the weight chart and calendar.</p>
-    ${stats.goal === 'reset' ? '<p>Reset week focuses on recording food. Weight change is not scored.</p>'
-      : review.can_calibrate ? `
-      <p>Recorded weight: <strong>${review.weight_start} → ${review.weight_end} kg</strong> over ${review.days_span} days.</p>
-      <p class="history-note">${review.days_logged}/${review.days_span} days contain food entries. Review omitted meals before using these records to adjust your target.</p>`
-      : `<p>${escapeHtml(review.reason || 'More recent records are needed before reviewing your target.')}</p>`}
-    <button class="btn btn-secondary" type="button" onclick="setActiveView('profile')">Review target in Profile</button>`;
-}
-
-// Weight and calorie records are shown without speculative plateau diagnoses.
-async function renderPlateauBanner() {
-  const wrap = $('#plateauBannerWrap');
-  if (wrap) wrap.innerHTML = '';
+  card.innerHTML = `<h2>Target check · ${escapeHtml(label)}</h2>
+    ${stats.goal === 'reset' ? '<p class="history-note">Reset week: weight change isn\'t scored.</p>'
+      : review.can_calibrate
+        ? `<p class="history-note"><strong>${review.weight_start} → ${review.weight_end} kg</strong> over ${review.days_span} days, with food logged on ${review.days_logged} of them.</p>`
+        : `<p class="history-note">${escapeHtml(review.reason || 'Not enough recent records yet.')}</p>`}
+    <button class="btn btn-secondary" type="button" onclick="setActiveView('profile')">Review target</button>`;
 }
 
 // ===== Source quality breakdown =====
@@ -35,288 +274,69 @@ async function renderSourceQuality() {
   const data = await api('/api/source-breakdown');
   const sources = Object.entries(data);
   if (!sources.length) {
-    card.innerHTML = '<h2>Where your numbers come from</h2><div class="empty" style="padding:12px 0;">Log some meals to see source breakdown.</div>';
+    card.innerHTML = '<h2>Where your numbers come from</h2><p class="history-note">Log some meals to see this.</p>';
     return;
   }
   const totalKcal = sources.reduce((a, [, v]) => a + v.kcal, 0);
-  const totalCount = sources.reduce((a, [, v]) => a + v.count, 0);
 
+  // Same colour roles as the source badges: databases accent, your own foods info, guesses warn.
+  const dbSoft = 'color-mix(in srgb, var(--accent) 55%, var(--panel-2))';
   const meta = {
-    'custom':       { label: 'Your saved foods',   color: '#a78bfa', tier: 'best',  trust: 'You verified these yourself' },
-    'usda':         { label: 'USDA database',      color: '#4ade80', tier: 'best',  trust: 'Lab-measured nutrition data' },
-    'usda+ai':      { label: 'USDA confirmed',     color: '#4ade80', tier: 'best',  trust: 'USDA-matched + AI sanity checked' },
-    'ai-verified':  { label: 'AI verified',        color: '#60a5fa', tier: 'good',  trust: 'Two AI passes agreed' },
-    'fatsecret':    { label: 'FatSecret database', color: '#60a5fa', tier: 'good',  trust: 'External food database' },
-    'openfoodfacts':{ label: 'Open Food Facts',    color: '#60a5fa', tier: 'good',  trust: 'External food database' },
-    'ai-estimate':  { label: 'AI estimate only',   color: '#fbbf24', tier: 'rough', trust: 'AI guess — no database match' },
-    'manual':       { label: 'Manual entry',       color: '#8b949e', tier: 'best',  trust: 'You typed it directly' },
-    'extra':        { label: 'Added extras',       color: '#8b949e', tier: 'rough', trust: 'Extras like oil, sauces' }
+    'custom':       { label: 'Your saved foods',   color: 'var(--info)',     tier: 'best' },
+    'usda':         { label: 'USDA',               color: 'var(--accent)',   tier: 'best' },
+    'usda+ai':      { label: 'USDA',               color: 'var(--accent)',   tier: 'best' },
+    'ai-verified':  { label: 'AI verified',        color: dbSoft,            tier: 'good' },
+    'fatsecret':    { label: 'FatSecret',          color: dbSoft,            tier: 'good' },
+    'openfoodfacts':{ label: 'Open Food Facts',    color: dbSoft,            tier: 'good' },
+    'ai-estimate':  { label: 'AI estimate',        color: 'var(--warn)',     tier: 'rough' },
+    'manual':       { label: 'Typed in',           color: 'var(--text-dim)', tier: 'best' },
+    'extra':        { label: 'Added extras',       color: 'var(--text-dim)', tier: 'rough' }
   };
 
-  // Sort by kcal share, descending
   sources.sort((a, b) => b[1].kcal - a[1].kcal);
-
   const segments = sources.map(([src, v]) => {
-    const m = meta[src] || { label: src, color: '#8b949e', tier: 'rough', trust: '' };
-    const pct = totalKcal > 0 ? (v.kcal / totalKcal * 100) : 0;
-    return { src, ...v, ...m, pct };
+    const m = meta[src] || { label: src, color: 'var(--text-dim)', tier: 'rough' };
+    return { src, ...v, ...m, pct: totalKcal > 0 ? (v.kcal / totalKcal * 100) : 0 };
   });
-
   const trustedShare = segments.filter(s => s.tier === 'best').reduce((a, s) => a + s.pct, 0);
-  const trustedLabel = trustedShare >= 70 ? `<span style="color:var(--accent);">High confidence</span>` :
-                       trustedShare >= 40 ? `<span style="color:var(--warn);">Mixed confidence</span>` :
-                       `<span style="color:var(--danger);">Mostly AI guesses</span>`;
-
-  const stackedBar = `
-    <div class="sq-bar">
-      ${segments.map(s => `<div class="sq-seg" style="width:${s.pct}%;background:${s.color};" title="${s.label} — ${s.pct.toFixed(0)}%"></div>`).join('')}
-    </div>`;
-  const legend = segments.map(s => `
-    <div class="sq-row">
-      <span class="sq-dot" style="background:${s.color};"></span>
-      <span class="sq-label">${s.label}</span>
-      <span class="sq-pct">${s.pct.toFixed(0)}%</span>
-      <span class="sq-count">${s.count} meal${s.count !== 1 ? 's' : ''}</span>
-      <span class="sq-trust">${s.trust}</span>
-    </div>
-  `).join('');
 
   card.innerHTML = `
     <h2>Where your numbers come from</h2>
-    <div class="sq-headline">${trustedLabel} — <strong>${Math.round(trustedShare)}%</strong> of your kcal came from verified sources (lab data, foods you saved, or manual entries).</div>
-    ${stackedBar}
-    <div class="sq-legend">${legend}</div>
-    <div class="sq-tip">
-      Tip: when AI guesses a food and looks confident, hit <strong>Save as my food</strong> on it — next time it'll use your value, not a guess. The more you save, the more trustworthy your daily totals get.
+    <p class="history-note"><strong>${Math.round(trustedShare)}%</strong> of your kcal came from lab data, your saved foods or numbers you typed.</p>
+    <div class="sq-bar">
+      ${segments.map(s => `<div class="sq-seg" style="width:${s.pct}%;background:${s.color};" title="${s.label} · ${s.pct.toFixed(0)}%"></div>`).join('')}
     </div>
+    <div class="sq-legend">${segments.map(s => `
+      <div class="sq-row">
+        <span class="sq-dot" style="background:${s.color};"></span>
+        <span class="sq-label">${s.label}</span>
+        <span class="sq-pct">${s.pct.toFixed(0)}%</span>
+        <span class="sq-count">${s.count} meal${s.count !== 1 ? 's' : ''}</span>
+      </div>`).join('')}
+    </div>
+    <p class="history-note">Saving an AI guess as your food means next time it uses your number.</p>
   `;
-}
-
-async function renderWeightCard() {
-  const wrap = $('#weightHistory');
-  if (!wrap) return;
-  const weights = await api('/api/weight');
-  // Historical chart shows observations only; current goal progress is reviewed separately.
-  const inputEl = $('#weightInput');
-
-  if (!weights.length) {
-    if (inputEl) inputEl.value = '';
-    wrap.innerHTML = '<div class="empty" style="padding:20px;">No weights logged yet. Enter your weight above to start tracking.</div>';
-    return;
-  }
-
-  const first = weights[0];
-  const last = weights[weights.length - 1];
-  if (inputEl) inputEl.value = last.kg;
-
-  // Stats
-  const totalDelta = Math.round((last.kg - first.kg) * 100) / 100;
-  const totalPct = first.kg ? Math.round((totalDelta / first.kg) * 1000) / 10 : 0;
-  const firstD = new Date(first.date + 'T00:00:00');
-  const lastD = new Date(last.date + 'T00:00:00');
-  const daysSpan = Math.max(1, Math.round((lastD - firstD) / 86400000));
-  const weeksSpan = daysSpan / 7;
-  const kgPerWeek = weeksSpan > 0 ? Math.round((totalDelta / weeksSpan) * 100) / 100 : 0;
-
-  // 7-day rolling average — index by date for easy lookup
-  const byDate = {};
-  weights.forEach(w => byDate[w.date] = w.kg);
-  const dayMs = 86400000;
-  const series = [];
-  for (let t = firstD.getTime(); t <= lastD.getTime(); t += dayMs) {
-    const d = new Date(t);
-    const ds = fmtDate(d);
-    series.push({ date: ds, kg: byDate[ds] !== undefined ? byDate[ds] : null });
-  }
-  const avgSeries = series.map((p, i) => {
-    const window = series.slice(Math.max(0, i - 6), i + 1).filter(x => x.kg !== null);
-    if (window.length < 2) return { date: p.date, kg: null };
-    const sum = window.reduce((a, x) => a + x.kg, 0);
-    return { date: p.date, kg: sum / window.length };
-  });
-
-  // Chart geometry
-  const W = 600, H = 160;
-  const PAD = { l: 32, r: 14, t: 14, b: 26 };
-  const chartW = W - PAD.l - PAD.r;
-  const chartH = H - PAD.t - PAD.b;
-  const allKg = weights.map(w => w.kg);
-
-  const totalLen = series.length;
-
-  // Leave space around the observed weights.
-  const yMin = Math.min(...allKg) - 0.5;
-  const yMax = Math.max(...allKg) + 0.5;
-  const yRange = Math.max(0.5, yMax - yMin);
-  const xOf = i => PAD.l + (totalLen > 1 ? (i / (totalLen - 1)) * chartW : chartW / 2);
-  const yOf = kg => PAD.t + ((yMax - kg) / yRange) * chartH;
-
-  // Daily weigh-ins rendered as dots so isolated points are always visible
-  // (the old polyline collapsed to nothing for orphan days surrounded by gaps).
-  let dailyDots = '';
-  series.forEach((p, i) => {
-    if (p.kg === null) return;
-    dailyDots += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(p.kg).toFixed(1)}" r="2.2" fill="rgba(255,255,255,0.55)"/>`;
-  });
-
-  let avgPath = '';
-  avgSeries.forEach((p, i) => {
-    if (p.kg === null) return;
-    const cmd = avgPath === '' || avgSeries[i - 1]?.kg === null ? 'M' : 'L';
-    avgPath += `${cmd}${xOf(i).toFixed(1)},${yOf(p.kg).toFixed(1)} `;
-  });
-
-  // Y-axis ticks rounded toward the interior of the range so labels never sit
-  // outside the chart (Math.ceil(yMax) could place a tick at e.g. 85 when yMax=84.05).
-  const yTicksRaw = [Math.floor(yMax), Math.round((yMax + yMin) / 2), Math.ceil(yMin)];
-  const yTicks = [...new Set(yTicksRaw)];
-  const yTickLabels = yTicks.map((v, i) => `
-    <text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${v}</text>
-    ${i === 1 ? `<line x1="${PAD.l}" y1="${yOf(v)}" x2="${W - PAD.r}" y2="${yOf(v)}" stroke="var(--border)" opacity="0.25"/>` : ''}
-  `).join('');
-
-  // Dot on latest point + "you are here" callout.
-  // Callout lives in the reserved TOP margin (above the plot) so it never sits
-  // on the trend line.
-  const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const lastIdx = series.length - 1;
-  const lastPt = series[lastIdx];
-  let latestCallout = '';
-  if (lastPt && lastPt.kg !== null) {
-    const cx = xOf(lastIdx);
-    const lx = Math.min(W - PAD.r - 18, Math.max(PAD.l + 18, cx));
-    latestCallout = `<text x="${lx.toFixed(1)}" y="10" text-anchor="middle" fill="var(--info)" font-size="11" font-weight="600" font-family="inherit" opacity="0.92">${lastPt.kg.toFixed(1)} kg · ${niceDate(last.date)}</text>`;
-  }
-
-  // Historical changes are neutral observations, not a verdict on the current goal.
-  const dColor = 'var(--text)', paceColor = 'var(--text-dim)';
-  const dSign = totalDelta > 0 ? '+' : '', paceSign = kgPerWeek > 0 ? '+' : '';
-  const paceVerdictHtml = '<div class="ws-stat-sub">historical average, including gaps</div>';
-
-  // Recent entries (last 8)
-  const recent = [...weights].reverse().slice(0, 8);
-
-  wrap.innerHTML = `
-    <p class="history-note">Historical weigh-ins · latest recorded ${niceDate(last.date)}. Add a new weigh-in using Log above when you have a current measurement. This chart preserves all goals and logging gaps.</p>
-    <div class="weight-stats">
-      <div class="ws-hero">
-        <div class="ws-hero-num">${last.kg.toFixed(2)}<span class="ws-hero-unit"> kg</span></div>
-        <div class="ws-hero-lbl">latest · ${new Date(last.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
-      </div>
-      <div class="ws-stat">
-        <div class="ws-stat-num" style="color:${dColor};">${dSign}${totalDelta.toFixed(2)} kg</div>
-        <div class="ws-stat-lbl">over ${daysSpan} day${daysSpan === 1 ? '' : 's'} · ${dSign}${totalPct.toFixed(1)}%</div>
-      </div>
-      <div class="ws-stat">
-        <div class="ws-stat-num" style="color:${paceColor};">${paceSign}${kgPerWeek.toFixed(2)} kg</div>
-        <div class="ws-stat-lbl">historical kg/week</div>
-        ${paceVerdictHtml}
-      </div>
-    </div>
-
-    ${weights.length >= 2 ? `
-      <div class="wt-moved-hero">
-        <div class="wt-moved-num" style="color:${dColor};">${dSign}${totalDelta.toFixed(2)} kg</div>
-        <div class="wt-moved-lbl">change between ${niceDate(first.date)} and ${niceDate(last.date)} · includes gaps</div>
-      </div>` : ''}
-    <div class="weight-chart">
-      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;font-family:inherit;">
-        ${yTickLabels}
-        ${avgPath ? `<path d="${avgPath}" fill="none" stroke="var(--info)" stroke-width="1.75" stroke-linecap="round" class="wt-trend-line" pathLength="1"/>` : ''}
-        ${dailyDots}
-        ${lastPt && lastPt.kg !== null ? `<circle cx="${xOf(lastIdx).toFixed(1)}" cy="${yOf(lastPt.kg).toFixed(1)}" r="4" fill="var(--info)" stroke="var(--bg)" stroke-width="2" class="wt-latest-dot"/>` : ''}
-        ${latestCallout}
-        <text x="${PAD.l}" y="${H - 8}" fill="var(--text-dim)" font-size="10" font-family="inherit">${niceDate(first.date)}</text>
-        <text x="${W - PAD.r}" y="${H - 8}" text-anchor="end" fill="var(--text-dim)" font-size="10" font-family="inherit">${niceDate(last.date)}</text>
-      </svg>
-      <div class="weight-legend">
-        <span><span class="leg-swatch daily-dot"></span> daily weigh-in</span>
-        <span><span class="leg-swatch avg"></span> 7-day average</span>
-      </div>
-    </div>
-
-    <div class="weight-recent">
-      <div class="weight-recent-hdr">Recent weigh-ins</div>
-      ${recent.map((w, i) => {
-        const prev = recent[i + 1];
-        const delta = prev ? Math.round((w.kg - prev.kg) * 100) / 100 : null;
-        const dStr = delta === null ? '' : delta === 0 ? 'no change' : (delta > 0 ? '+' : '') + delta.toFixed(2) + ' kg';
-        const dClr = 'var(--text-dim)';
-        return `<div class="weight-row" data-date="${w.date}">
-          <span class="wr-date">${new Date(w.date + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-          <span class="wr-kg">${w.kg.toFixed(2)} kg</span>
-          <span class="wr-delta" style="color:${dClr};">${dStr}</span>
-          <button class="wr-del" data-date="${w.date}" title="Delete this weigh-in">×</button>
-        </div>`;
-      }).join('')}
-    </div>
-  `;
-
-  wrap.querySelectorAll('.wr-del').forEach(btn => btn.addEventListener('click', async (ev) => {
-    ev.stopPropagation();
-    const date = btn.dataset.date;
-    const entry = weights.find(w => w.date === date);
-    await api(`/api/weight/${date}`, { method: 'DELETE' });
-    renderWeightCard();
-    if (entry) {
-      showUndoToast(`Deleted weigh-in for ${date}`, async () => {
-        await api('/api/weight', { method: 'POST', body: { kg: entry.kg, date: entry.date } });
-        renderWeightCard();
-      });
-    }
-  }));
-  wrap.querySelectorAll('.weight-row').forEach(row => row.addEventListener('click', (ev) => {
-    if (ev.target.classList.contains('wr-del')) return;
-    const date = row.dataset.date;
-    const cur = weights.find(w => w.date === date);
-    if (!cur) return;
-    const val = prompt(`Edit weight for ${date}:`, cur.kg);
-    if (val === null) return;
-    const newKg = Number(val);
-    if (!newKg || newKg < 30 || newKg > 250) return showToast('Enter a weight between 30 and 250');
-    api('/api/weight', { method: 'POST', body: { kg: newKg, date } }).then(() => renderWeightCard());
-  }));
-}
-
-async function renderWeeklyReview() {
-  const card = $('#weeklyReviewCard');
-  if (!card) return;
-  const r = await api('/api/weekly-review');
-  if (r.error) { card.innerHTML = '<h2>Last 7 past days</h2><p>Could not load this review.</p>'; return; }
-  card.innerHTML = `<h2>Last 7 past days <span class="goal-note">${r.start} → ${r.end}</span></h2>
-    <p class="history-note">Today is in progress and excluded from this review.</p>
-    ${r.empty ? '<p>No food recorded on past days in this window yet.</p>' : `
-      <div class="wr-stat-grid">
-        <div class="wr-stat"><div class="wr-num">${r.avg_kcal.toLocaleString()}</div><div class="wr-lbl">avg kcal per logged day</div></div>
-        <div class="wr-stat"><div class="wr-num">${r.days_assessed ? `${r.days_hit_goal}/${r.days_assessed}` : '—'}</div><div class="wr-lbl">days within recorded target ±200 kcal</div></div>
-        <div class="wr-stat"><div class="wr-num">${r.days_logged}/7</div><div class="wr-lbl">days with food entries</div></div>
-      </div>
-      <p class="history-note">Average protein: ${r.avg_protein} g per logged day.
-        ${r.reset_days_logged ? `${r.reset_days_logged} reset days recorded without calorie scoring.` : ''}
-        ${r.unknown_target_days ? `${r.unknown_target_days} days have no saved historical target and remain unscored.` : ''}</p>`}
-    <p class="history-note">${escapeHtml(r.note)}</p>`;
 }
 
 async function renderProteinAdherence() {
   const card = $('#proteinAdherenceCard');
   if (!card) return;
   const r = await api('/api/protein-adherence?days=30');
-  if (r.empty || r.error) { card.innerHTML = '<h2>Protein records</h2><p>Set up your profile to track protein.</p>'; return; }
+  if (r.empty || r.error) { card.innerHTML = '<h2>Protein, last 30 days</h2><p class="history-note">Set up your profile to track protein.</p>'; return; }
   const maximum = Math.max(1, ...r.series.map(d => d.protein || 0));
   const width = 560 / r.series.length;
   const bars = r.series.map((d, i) => {
     if (d.protein === null) return '';
     const height = d.protein / maximum * 54;
-    return `<rect x="${i * width}" y="${58 - height}" width="${Math.max(1, width - 2)}" height="${height}" fill="${d.hit === true ? 'var(--accent)' : 'var(--text-dim)'}"><title>${d.date}: ${d.protein} g${d.target ? `, recorded target ${d.target} g` : ', unscored'}</title></rect>`;
+    return `<rect x="${i * width}" y="${58 - height}" width="${Math.max(1, width - 2)}" height="${height}" rx="1.5" fill="${d.hit === true ? 'var(--purple)' : 'var(--track)'}"><title>${d.date}: ${d.protein} g${d.target ? `, target ${d.target} g` : ', not scored'}</title></rect>`;
   }).join('');
-  card.innerHTML = `<h2>Protein records</h2>
-    <p class="history-note">${r.start} → ${r.end}. Today is in progress and excluded.</p>
+  card.innerHTML = `<h2>Protein, last 30 days</h2>
     ${r.days_logged ? `<div class="pa-stat-grid">
-      <div class="pa-stat"><div class="pa-num">${r.days_assessed ? `${r.days_hit}/${r.days_assessed}` : '—'}</div><div class="pa-lbl">days at ≥90% of recorded target</div></div>
-      <div class="pa-stat"><div class="pa-num">${r.avg_protein} g</div><div class="pa-lbl">average across ${r.days_logged} logged days</div></div>
-    </div><svg viewBox="0 0 560 60" width="100%" role="img" aria-label="Protein recorded on past days">${bars}</svg>`
-      : '<p>No past food records in this window yet.</p>'}
-    <p class="history-note">Missing days are unknown. Reset days and days without a recorded target are unscored. Food entries may omit meals.</p>`;
+      <div class="pa-stat"><div class="pa-num">${r.days_assessed ? `${r.days_hit}/${r.days_assessed}` : '—'}</div><div class="pa-lbl">days at 90%+ of target</div></div>
+      <div class="pa-stat"><div class="pa-num">${r.avg_protein} g</div><div class="pa-lbl">average over ${r.days_logged} logged days</div></div>
+    </div><svg viewBox="0 0 560 60" width="100%" role="img" aria-label="Protein on past days">${bars}</svg>`
+      : '<p class="history-note">No past days logged in this window yet.</p>'}
+    <p class="history-note">Today, missing days and reset days aren't scored.</p>`;
 }
 
 // ---------- AI weekly debrief ----------
@@ -376,7 +396,7 @@ async function renderDebriefCard() {
   card.innerHTML = `
     <h2>AI debrief</h2>
     <div class="db-empty">
-      No review is scheduled right now. You can request a review of the available past-day records.
+      No review is due yet. You can ask for one now.
       <button class="btn" id="debriefManualBtn" style="margin-top:10px;">Generate weekly debrief</button>
     </div>`;
   $('#debriefManualBtn').addEventListener('click', () => {
@@ -405,8 +425,8 @@ function renderDebriefLocked(card, checklist) {
     return `<div class="db-check ${cls}"><span class="db-tick">${tick}</span> ${escapeHtml(c.label)}${prog}</div>`;
   }).join('');
   card.innerHTML = `
-    <h2>🤖 AI debrief <span class="db-lock-tag">LOCKED</span></h2>
-    <div class="db-lock-blurb">Log on at least five past days for your current goal to unlock a review of the available records and one practical next step.</div>
+    <h2>AI debrief <span class="db-lock-tag">Locked</span></h2>
+    <div class="db-lock-blurb">Log five past days on your current goal to unlock a weekly review with one thing to try.</div>
     <div class="db-checklist">${items}</div>
   `;
 }
@@ -430,7 +450,7 @@ function stripDebriefPrefix(s) {
 }
 
 // Tapping a date chip inside the debrief card jumps to that day in the
-// History calendar. Switches view if we're not already on History.
+// Trends calendar. Switches view if we're not already on Trends.
 function jumpToCalendarDate(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
   if (typeof setActiveView === 'function') setActiveView('history');
@@ -470,7 +490,7 @@ function renderDebriefResult(card, debrief, opts = {}) {
                 : daysToNext === 7 ? 'in a week'
                 : `in ${daysToNext} days`;
   const nextStr = nextWeekly.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-  const nextTooltip = `Next weekly debrief ${relText} (${nextStr}). Auto-generates on your next History visit then.`;
+  const nextTooltip = `Next weekly debrief ${relText} (${nextStr}). It writes itself next time you open Trends.`;
   const otherCount = (opts.otherPending || []).length;
   const otherBanner = otherCount > 0
     ? `<div class="db-other">+${otherCount} other alert${otherCount === 1 ? '' : 's'} this week — <button class="db-link" id="debriefShowOther">view</button></div>`
@@ -498,7 +518,7 @@ function renderDebriefResult(card, debrief, opts = {}) {
     if (!iso) return '';
     const d = new Date(iso + 'T00:00:00');
     const label = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-    return `<button type="button" class="db-date-chip" data-jump-date="${escapeHtml(iso)}" title="Open this day in the calendar">📅 ${label} →</button>`;
+    return `<button type="button" class="db-date-chip" data-jump-date="${escapeHtml(iso)}" title="Open this day in the calendar">${label} →</button>`;
   };
 
   // Thumbs-down follow-up: replace the inline state with 4 quick "what was off?"
@@ -622,37 +642,25 @@ function renderDebriefResult(card, debrief, opts = {}) {
 }
 
 async function loadHistory() {
+  syncRangeToggle();
   renderDebriefCard();
-  renderWeeklyReview();
   renderProteinAdherence();
-
-  // Weight tracker — full rebuild with stats, big chart, editable entries
-  await renderWeightCard();
-  // Plateau detector + predicted vs actual (depend on weight + log data, run after weight loads)
-  renderPlateauBanner();
   renderPredictedActual();
   renderSourceQuality();
 
-  // Kcal trend (last 30 days) + DoW pattern (last 60 days) + calendar (current month) — fetch range once
-  const now = new Date();
-  const trendEnd = fmtDate(now);
-  const trendStart = new Date(now); trendStart.setDate(trendStart.getDate() - 29);
-  const trendStartStr = fmtDate(trendStart);
-  const dowStart = new Date(now); dowStart.setDate(dowStart.getDate() - 59);
-  const dowStartStr = fmtDate(dowStart);
-
-  // Calendar month range
-  const calStart = `${calYear}-${String(calMonth+1).padStart(2,'0')}-01`;
-  const lastDay = new Date(calYear, calMonth+1, 0).getDate();
-  const calEnd = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
-
-  // Fetch widest range that covers everything (overlap handled by server returning only logged dates)
-  const allStart = [dowStartStr, trendStartStr, calStart].sort()[0];
-  const allEnd = [trendEnd, calEnd].sort().reverse()[0];
+  // One range fetch covers the 90-day chart, the 60-day weekday pattern and the
+  // calendar month (the server only returns days that have entries).
+  const today = fmtDate(new Date());
+  const mm = String(calMonth + 1).padStart(2, '0');
+  const calStart = `${calYear}-${mm}-01`;
+  const calEnd = `${calYear}-${mm}-${String(new Date(calYear, calMonth + 1, 0).getDate()).padStart(2, '0')}`;
+  const allStart = [GoalPolicy.shiftDate(today, -89), calStart].sort()[0];
+  const allEnd = [today, calEnd].sort().reverse()[0];
   calRangeData = await api(`/api/log-range?start=${allStart}&end=${allEnd}`);
 
-  renderKcalTrend(trendStartStr, trendEnd, calRangeData);
-  renderDowPattern(dowStartStr, trendEnd, calRangeData);
+  renderTrendRange();
+  renderWeightCard();
+  renderDowPattern(GoalPolicy.shiftDate(today, -59), today, calRangeData);
   renderCalendar();
 }
 
@@ -667,28 +675,29 @@ function renderDowPattern(startStr, endStr, rangeData) {
     buckets[dow].sum += info.kcal;
     buckets[dow].count += 1;
   });
-  const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const data = buckets.map((b, i) => ({ name: dowNames[i], avg: b.count > 0 ? Math.round(b.sum / b.count) : null, count: b.count }));
+  // Monday first, to match the calendar.
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const dowNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const data = order.map(i => ({ name: dowNames[i], avg: buckets[i].count > 0 ? Math.round(buckets[i].sum / buckets[i].count) : null, count: buckets[i].count }));
   const totalDays = data.reduce((a, d) => a + d.count, 0);
   if (totalDays < 7) {
-    el.innerHTML = `<h2>Day-of-week pattern</h2>` + (totalDays === 0
-      ? cbEmptyState(`<div class="empty" style="padding:12px 0;">Log 7 more days to see your weekday patterns.</div>`)
-      : `<div class="empty" style="padding:12px 0;">Log ${7 - totalDays} more day${totalDays === 6 ? '' : 's'} to see your weekday patterns.</div>`);
+    el.innerHTML = `<h2>Day of the week</h2>` + (totalDays === 0
+      ? cbEmptyState(`<p class="history-note">Log 7 past days to see your weekday pattern.</p>`)
+      : `<p class="history-note">Log ${7 - totalDays} more past day${totalDays === 6 ? '' : 's'} to see your weekday pattern.</p>`);
     return;
   }
   const validAvgs = data.filter(d => d.avg !== null).map(d => d.avg);
-  const max = Math.max(...validAvgs), min = Math.min(...validAvgs);
-  const overall = Math.round(validAvgs.reduce((a, v) => a + v, 0) / validAvgs.length);
+  const max = Math.max(...validAvgs);
   const heaviest = data.reduce((best, d) => (d.avg !== null && (!best || d.avg > best.avg)) ? d : best, null);
   const lightest = data.reduce((best, d) => (d.avg !== null && (!best || d.avg < best.avg)) ? d : best, null);
   const heavyDelta = heaviest && lightest ? heaviest.avg - lightest.avg : 0;
 
   const insight = heavyDelta > 200
-    ? `<strong style="color:var(--text);">${heaviest.name}</strong> is your heaviest (avg ${heaviest.avg.toLocaleString()} kcal) · <strong style="color:var(--text);">${lightest.name}</strong> is lightest (${lightest.avg.toLocaleString()}). That's ${heavyDelta} kcal/day spread.`
-    : `Pretty consistent across the week — within ${heavyDelta} kcal/day.`;
+    ? `${heaviest.name} is your heaviest day (${heaviest.avg.toLocaleString()} kcal), ${lightest.name} your lightest (${lightest.avg.toLocaleString()}).`
+    : `Steady across the week, within ${heavyDelta} kcal.`;
 
   el.innerHTML = `
-    <h2>Day-of-week pattern <span style="font-size:11px;color:var(--text-dim);font-weight:400;">last ${totalDays} day${totalDays === 1 ? '' : 's'}</span></h2>
+    <h2>Day of the week <span class="h2-note">last ${totalDays} logged days</span></h2>
     <div class="dow-grid">
       ${data.map(d => {
         const h = d.avg !== null ? Math.round((d.avg / max) * 100) : 0;
@@ -701,138 +710,86 @@ function renderDowPattern(startStr, endStr, rangeData) {
         </div>`;
       }).join('')}
     </div>
-    <div class="dow-insight">${insight}</div>
+    <p class="history-note">${insight}</p>
   `;
 }
 
-function renderKcalTrend(startStr, endStr, rangeData) {
-  const today = fmtDate(new Date());
-  const records = Object.entries(rangeData).filter(([date]) => date >= startStr && date <= endStr)
-    .map(([date, value]) => ({ date, ...value })).sort((a, b) => a.date.localeCompare(b.date));
-  const past = records.filter(d => d.date < today);
-  const assessed = past.filter(d => ['below', 'within', 'above'].includes(d.assessment));
-  const average = past.length ? Math.round(past.reduce((sum, d) => sum + d.kcal, 0) / past.length) : null;
-  $('#kcalTrendStats').innerHTML = `<span>${average === null ? 'No past-day average yet' : `<strong>${average.toLocaleString()}</strong> kcal average across ${past.length} past logged days`}</span>
-    <span>${assessed.length ? `${assessed.filter(d => d.assessment === 'within').length}/${assessed.length} within recorded target ±200 kcal` : 'No past days with a scorable target'}</span>
-    <span>Today is in progress. Missing days are unknown.</span>`;
-  if (!records.length) { $('#kcalTrendChart').innerHTML = '<p class="history-note">No food entries in this window.</p>'; return; }
-  const W = 560, H = 100, bottom = 82;
-  const span = Math.max(1, GoalPolicy.daysBetween(startStr, endStr));
-  const max = Math.max(1, ...records.flatMap(d => [d.kcal, d.goal || 0])) * 1.1;
-  const x = date => 5 + GoalPolicy.daysBetween(startStr, date) / span * (W - 10);
-  const y = kcal => bottom - kcal / max * 72;
-  let previous = null;
-  const lines = records.map(d => {
-    const line = previous && GoalPolicy.daysBetween(previous.date, d.date) === 1
-      ? `<line x1="${x(previous.date)}" y1="${y(previous.kcal)}" x2="${x(d.date)}" y2="${y(d.kcal)}" stroke="var(--text-dim)" />` : '';
-    previous = d;
-    return line + `<circle cx="${x(d.date)}" cy="${y(d.kcal)}" r="3" fill="${d.date === today ? 'var(--info)' : 'var(--text-dim)'}"><title>${d.date}: ${d.kcal} kcal${d.date === today ? ' so far' : ''}</title></circle>` +
-      (d.goal ? `<line x1="${x(d.date) - 3}" x2="${x(d.date) + 3}" y1="${y(d.goal)}" y2="${y(d.goal)}" stroke="var(--accent)"><title>Recorded target: ${d.goal} kcal</title></line>` : '');
-  }).join('');
-  $('#kcalTrendChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Logged calories and recorded daily targets">${lines}</svg>
-    <div class="intake-legend"><span>${startStr}</span><span>Dots: logged intake · ticks: recorded targets</span><span>${endStr}</span></div>`;
-}
-
+// Monday-first month grid with one status dot per day. Calories over target beat a
+// protein shortfall, which beats on target. Today is in progress and gets no verdict.
 function renderCalendar() {
+  const todayStr = fmtDate(new Date());
   const now = new Date();
-  const todayStr = fmtDate(now);
-  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  $('#calMonthLabel').textContent = `${monthNames[calMonth]} ${calYear}`;
-  $('#calPrev').disabled = false;
+  $('#calMonthLabel').textContent = new Date(calYear, calMonth, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
   $('#calNext').disabled = (calYear > now.getFullYear()) || (calYear === now.getFullYear() && calMonth >= now.getMonth());
 
-  const firstDay = new Date(calYear, calMonth, 1).getDay(); // 0=Sun
+  const firstDay = (new Date(calYear, calMonth, 1).getDay() + 6) % 7; // 0 = Monday
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  const goal = Object.values(calRangeData).find(d => d.goal)?.goal || null;
 
-  let html = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div class="cal-dow">${d}</div>`).join('');
-
-  // Blank cells before first day
-  for (let i = 0; i < firstDay; i++) html += `<div class="cal-cell outside"></div>`;
+  let html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="cal-dow"><abbr title="${d}">${d[0]}</abbr></div>`).join('');
+  for (let i = 0; i < firstDay; i++) html += `<span class="cal-cell blank" aria-hidden="true"></span>`;
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const ds = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const ds = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const entry = calRangeData[ds];
     const isToday = ds === todayStr;
-    const isFuture = ds > todayStr;
-    const isSelected = ds === calSelectedDate;
-    let cls = 'cal-cell';
-    if (isToday) cls += ' today';
-    if (isSelected) cls += ' selected';
-    if (isFuture) cls += ' outside';
-    else if (!entry) cls += ' empty-log';
-    else if (isToday) cls += ' in-progress';
-    else if (entry.assessment === 'within') cls += ' on-target';
-    else if (entry.assessment === 'below') cls += ' under';
-    else if (entry.assessment === 'above') cls += ' over';
-    else cls += ' unscored';
+    if (ds > todayStr) { html += `<span class="cal-cell future">${day}</span>`; continue; }
 
-    let proteinHtml = '';
-    if (entry && entry.protein !== undefined) {
-      const pg = entry.protein_goal;
-      const eligible = !isToday && entry.goal_mode !== 'reset' && pg;
-      const hit = eligible ? entry.protein >= pg * 0.9 : null;
-      proteinHtml = `<div class="cal-day-protein ${hit === null ? '' : hit ? 'hit' : 'miss'}">${Math.round(entry.protein)}p</div>`;
+    let status = '', words = 'nothing logged';
+    if (entry && isToday) { status = 'in-progress'; words = 'in progress'; }
+    else if (entry) {
+      const proteinShort = entry.goal_mode !== 'reset' && entry.protein_goal && entry.protein < entry.protein_goal * 0.9;
+      if (entry.assessment === 'above') { status = 'over'; words = 'over target'; }
+      else if (proteinShort) { status = 'short'; words = 'protein short'; }
+      else if (entry.assessment === 'within' || entry.assessment === 'below') { status = 'on'; words = entry.assessment === 'below' ? 'under target' : 'on target'; }
+      else { status = 'plain'; words = 'logged, not scored'; }
+      words = `${entry.kcal.toLocaleString()} kcal, ${words}`;
     }
-    html += `<div class="${cls}" data-date="${ds}">
-      <div class="cal-day-num">${day}</div>
-      ${entry ? `<div class="cal-day-kcal">${entry.kcal.toLocaleString()}</div>${proteinHtml}` : ''}
-    </div>`;
+    const cls = ['cal-cell', entry ? 'logged' : 'empty-log', isToday ? 'today' : '', isToday && entry ? 'in-progress' : '', ds === calSelectedDate ? 'selected' : ''].filter(Boolean).join(' ');
+    html += `<button type="button" class="${cls}" data-date="${ds}" aria-pressed="${ds === calSelectedDate}" aria-label="${niceDate(ds)}: ${words}">
+      <span>${day}</span><i class="dot ${status}"></i>
+    </button>`;
   }
 
   $('#calGrid').innerHTML = html;
-  $$('.cal-cell[data-date]').forEach(cell => {
-    cell.addEventListener('click', async () => {
-      const date = cell.dataset.date;
-      if (!date || date > todayStr) return;
-      if (calSelectedDate === date) {
-        calSelectedDate = null;
-        $('#calDetail').innerHTML = '';
-        cell.classList.remove('selected');
-        return;
-      }
-      calSelectedDate = date;
-      $$('.cal-cell').forEach(c => c.classList.remove('selected'));
-      cell.classList.add('selected');
-      await renderCalDetail(date);
-    });
-  });
+  $$('#calGrid .cal-cell[data-date]').forEach(cell => cell.addEventListener('click', async () => {
+    const date = cell.dataset.date;
+    $$('#calGrid .cal-cell.selected').forEach(c => { c.classList.remove('selected'); c.setAttribute('aria-pressed', 'false'); });
+    if (calSelectedDate === date) { calSelectedDate = null; $('#calDetail').innerHTML = ''; return; }
+    calSelectedDate = date;
+    cell.classList.add('selected');
+    cell.setAttribute('aria-pressed', 'true');
+    await renderCalDetail(date);
+  }));
 }
 
 async function renderCalDetail(date) {
-  $('#calDetail').innerHTML = `<div class="cal-detail-drawer"><div class="cal-detail-empty">Loading…</div></div>`;
+  $('#calDetail').innerHTML = `<div class="cal-detail-drawer"><p class="history-note">Loading…</p></div>`;
   const data = await api('/api/log?date=' + date);
-  const niceDate = new Date(date + 'T00:00:00').toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
-  const totals = data.entries.length
-    ? `<span class="totals">— ${data.totals.kcal} kcal · ${Math.round(data.totals.protein)}g P</span>`
-    : '';
-  const header = `
-    <div class="cal-detail-header">
-      <div class="cal-detail-title">${niceDate}${totals}</div>
-      <button class="btn btn-secondary" id="calAddMeal" style="padding:6px 12px;font-size:12px;white-space:nowrap;">+ Add meal</button>
-    </div>`;
-  let body;
-  if (!data.entries.length) {
-    body = '<div class="cal-detail-empty">Nothing logged this day. Tap + Add meal to backfill.</div>';
-  } else {
-    body = data.entries.map(e => `
-      <div class="cal-entry-row" data-eid="${e.id}">
-        <span class="ce-name">${escapeHtml(e.name)}</span>
-        <span class="ce-meta">${e.kcal} kcal · ${e.protein}g P</span>
+  const title = new Date(date + 'T00:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
+  const note = date === fmtDate(new Date()) ? 'In progress'
+    : data.stats ? `${GoalPolicy.LABELS[data.stats.goal] || data.stats.goal} · target ${data.stats.kcal_goal.toLocaleString()} kcal`
+    : 'No target on record, so not scored';
+  $('#calDetail').innerHTML = `
+    <div class="cal-detail-drawer">
+      <div class="cal-detail-header">
+        <div>
+          <div class="cal-detail-title">${title}</div>
+          <div class="cal-detail-sub">${data.entries.length ? `${data.totals.kcal.toLocaleString()} kcal · ${Math.round(data.totals.protein)}g P · ` : ''}${escapeHtml(note)}</div>
+        </div>
+        <button class="btn btn-secondary" id="calAddMeal" type="button">+ Add meal</button>
       </div>
-    `).join('');
-  }
-  const contextNote = date === fmtDate(new Date()) ? 'Today is in progress.' : data.stats ? `Recorded goal: ${GoalPolicy.LABELS[data.stats.goal] || data.stats.goal} · ${data.stats.kcal_goal} kcal.` : 'No historical target was recorded for this date; totals are unscored.';
-  $('#calDetail').innerHTML = `<div class="cal-detail-drawer">${header}<p class="history-note">${escapeHtml(contextNote)}</p>${body}</div>`;
+      ${data.entries.length ? data.entries.map(e => `
+        <button class="cal-entry-row" type="button" data-eid="${e.id}">
+          <span class="ce-name">${escapeHtml(e.name)}</span>
+          <span class="ce-meta">${e.kcal.toLocaleString()} · <strong>${Math.round(e.protein)}g</strong></span>
+        </button>`).join('') : '<p class="history-note">Nothing logged this day.</p>'}
+    </div>`;
   $('#calAddMeal').addEventListener('click', () => openLogModal(date));
-  $$('#calDetail .cal-entry-row').forEach(row => {
-    row.addEventListener('click', () => {
-      const e = data.entries.find(en => en.id === row.dataset.eid);
-      if (e) openEditModal(e, date);
-    });
-  });
-  // Bring the drawer + selected cell into view so it's obvious something opened.
-  const drawer = $('#calDetail').querySelector('.cal-detail-drawer');
+  $$('#calDetail .cal-entry-row').forEach(row => row.addEventListener('click', () => {
+    const e = data.entries.find(en => en.id === row.dataset.eid);
+    if (e) openEditModal(e, date);
+  }));
+  const drawer = $('#calDetail .cal-detail-drawer');
   if (drawer) drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -844,19 +801,21 @@ async function shiftCalendarMonth(delta) {
   $('#calDetail').innerHTML = '';
   const mm = String(calMonth + 1).padStart(2, '0');
   const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
-  const calStart = `${calYear}-${mm}-01`;
-  const calEnd = `${calYear}-${mm}-${String(lastDay).padStart(2, '0')}`;
-  const newData = await api(`/api/log-range?start=${calStart}&end=${calEnd}`);
+  const newData = await api(`/api/log-range?start=${calYear}-${mm}-01&end=${calYear}-${mm}-${String(lastDay).padStart(2, '0')}`);
   Object.assign(calRangeData, newData);
   renderCalendar();
 }
 $('#calPrev').addEventListener('click', () => shiftCalendarMonth(-1));
 $('#calNext').addEventListener('click', () => shiftCalendarMonth(1));
+$$('.range-toggle button').forEach(btn => btn.addEventListener('click', () => setTrendRange(Number(btn.dataset.range))));
 
-$('#weightSave').addEventListener('click', async () => {
+$('#weighInForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
   const kg = Number($('#weightInput').value);
   if (!kg || kg < 30 || kg > 250) return showToast('Enter a weight between 30 and 250');
   await api('/api/weight', { method: 'POST', body: { kg } });
+  $('#weightInput').value = '';
+  $('#weighInForm').classList.add('hidden');
   showToast('Weight logged');
   renderWeightCard();
   loadProfile();

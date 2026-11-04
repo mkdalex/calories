@@ -149,34 +149,76 @@ const LOG_PERIODS = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Late night'];
 const PERIOD_PLURAL = { Breakfast: 'breakfasts', Lunch: 'lunches', Snack: 'snacks', Dinner: 'dinners', 'Late night': 'late-night meals' };
 const SHEET_TITLES = { type: 'Log a meal', parse: 'On it', review: 'Looks like', done: 'Logged' };
 
-const flow = { screen: 'type', date: null, period: 'Dinner', job: null, tool: null, opener: null, done: null, unwatch: null };
+const flow = { screen: 'type', date: null, period: 'Dinner', job: null, tool: null, opener: null, done: null, unwatch: null, active: -1 };
+
+// On desktop Today the same sheet sits inline at the top of the page as an
+// always-open composer; everywhere else it's the pop-up sheet.
+const composerQuery = window.matchMedia('(min-width: 1024px)');
+let sheetInline = false;
+
+function wantsInlineComposer() {
+  return composerQuery.matches && !$('#view-today').classList.contains('hidden');
+}
+
+// Move the sheet to wherever it should live right now. Runs on view and width changes.
+function syncComposer() {
+  const inline = wantsInlineComposer();
+  if (inline === sheetInline) return;
+  releaseJob();
+  sheetInline = inline;
+  const sheet = $('#logSheet');
+  sheet.classList.toggle('inline', inline);
+  (inline ? $('#composerHost') : $('#logModal')).appendChild(sheet);
+  $('#logModal').classList.add('hidden');
+  document.body.classList.remove('sheet-open');
+  resetSheet(typeof todayViewDate !== 'undefined' ? todayViewDate : null);
+}
+composerQuery.addEventListener('change', syncComposer);
+
+// The inline composer follows the day Today is showing, unless it's mid-way through something.
+function composerFollowDay(date) {
+  if (sheetInline && flow.screen === 'type' && !$('#logText').value.trim()) resetSheet(date);
+}
+
+// Back to an empty type screen for a given day and meal.
+function resetSheet(date, period) {
+  flow.date = date || null;
+  flow.period = period || (flow.date ? 'Dinner' : getMealPeriod(new Date().toISOString()));
+  flow.done = null;
+  $('#logText').value = '';
+  updateGhost('', null);
+  setTool(null);
+  showScreen('type');
+  renderTypeLists();
+  updatePrimary();
+  // Warm the meal search index so the very first letter typed has matches ready.
+  loadMealSearchIndex().then(() => { renderTypeLists(); updatePrimary(); });
+  loadUsuals().then(() => { if (flow.screen === 'type') renderTypeLists(); });
+}
 
 // date: 'yyyy-mm-dd' to log into a past day. period: the meal to file it under
 // (e.g. from an "Add dinner" slot). Defaults: today, and the period on the clock.
 function openLogModal(date, period) {
-  flow.date = date || null;
-  flow.period = period || (flow.date ? 'Dinner' : getMealPeriod(new Date().toISOString()));
-  flow.opener = document.activeElement;
-  $('#logText').value = '';
-  updateGhost('', null);
-  setTool(null);
-  showSheet();
-  showScreen('type');
-  renderTypeLists();
+  syncComposer();
+  releaseJob();
+  flow.opener = sheetInline ? null : document.activeElement;
+  resetSheet(date, period);
+  if (sheetInline) $('#composerHost').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  else showSheet();
   $('#logText').focus();
-  // Warm the meal search index so the very first letter typed has matches ready.
-  loadMealSearchIndex().then(() => { renderTypeLists(); updatePrimary(); });
-  loadUsuals().then(() => { if (flow.screen === 'type') renderTypeLists(); });
 }
 
 // Open the sheet on a background parse (a pending row on Today was tapped).
 function openParseJob(id) {
   const job = findParseJob(id);
   if (!job || job.status === 'saving') return;
+  syncComposer();
+  releaseJob();
   flow.date = job.date;
   flow.period = job.period;
-  flow.opener = document.activeElement;
-  showSheet();
+  flow.opener = sheetInline ? null : document.activeElement;
+  if (sheetInline) $('#composerHost').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  else showSheet();
   if (job.status === 'interrupted') runParseJob(job);
   watchJob(job);
 }
@@ -187,20 +229,28 @@ function showSheet() {
   renderSheetHead();
 }
 
-function closeLogModal() {
+// Let go of the job the sheet is showing. A parse keeps running in the background;
+// a finished one that wasn't logged stays on Today to finish later.
+function releaseJob() {
   const job = flow.job;
   if (job) {
     job.watched = false;
     if (job.local || job.status === 'error' || job.status === 'interrupted') removeParseJob(job.id);
-    // Closed on the review screen without logging: keep it on Today to finish later.
     else if (job.status === 'ready') { job.status = 'review'; notifyParseJob(job); }
   }
+  flow.job = null;
   unwatchJob();
   stopDinoTicker();
+}
+
+function closeLogModal() {
+  releaseJob();
+  flow.done = null;
+  stopBarcodeCamera();
+  if (sheetInline) { resetSheet(typeof todayViewDate !== 'undefined' ? todayViewDate : null); return; }
   $('#logModal').classList.add('hidden');
   document.body.classList.remove('sheet-open');
   flow.screen = 'type';
-  flow.done = null;
   if (flow.opener && flow.opener.isConnected) flow.opener.focus();
 }
 
@@ -218,6 +268,8 @@ function renderSheetHead() {
   $('#logPeriodLabel').textContent = flow.period;
   $('#logPeriod').classList.toggle('hidden', flow.screen === 'done');
   $('#logPeriod').setAttribute('aria-label', `Meal: ${flow.period}. Tap to change`);
+  $('#logPeriodInlineLabel').textContent = flow.period;
+  $('#logPeriodInline').setAttribute('aria-label', `Meal: ${flow.period}. Click to change`);
   const banner = $('#logDateBanner');
   if (flow.date) {
     banner.textContent = `Logging to ${new Date(flow.date + 'T12:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })}`;
@@ -254,6 +306,7 @@ function entryWhen() {
 $('#logClose').addEventListener('click', closeLogModal);
 $('#logModal').addEventListener('click', (e) => { if (e.target === $('#logModal')) closeLogModal(); });
 $('#logPeriod').addEventListener('click', cyclePeriod);
+$('#logPeriodInline').addEventListener('click', cyclePeriod);
 
 // ---------- KEYBOARD SHORTCUTS ----------
 document.addEventListener('keydown', (e) => {
@@ -265,7 +318,14 @@ document.addEventListener('keydown', (e) => {
   const tag = document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (!$('#logModal').classList.contains('hidden')) return;
-  if (e.key === 'l' || e.key === 'L') { openLogModal(typeof todayViewDate !== 'undefined' ? todayViewDate : null); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // "/" (or L) jumps to the composer from anywhere; on Today on desktop that's the inline box.
+  if (e.key === '/' || e.key === 'l' || e.key === 'L') {
+    e.preventDefault();
+    if (wantsInlineComposer() && flow.screen === 'type') { syncComposer(); $('#logText').focus(); }
+    else openLogModal(typeof todayViewDate !== 'undefined' ? todayViewDate : null);
+    return;
+  }
   // Number keys 1-5 switch tabs, in sidebar order
   const viewMap = { '1': 'today', '2': 'history', '3': 'gym', '4': 'profile', '5': 'dev' };
   if (viewMap[e.key]) setActiveView(viewMap[e.key]);
@@ -457,8 +517,11 @@ function renderTypeLists() {
       ${plus ? '<span class="pick-plus" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>' : ''}
     </button>`;
 
+  flow.active = -1;
+  $('#logText').removeAttribute('aria-activedescendant');
   if (!q) {
-    if (!usualsLoading) { host.innerHTML = ''; return; }
+    // The inline composer stays compact; Today's frequent-food chips sit right under it.
+    if (!usualsLoading || sheetInline) { host.innerHTML = ''; return; }
     usualsLoading.then(meals => {
       if (flow.screen !== 'type' || typedQuery() || flow.tool) return;
       const usuals = usualsFor(meals, flow.period);
@@ -478,7 +541,7 @@ function renderTypeLists() {
     const when = it => it.source === 'template' ? 'Template' : it.source === 'custom' ? 'Your food' : `${relDateLabel(it.last_date)} · same amounts`;
     host.innerHTML = `
       <h3 class="ls-label">You've had this before</h3>
-      <div class="pick-list">${matches.map((it, i) => row(`data-match="${i}"`, it.name, when(it).replace(/^./, c => c.toUpperCase()), it.kcal, it.protein, false)).join('')}</div>`;
+      <div class="pick-list">${matches.map((it, i) => row(`data-match="${i}" id="logMatch${i}"`, it.name, when(it).replace(/^./, c => c.toUpperCase()), it.kcal, it.protein, false)).join('')}</div>`;
     host.querySelectorAll('[data-match]').forEach(btn => btn.addEventListener('click', () => relogIndexItem(matches[Number(btn.dataset.match)], btn)));
   } else if (q.length > 2) {
     host.innerHTML = `
@@ -496,7 +559,7 @@ function updatePrimary() {
   const text = $('#logText').value.trim();
   const exact = exactMatch();
   btn.disabled = !text;
-  btn.textContent = !text ? 'Type something, or tap a usual'
+  btn.textContent = !text ? (sheetInline ? 'Type what you ate' : 'Type something, or tap a usual')
     : exact ? `Log again · ${Math.round(exact.kcal).toLocaleString()} kcal`
     : 'Work it out';
 }
@@ -528,7 +591,18 @@ $('#logText').addEventListener('input', () => {
 });
 $('#logText').addEventListener('keydown', (e) => {
   const atEnd = e.target.selectionStart === e.target.value.length;
-  if ((e.key === 'Tab' || (e.key === 'ArrowRight' && atEnd)) && currentGhostSuggestion) {
+  const matchRows = $$('#logLists [data-match]');
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && matchRows.length) {
+    // Move through "You've had this before"; Enter then relogs the highlighted one.
+    e.preventDefault();
+    flow.active = Math.max(-1, Math.min(matchRows.length - 1, flow.active + (e.key === 'ArrowDown' ? 1 : -1)));
+    matchRows.forEach((r, i) => r.classList.toggle('active', i === flow.active));
+    if (flow.active >= 0) e.target.setAttribute('aria-activedescendant', matchRows[flow.active].id);
+    else e.target.removeAttribute('aria-activedescendant');
+  } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && flow.active >= 0 && matchRows[flow.active]) {
+    e.preventDefault();
+    matchRows[flow.active].click();
+  } else if ((e.key === 'Tab' || (e.key === 'ArrowRight' && atEnd)) && currentGhostSuggestion) {
     e.preventDefault();
     acceptGhost();
   } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -1033,7 +1107,7 @@ function afterLogged({ name, kcal, protein, ids, text = '' }) {
     </div>` : ''}
     <div class="done-actions">
       <button class="sheet-secondary" id="doneUndo" type="button">Undo</button>
-      <button class="sheet-primary" id="doneBack" type="button">${onToday ? 'Back to Today' : 'Done'}</button>
+      <button class="sheet-primary" id="doneBack" type="button">${sheetInline ? 'Log another' : onToday ? 'Back to Today' : 'Done'}</button>
     </div>`;
   $('#doneUndo').addEventListener('click', undoLogged);
   $('#doneBack').addEventListener('click', closeLogModal);

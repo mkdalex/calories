@@ -74,7 +74,7 @@ async function loadProfile() {
 
   if (data.profile) {
     $('#pHeight').value = data.profile.height_cm || '';
-    $('#pWeight').value = data.profile.weight_kg || '';
+    $('#pWeight').value = data.profile.weight_kg ? round1(data.profile.weight_kg) : '';
     $('#pAge').value = data.profile.age || '';
     $('#pSex').value = data.profile.sex || 'male';
     $('#pActivity').value = data.profile.activity || 'moderate';
@@ -98,11 +98,9 @@ function renderExplainer() {
         <div class="wr-stat"><div class="wr-num">${s.tdee.toLocaleString()}</div><div class="wr-lbl">active maintenance estimate</div></div>
       </div>
       <p>${escapeHtml(s.explainer)}</p>
-      <p class="goal-note"><strong>${source}</strong>. Formula estimate: ${s.tdee_predicted.toLocaleString()} kcal.
-        ${s.tdee_calibrated ? `${date} ${s.override_review ? 'Review this override: its age or profile context is uncertain or has changed.' : ''}` : ''}
-      </p>
-      <p class="goal-note">${s.goal_started ? `Current goal tracked from ${escapeHtml(s.goal_started)}.` : 'Goal history will be recorded from your next saved profile.'} Older records without a known target remain unscored.</p>
-      <p class="goal-note">Changing profile fields takes effect after Save profile. A saved maintenance override remains active until you reset or replace it.</p>
+      <p class="goal-note"><strong>${source}</strong> · formula ${s.tdee_predicted.toLocaleString()} kcal${s.tdee_calibrated ? ` · ${date}` : ''}</p>
+      ${s.tdee_calibrated && s.override_review ? '<p class="goal-note goal-warn">This override may be out of date. Worth a review.</p>' : ''}
+      <p class="goal-note">${s.goal_started ? `Goal since ${escapeHtml(s.goal_started)}. Days before that aren't scored.` : 'Goal history starts from your next save.'}</p>
     </div>
     <div class="card" id="calibrateCard"></div>`;
   renderCalibrate();
@@ -118,7 +116,7 @@ async function renderCalibrate() {
   }
   const reset = r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset">Reset to formula (${r.tdee_predicted.toLocaleString()} kcal)</button>` : '';
   card.innerHTML = `<h2>Review maintenance estimate</h2>
-    <p class="goal-note">Uses recent food and weight records from the current goal period, up to 42 days. Today’s intake is excluded.</p>
+    <p class="goal-note">From up to 42 days of food and weight on your current goal. Today isn't counted.</p>
     <p>Active estimate: <strong>${r.tdee_current?.toLocaleString() || '—'} kcal</strong> · Formula: ${r.tdee_predicted?.toLocaleString() || '—'} kcal</p>
     ${r.can_calibrate ? `
       <p>Recent records suggest approximately <strong>${r.tdee_implied.toLocaleString()} kcal</strong> for maintenance.</p>
@@ -152,17 +150,17 @@ async function loadMyFoods() {
   const el = $('#myFoodsList');
   const keys = Object.keys(customs || {});
   if (!keys.length) {
-    el.innerHTML = '<span style="color:var(--text-dim);">None saved yet. When you correct a food\'s calories, you can save it here for instant recall.</span>';
+    el.innerHTML = '<p class="pf-empty">None yet. In a meal review, tap a food and choose Save as my food.</p>';
     return;
   }
   el.innerHTML = keys.map(k => {
     const f = customs[k];
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
-      <div>
-        <span style="color:var(--text);">${escapeHtml(f.name)}</span>
-        <span style="color:var(--text-dim);font-size:11px;margin-left:8px;">${f.kcal} kcal · ${f.protein}g P${(f.fat || f.carb || f.fiber) ? ` · ${f.fat||0}g F · ${f.carb||0}g C · ${f.fiber||0}g Fib` : ''}</span>
+    return `<div class="pf-row">
+      <div class="pf-row-text">
+        <span class="pf-row-name">${escapeHtml(f.name)}</span>
+        <span class="pf-row-meta">${f.kcal} kcal · ${f.protein}g P${(f.fat || f.carb || f.fiber) ? ` · ${f.fat||0}g F · ${f.carb||0}g C · ${f.fiber||0}g Fib` : ''}</span>
       </div>
-      <button onclick="deleteCustomFood('${escapeHtml(k)}')" style="font-size:11px;padding:2px 8px;background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;cursor:pointer;">Remove</button>
+      <button class="pf-row-btn" type="button" onclick="deleteCustomFood('${escapeHtml(k)}')">Remove</button>
     </div>`;
   }).join('');
 }
@@ -201,21 +199,18 @@ function renderBackupRestore() {
   const card = $('#backupRestoreCard');
   if (!card) return;
   card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <strong>Backup &amp; Restore</strong>
-      <span style="font-size:12px;color:var(--text-dim);">Export, import, or migrate old data</span>
+    <div class="pf-head"><h2>Backup and restore</h2><span>Export or import your data</span></div>
+    <p class="pf-text">Download everything (meals, weights, profile, templates) as one JSON file to keep somewhere safe.</p>
+    <div class="pf-actions">
+      <button class="btn btn-secondary" id="backupExport" type="button">Download backup (.json)</button>
+      <a class="btn btn-secondary" href="/api/export/csv" download>Download meals (.csv)</a>
     </div>
 
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.55;margin-bottom:14px;">
-      <strong style="color:var(--text);">Backup</strong>: download all your meals, weights, profile, templates as one JSON file. Keep it somewhere safe (Google Drive, etc.). You can restore it later.
-    </div>
-    <button class="btn btn-secondary" id="backupExport">Download backup (.json)</button>
+    <hr class="pf-rule">
 
-    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
-
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.55;margin-bottom:14px;">
-      <strong style="color:var(--text);">Restore / migrate</strong>: import data from an exported backup, or from your old Electron app.
-      <ul style="margin:8px 0 0;padding-left:18px;">
+    <div class="pf-text">
+      <strong>Restore or migrate</strong> from a backup file or your old desktop app.
+      <ul class="pf-ul">
         <li><strong>Backup file</strong> (from this app): select the single <code>calories-backup-*.json</code> file.</li>
         <li><strong>Old Electron data</strong>: navigate to <code>%APPDATA%\\Calories\\data\\</code> (Windows) and select <code>log.json</code>, <code>profile.json</code>, <code>weight.json</code>, <code>templates.json</code>, <code>water.json</code>, <code>custom_foods.json</code> — pick all that exist with Ctrl-click.</li>
       </ul>
@@ -226,15 +221,15 @@ function renderBackupRestore() {
       <input type="file" id="restoreFiles" multiple accept=".json,application/json" />
     </div>
     <div class="field">
-      <label style="display:flex;align-items:center;gap:8px;">
-        <input type="radio" name="restoreMode" value="replace" checked style="width:auto;" /> Replace — overwrite everything (use for first migration)
+      <label class="pf-radio">
+        <input type="radio" name="restoreMode" value="replace" checked /> Replace everything (first migration)
       </label>
-      <label style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-        <input type="radio" name="restoreMode" value="merge" style="width:auto;" /> Merge — keep what you have, add anything new (use for second device)
+      <label class="pf-radio">
+        <input type="radio" name="restoreMode" value="merge" /> Merge, keeping what you have (second device)
       </label>
     </div>
-    <div id="restorePreview" style="font-size:12px;color:var(--text-dim);margin:8px 0;"></div>
-    <button class="btn" id="backupImport" disabled>Import</button>
+    <div id="restorePreview" class="pf-preview"></div>
+    <button class="btn" id="backupImport" type="button" disabled>Import</button>
   `;
 
   $('#backupExport').addEventListener('click', () => {

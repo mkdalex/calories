@@ -12,14 +12,13 @@
 const CB_INTENTS = [
   {
     id: 'reset',
-    emoji: '🔁',
     name: 'Just get back in the habit',
     desc: '7 days at maintenance — no deficit. The only target is that you log. Pick a real goal on day 8, with a week of your own data behind it.',
     recommended: true
   },
-  { id: 'steady',   emoji: '📉', name: 'Lose fat',      desc: '~0.5 kg/week deficit. Straight back into a cut.' },
-  { id: 'maintain', emoji: '➖', name: 'Maintain',      desc: 'Hold your weight, keep protein high.' },
-  { id: 'gain',     emoji: '📈', name: 'Build muscle',  desc: 'Slight surplus for lean gain.' }
+  { id: 'steady',   name: 'Lose fat',      desc: '~0.5 kg/week deficit. Straight back into a cut.' },
+  { id: 'maintain', name: 'Maintain',      desc: 'Hold your weight, keep protein high.' },
+  { id: 'gain',     name: 'Build muscle',  desc: 'Slight surplus for lean gain.' }
 ];
 
 let comebackState = null;
@@ -119,7 +118,7 @@ function renderCbWelcome() {
 
   $('#cbContent').innerHTML = `
     <div class="cb-hero">
-      <div class="cb-emoji">👋</div>
+      <span class="brand-mark" aria-hidden="true"></span>
       <h1>Welcome back</h1>
       <p class="cb-lede">It's been <strong>${gapText}</strong>. Nothing was lost — your profile, templates and history are exactly where you left them.</p>
     </div>
@@ -168,7 +167,6 @@ function renderCbIntent() {
     <div class="cb-cards">
       ${CB_INTENTS.map(o => `
         <button class="cb-card-option ${sel === o.id ? 'active' : ''} ${o.recommended ? 'recommended' : ''}" data-id="${o.id}">
-          <span class="cb-card-emoji">${o.emoji}</span>
           <div class="cb-card-text">
             <div class="cb-card-name">${o.name}${o.recommended ? '<span class="cb-rec-tag">recommended</span>' : ''}</div>
             <div class="cb-card-desc">${o.desc}</div>
@@ -399,7 +397,6 @@ function renderResetDone(el, days, logged, doneCount, meta) {
       <div class="cb-cards" id="resetGoalPick">
         ${CB_INTENTS.filter(o => o.id !== 'reset').map(o => `
           <button class="cb-card-option" data-id="${o.id}">
-            <span class="cb-card-emoji">${o.emoji}</span>
             <div class="cb-card-text">
               <div class="cb-card-name">${o.name}</div>
               <div class="cb-card-desc">${o.desc}</div>

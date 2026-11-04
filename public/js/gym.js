@@ -104,16 +104,16 @@ function renderGymWeek() {
       ? `<span class="gym-day-more">+${entry.types.length - 3}</span>`
       : '';
     const cardioBadge = entry && entry.cardio_kcal
-      ? `<div class="gym-day-cardio-kcal">🔥 ${entry.cardio_kcal}</div>`
+      ? `<div class="gym-day-cardio-kcal">${entry.cardio_kcal} kcal</div>`
       : '';
 
     cards.push(`
       <button class="${cls}" data-date="${ds}" ${isFuture ? 'disabled' : ''}>
-        <div class="gym-day-name">${d.toLocaleDateString([], { weekday: 'short' }).toUpperCase()}</div>
+        <div class="gym-day-name">${d.toLocaleDateString([], { weekday: 'short' })}</div>
         <div class="gym-day-num">${d.getDate()}</div>
         <div class="gym-day-chips">${chips}${more}</div>
         ${cardioBadge}
-        ${isToday ? '<div class="gym-day-today-tag">TODAY</div>' : ''}
+        ${isToday ? '<div class="gym-day-today-tag">Today</div>' : ''}
       </button>
     `);
   }
@@ -184,7 +184,7 @@ function renderGymStats() {
   longest = Math.max(longest, activeStreak);
 
   const cardioLine = weekCardioKcal > 0
-    ? `<div class="gym-cardio-week">🔥 <strong>${weekCardioKcal.toLocaleString()}</strong> kcal cardio this week</div>`
+    ? `<div class="gym-cardio-week"><strong>${weekCardioKcal.toLocaleString()}</strong> kcal cardio this week</div>`
     : '';
   card.innerHTML = `
     <div class="gym-stat-grid">
@@ -193,7 +193,7 @@ function renderGymStats() {
         <div class="gym-stat-lbl">this week</div>
       </div>
       <div class="gym-stat">
-        <div class="gym-stat-num">${activeStreak}${activeStreak > 0 ? ' 🔥' : ''}</div>
+        <div class="gym-stat-num">${activeStreak}</div>
         <div class="gym-stat-lbl">active streak</div>
       </div>
       <div class="gym-stat">
@@ -305,9 +305,7 @@ function renderGymHeatmap() {
   }
 
   card.innerHTML = `
-    <h2>${titleMain}
-      <span style="font-size:11px;color:var(--text-dim);font-weight:400;">consistency at a glance</span>
-    </h2>
+    <h2>${titleMain}</h2>
     <div class="hm-wrap">
       <div class="hm-y-labels">
         <span>Mon</span>

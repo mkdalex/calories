@@ -11,6 +11,51 @@ async function loadToday() {
   state.water = water;
   renderToday();
   renderWater();
+  renderThisWeek();
+}
+
+// Desktop right rail: the last seven days as small bars, the past-day average and the
+// latest weigh-in. Phones skip it (Trends has the full version) to save the requests.
+async function renderThisWeek() {
+  const wrap = $('#weekWrap');
+  if (!window.matchMedia('(min-width: 1024px)').matches) { wrap.innerHTML = ''; return; }
+  const today = fmtDate(new Date());
+  const start = GoalPolicy.shiftDate(today, -6);
+  const [range, weights] = await Promise.all([
+    api(`/api/log-range?start=${start}&end=${today}`).catch(() => ({})),
+    api('/api/weight').catch(() => [])
+  ]);
+  const days = [];
+  for (let d = start; d <= today; d = GoalPolicy.shiftDate(d, 1)) days.push({ date: d, ...(range[d] || {}) });
+  const past = days.filter(d => d.date < today && d.kcal != null);
+  const avg = past.length ? Math.round(past.reduce((s, d) => s + d.kcal, 0) / past.length) : null;
+  const max = Math.max(1, ...days.map(d => Math.max(d.kcal || 0, d.goal || 0))) * 1.05;
+  const last = weights[weights.length - 1];
+  const earlier = last && weights.filter(w => w.date >= GoalPolicy.shiftDate(today, -14))[0];
+  const delta = last && earlier && earlier !== last ? Math.round((last.kg - earlier.kg) * 10) / 10 : null;
+  wrap.innerHTML = `
+    <section class="week-card" aria-labelledby="weekTitle">
+      <div class="week-head">
+        <h2 id="weekTitle">This week</h2>
+        <button class="link-btn" type="button" onclick="setActiveView('history')">Trends</button>
+      </div>
+      <div class="week-bars" role="img" aria-label="Calories for the last 7 days">
+        ${days.map(d => {
+          if (d.kcal == null) return `<span class="kt-col"><span class="kt-bar missing"></span></span>`;
+          const cls = d.date === today ? 'in-progress' : !d.goal || d.goal_mode === 'reset' ? 'plain' : d.kcal > d.goal ? 'over' : 'under';
+          return `<span class="kt-col"><span class="kt-bar ${cls}" style="height:${(d.kcal / max * 100).toFixed(1)}%" title="${niceDay(d.date)}: ${d.kcal.toLocaleString()} kcal"></span></span>`;
+        }).join('')}
+      </div>
+      <div class="week-days" aria-hidden="true">${days.map(d => `<span class="${d.date === today ? 'now' : ''}">${new Date(d.date + 'T12:00:00').toLocaleDateString([], { weekday: 'narrow' })}</span>`).join('')}</div>
+      <div class="week-foot">
+        <span>Avg <strong>${avg === null ? '—' : avg.toLocaleString()}</strong> kcal</span>
+        ${last ? `<span>Weight <strong>${last.kg.toFixed(1)} kg</strong>${delta ? ` <em>${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)}</em>` : ''}</span>` : ''}
+      </div>
+    </section>`;
+}
+
+function niceDay(ds) {
+  return new Date(ds + 'T12:00:00').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
 // Anything on or after today snaps back to live "today".
@@ -18,6 +63,7 @@ function setTodayDate(date) {
   todayViewDate = date && date < fmtDate(new Date()) ? date : null;
   closeRowMenu();
   $('#targetDetails').classList.add('hidden');
+  if (typeof composerFollowDay === 'function') composerFollowDay(todayViewDate);
   loadToday();
 }
 
@@ -308,6 +354,8 @@ function renderMeals(data) {
   const jobs = typeof parseJobsForDate === 'function' && data.date ? parseJobsForDate(data.date) : [];
   const inReset = !!(data.stats && data.stats.reset_meta && !data.stats.reset_meta.expired);
   $('#mealsCount').textContent = [entries.length && `${entries.length} logged`, jobs.length && `${jobs.length} in progress`].filter(Boolean).join(' · ');
+  $('#mealsSum').textContent = entries.length
+    ? `${Math.round(data.totals.kcal).toLocaleString()} kcal · ${Math.round(data.totals.protein)}g protein ${todayViewDate ? 'logged' : 'so far'}` : '';
 
   if (!entries.length && !jobs.length) {
     list.innerHTML = inReset
@@ -328,7 +376,10 @@ function renderMeals(data) {
           ${g.jobs.map(pendingRowHtml).join('')}
         </div>`;
     }).join('');
-    list.innerHTML = `<div class="meals-card">${html}</div>`;
+    // The column header only shows on desktop, where rows lay out as a table.
+    list.innerHTML = `<div class="meals-card">
+      <div class="meals-thead" aria-hidden="true"><span>Food</span><span>kcal</span><span>Prot</span><span>Carb</span><span>Fat</span><span></span></div>
+      ${html}</div>`;
 
     $$('#mealList .meal-main[data-id]').forEach(btn => btn.addEventListener('click', () => {
       const entry = entries.find(e => e.id === btn.dataset.id);
@@ -371,12 +422,14 @@ function mealRowHtml(e) {
       <button class="meal-main" type="button" data-id="${e.id}">
         <span class="meal-text">
           <span class="meal-name">${escapeHtml(e.name)}</span>
-          <span class="meal-meta">${sourceBadge(e.source)}${hasMacros ? `<span>F${Math.round(e.fat || 0)} · C${Math.round(e.carb || 0)} · Fib${Math.round((e.fiber || 0) * 10) / 10}</span>` : ''}</span>
+          <span class="meal-meta">${sourceBadge(e.source)}${hasMacros ? `<span class="meal-macros">F${Math.round(e.fat || 0)} · C${Math.round(e.carb || 0)} · Fib${Math.round((e.fiber || 0) * 10) / 10}</span>` : ''}</span>
         </span>
         <span class="meal-nums">
           <span class="meal-kcal">${Math.round(e.kcal).toLocaleString()}</span>
-          <span class="meal-prot">${Math.round(e.protein)}g P</span>
+          <span class="meal-prot">${Math.round(e.protein)}<span class="u">g P</span></span>
         </span>
+        <span class="meal-col"><span class="sr-only">carbs </span>${Math.round(e.carb || 0)}</span>
+        <span class="meal-col"><span class="sr-only">fat </span>${Math.round(e.fat || 0)}</span>
       </button>
       <button class="meal-more" type="button" data-id="${e.id}" aria-haspopup="menu" aria-expanded="false" aria-label="More options for ${escapeHtml(e.name)}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
@@ -410,8 +463,10 @@ function pendingRowHtml(job) {
         </span>
         <span class="meal-nums ${ready ? '' : 'waiting'}">
           <span class="meal-kcal">${ready ? totals.kcal.toLocaleString() : '…'}</span>
-          <span class="meal-prot">${ready ? `${Math.round(totals.protein)}g P` : '…'}</span>
+          <span class="meal-prot">${ready ? `${Math.round(totals.protein)}<span class="u">g P</span>` : '…'}</span>
         </span>
+        <span class="meal-col ${ready ? '' : 'waiting'}">${ready ? Math.round(totals.carb) : '…'}</span>
+        <span class="meal-col ${ready ? '' : 'waiting'}">${ready ? Math.round(totals.fat) : '…'}</span>
       </button>
       <button class="meal-more" type="button" data-job="${job.id}" aria-haspopup="menu" aria-expanded="false" aria-label="Options for ${escapeHtml(job.text)}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>

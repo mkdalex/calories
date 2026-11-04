@@ -438,3 +438,55 @@ body { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 @media (prefers-reduced-motion: reduce) {
   .ring-fg, .sp-bar > div, .macro-card .bar-fill, .sf-target svg { transition: none; }
 }
+
+/* ============================================================================
+   Phase 4: desktop composer, meals table, "This week"
+   ============================================================================ */
+#composerHost { order: 0; }
+#composerHost:empty { display: none; }
+.meals-thead, .meal-col { display: none; }
+#mealsSum { display: none; }
+#weekWrap { order: 8; }
+#weekWrap:empty { display: none; }
+
+.week-card {
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: 20px;
+  padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.week-head { display: flex; justify-content: space-between; align-items: center; }
+.week-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.week-head .link-btn { color: var(--accent); font-weight: 700; align-self: center; }
+.week-bars { --n: 7; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; align-items: end; height: 72px; }
+.week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; text-align: center; font-size: 11px; color: var(--text-dim); }
+.week-days .now { color: var(--text); font-weight: 700; }
+.week-foot {
+  display: flex; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--hairline);
+  font-size: 13px; color: var(--text-dim);
+}
+.week-foot strong { color: var(--text); }
+.week-foot em { font-style: normal; font-weight: 700; color: var(--text-dim); }
+
+@media (min-width: 1024px) {
+  #quickLog { display: none; }
+  #mealsCount { display: none; }
+  #mealsSum { display: inline; }
+
+  /* Meals as a table: Food / kcal / Prot / Carb / Fat / ⋯ */
+  .meals-thead {
+    display: grid; grid-template-columns: minmax(0, 1fr) 72px 60px 60px 60px; gap: 8px;
+    padding: 12px 58px 10px 16px; border-bottom: 1px solid var(--hairline);
+    font-size: 11px; font-weight: 700; color: var(--text-dim); letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .meals-thead span:not(:first-child) { text-align: right; }
+  .meals-thead span:last-child { display: none; }
+  .meal-main { display: grid; grid-template-columns: minmax(0, 1fr) 72px 60px 60px 60px; gap: 8px; }
+  .meal-nums { display: contents; }
+  .meal-kcal, .meal-prot, .meal-col { text-align: right; font-variant-numeric: tabular-nums; }
+  .meal-kcal { font-size: 15px; }
+  .meal-prot { font-size: 14px; font-weight: 700; }
+  .meal-prot .u { display: none; }
+  .meal-col { display: block; font-size: 14px; color: color-mix(in srgb, var(--text) 75%, var(--text-dim)); }
+  .meal-col.waiting { color: var(--text-dim); }
+  .meal-macros { display: none; }
+  .meal-period { text-transform: none; letter-spacing: 0; font-weight: 700; padding-top: 12px; }
+}

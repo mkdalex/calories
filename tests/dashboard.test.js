@@ -34,7 +34,7 @@ test('a stale weigh-in renders with its actual date without a forward projection
   const html=v.element('#weightHistory').innerHTML;
   assert.doesNotMatch(html,/kg today|ideal cut|lean bulk|projection/);
   assert.match(html,/Sep/);
-  assert.match(html,/Historical weigh-ins/);
+  assert.match(html,/All weigh-ins/);
 });
 test('one partial day is visible in the chart but produces no past-day average or success',()=>{
   const v=view('history.js');
@@ -42,12 +42,12 @@ test('one partial day is visible in the chart but produces no past-day average o
   const stats=v.element('#kcalTrendStats').innerHTML;
   assert.match(stats,/No past-day average yet/);
   assert.doesNotMatch(stats,/1\/1/);
-  assert.match(v.element('#kcalTrendChart').innerHTML,/<circle/);
+  assert.match(v.element('#kcalTrendChart').innerHTML,/kt-bar in-progress/);
 });
 test('calendar does not colour an unfinished gaining day as a success',()=>{
   const v=view('history.js');
   v.run("calRangeData={[fmtDate(new Date())]:{kcal:1150,goal:3170,protein:96,protein_goal:141,goal_mode:'gain',assessment:'in_progress'}}; renderCalendar()");
   const html=v.element('#calGrid').innerHTML;
   assert.match(html,/in-progress/);
-  assert.doesNotMatch(html,/on-target|cal-day-protein miss/);
+  assert.doesNotMatch(html,/dot (on|short|over)/);
 });

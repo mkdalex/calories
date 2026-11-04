@@ -1,0 +1,108 @@
+/* ============================================================================
+   Gym, Profile, onboarding, comeback, login and Dev restyled to match Today and
+   Trends (redesign phase 4). Theme variables only.
+   ============================================================================ */
+
+/* Brand mark: replaces the emoji that used to head the welcome screens. */
+.brand-mark {
+  display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 7px var(--tint-accent-bg); margin: 8px 0 18px;
+}
+.label-note { font-size: 12px; font-weight: 500; color: var(--text-dim); margin-left: 4px; }
+
+/* Shared card language for the remaining views */
+#view-gym .card, #view-profile .card, #view-dev .card {
+  border-color: var(--hairline); border-radius: 24px; padding: 18px 16px; margin: 0 0 14px;
+}
+#view-gym .card h2, #view-profile .card h2, #view-dev .card h2 { font-size: 16px; font-weight: 700; }
+#view-profile input:not([type="radio"]):not([type="checkbox"]), #view-profile select, #view-dev input, #view-dev select,
+.ob-card input, .ob-card select, #editModal input, .gym-picker-modal input, .gym-picker-modal textarea {
+  min-height: 48px; border-radius: 12px; background: var(--panel-2);
+}
+#view-profile .btn, #view-dev .btn, .ob-nav .btn, .cb-card .btn, #editModal .btn, .gym-picker-modal .btn { min-height: 48px; border-radius: 14px; }
+.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+/* ---------- Gym ---------- */
+.gym-stat-grid { gap: 8px; }
+.gym-stat { background: var(--panel-2); border: 0; border-radius: 16px; padding: 12px 14px; text-align: left; }
+.gym-stat-num { font-size: 24px; font-variant-numeric: tabular-nums; }
+.gym-stat-lbl { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.gym-week-label { font-size: 15px; }
+.gym-nav-btn {
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2);
+}
+.gym-nav-btn svg { width: 16px; height: 16px; }
+.gym-day-card { border-radius: 16px; border-color: var(--hairline); }
+.gym-day-card.today { border-color: var(--accent); }
+.gym-day-name { letter-spacing: 0; font-size: 12px; }
+.gym-day-today-tag {
+  top: -1px; right: -1px; padding: 2px 6px; border-radius: 0 15px 0 8px;
+  background: var(--accent); color: var(--accent-fg); font-size: 10px; font-weight: 700;
+}
+.gym-day-empty { font-size: 11px; }
+.gym-chip { border-radius: 999px; }
+.gym-picker-chips .gym-chip { min-height: 44px; padding: 0 14px; }
+.gym-picker-section-title { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; }
+.hm-cell { border-radius: 3px; }
+
+/* ---------- Profile ---------- */
+.profile-grid { display: flex; flex-direction: column; }
+.pf-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.pf-head h2 { margin: 0; }
+.pf-head span { font-size: 12px; color: var(--text-dim); }
+.pf-list { font-size: 14px; }
+.pf-empty, .pf-text { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+.pf-text strong { color: var(--text); }
+.pf-row { display: flex; align-items: center; gap: 8px; min-height: 52px; border-top: 1px solid var(--hairline); }
+.pf-row:first-child { border-top: 0; }
+.pf-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pf-row-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.pf-row-meta { font-size: 12px; color: var(--text-dim); }
+.pf-row-btn {
+  min-height: 44px; padding: 0 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+  background: transparent; color: var(--text-dim); font: inherit; font-size: 13px; font-weight: 600;
+}
+.pf-row-btn:hover { color: var(--text); }
+.pf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-actions .btn { display: inline-flex; align-items: center; text-decoration: none; }
+.pf-rule { border: 0; border-top: 1px solid var(--hairline); margin: 18px 0; }
+.pf-ul { margin: 8px 0 0; padding-left: 18px; }
+.pf-radio { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); font-size: 14px; }
+.pf-radio input { width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
+.pf-preview { font-size: 12px; color: var(--text-dim); margin: 8px 0; }
+#profileExplainer > .card { margin-bottom: 14px; }
+.wr-stat-grid { gap: 8px; }
+.wr-stat { background: var(--panel-2); border: 0; border-radius: 14px; }
+.theme-option { border-radius: 16px; min-height: 64px; }
+.calibration-confirm { display: flex; align-items: flex-start; gap: 10px; color: var(--text); }
+.calibration-confirm input { width: 20px; height: 20px; min-height: 0; flex: none; margin-top: 2px; accent-color: var(--accent); }
+
+/* ---------- Edit meal modal ---------- */
+#editModal .modal { border-radius: 26px 26px 0 0; background: color-mix(in srgb, var(--panel) 70%, var(--bg)); }
+#editModal .modal-header { border-bottom: 0; padding-bottom: 0; }
+#editModal .modal-header h2 { font-size: 22px; font-weight: 700; }
+.modal-close { min-width: 44px; min-height: 44px; border-radius: 999px; border: 0; }
+@media (min-width: 720px) { #editModal .modal { border-radius: 26px; } }
+
+/* ---------- Onboarding + comeback ---------- */
+.ob-card, .cb-card { border-radius: 28px; border-color: var(--hairline); background: color-mix(in srgb, var(--panel) 70%, var(--bg)); }
+.ob-card h2, .cb-card h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.ob-pip, .cb-pip { border-radius: 999px; }
+.ob-card-option, .cb-card-option { min-height: 64px; border-radius: 16px; border-color: var(--hairline); background: var(--panel); }
+.ob-card-option.active, .cb-card-option.active { border-color: var(--accent); background: var(--tint-accent-bg); }
+.ob-stat, .cb-stat { background: var(--panel); border: 0; border-radius: 16px; }
+.ob-stat.hero { background: var(--tint-accent-bg); }
+.ob-stat-lbl { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.ob-tips { border-radius: 16px; }
+.cb-recap { border-radius: 18px; border-color: var(--hairline); background: var(--panel); }
+.cb-recap-hd { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; }
+.cb-hero .brand-mark, .ob-welcome .brand-mark { margin-top: 4px; }
+
+/* ---------- Login ---------- */
+.login-card { border-radius: 28px; }
+.login-card .brand-mark { width: 22px; height: 22px; margin: 4px 0 20px; }
+
+/* ---------- Dev ---------- */
+#view-dev .btn { display: inline-flex; align-items: center; justify-content: center; }
+.gym-day-card.today .gym-day-name { margin-top: 12px; }
