@@ -82,13 +82,10 @@ function renderMacroFoodChips(containerId, macroKey) {
   ).join('');
   el.querySelectorAll('.macro-food-chip').forEach(btn => {
     btn.addEventListener('click', () => {
-      const logModal = $('#logModal');
+      openLogModal(typeof todayViewDate !== 'undefined' ? todayViewDate : null);
       const logText = $('#logText');
-      if (logText) {
-        logText.value = btn.dataset.text;
-        logModal.classList.remove('hidden');
-        logText.focus();
-      }
+      logText.value = btn.dataset.text;
+      logText.dispatchEvent(new Event('input', { bubbles: true }));
     });
   });
 }

@@ -1,24 +1,35 @@
 // ---------- TEMPLATES ----------
+// Templates and frequent foods share one scrolling row of one-tap chips on Today.
+// While a reset week runs, a short label reminds a returning user these still exist.
+function renderQuickLabel() {
+  const label = $('#quickLabel');
+  if (!label) return;
+  const text = cbReEntryLabel('', 'What you used to eat. One tap, no AI call.');
+  const hasChips = !!document.querySelector('#quickRow .quick-chip');
+  label.textContent = text;
+  label.classList.toggle('hidden', !text || !hasChips);
+}
+
 async function loadTemplates() {
   const wrap = $('#templateWrap');
   if (!wrap) return;
   const templates = await api('/api/templates');
-  if (!templates.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">${cbReEntryLabel('My templates', 'Your templates — still here, one tap')}</div>
-    <div class="template-pills">` +
-    templates.map(t => `
-      <button class="template-pill" data-id="${t.id}">
-        <span class="tp-name">${escapeHtml(t.name)}</span>
-        <span class="tp-meta">${t.totals.kcal} kcal · ${t.items.length} item${t.items.length !== 1 ? 's' : ''}</span>
-      </button>
-    `).join('') + `</div>`;
-  $$('.template-pill').forEach(btn => btn.addEventListener('click', async () => {
+  wrap.innerHTML = templates.map(t => `
+    <button class="quick-chip" type="button" data-id="${t.id}" title="Template · ${t.items.length} item${t.items.length !== 1 ? 's' : ''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg>
+      <span class="qc-name">${escapeHtml(t.name)}</span>
+      <span class="qc-kcal">${t.totals.kcal}</span>
+    </button>
+  `).join('');
+  wrap.querySelectorAll('.quick-chip').forEach(btn => btn.addEventListener('click', async () => {
     const id = btn.dataset.id;
-    const result = await api(`/api/log-template/${id}`, { method: 'POST', body: {} });
+    const date = typeof todayViewDate !== 'undefined' && todayViewDate ? `?date=${todayViewDate}` : '';
+    const result = await api(`/api/log-template/${id}${date}`, { method: 'POST', body: {} });
     const tmpl = templates.find(t => t.id === id);
     showToast(`Logged ${result.logged} items from "${tmpl?.name || 'template'}"`);
     loadToday();
   }));
+  renderQuickLabel();
 }
 
 async function loadMyTemplates() {
@@ -58,21 +69,42 @@ async function deleteTemplate(id) {
 }
 
 // ---------- FAVORITES ----------
+// One tap logs the food exactly as last time, with an Undo. Right-click or long-press
+// opens the popup for changing the amount or re-parsing.
 async function loadFavorites() {
   const wrap = $('#favWrap');
   const favs = await api('/api/favorites');
-  if (!favs.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">${cbReEntryLabel('Frequent foods', 'What you used to eat — no typing, no AI call')}</div>
-    <div class="fav-pills">` +
-    favs.map((f, i) => `
-      <button class="fav-pill" data-fav-idx="${i}">
-        <span class="fp-name">${escapeHtml(f.name)}</span>
-        <span class="fp-meta">${f.last_kcal || f.kcal} kcal · ${f.last_protein || f.protein}g P</span>
-      </button>
-    `).join('') + `</div>`;
-  $$('.fav-pill').forEach(btn => btn.addEventListener('click', () => {
-    openFavPopup(favs[Number(btn.dataset.favIdx)]);
-  }));
+  wrap.innerHTML = favs.map((f, i) => `
+    <button class="quick-chip" type="button" data-fav-idx="${i}" title="Log as last time · long-press to edit">
+      <span class="qc-name">${escapeHtml(f.name)}</span>
+      <span class="qc-kcal">${f.last_kcal || f.kcal}</span>
+    </button>
+  `).join('');
+  wrap.querySelectorAll('.quick-chip').forEach(btn => {
+    const f = favs[Number(btn.dataset.favIdx)];
+    btn.addEventListener('click', () => logFavorite(f, btn));
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openFavPopup(f); });
+  });
+  renderQuickLabel();
+}
+
+async function logFavorite(f, btn) {
+  const date = typeof todayViewDate !== 'undefined' ? todayViewDate : null;
+  // Not passing btn to logMeal: it would swap the chip's markup for "Saving…" text.
+  btn.disabled = true;
+  const res = await logMeal({
+    name: f.name, kcal: f.last_kcal, protein: f.last_protein,
+    fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0, source: 'manual',
+    ...(date ? { date } : {})
+  });
+  btn.disabled = false;
+  if (!res || !res.entry) return;
+  loadToday();
+  const day = date || fmtDate(new Date());
+  showUndoToast(`Logged: ${f.name.slice(0, 40)}`, async () => {
+    await fetch(`/api/log/${day}/${res.entry.id}`, { method: 'DELETE' });
+    loadToday();
+  });
 }
 
 function openFavPopup(f) {

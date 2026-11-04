@@ -50,12 +50,12 @@ function showUndoToast(msg, onUndo, ms = 5000) {
   setTimeout(dismiss, ms);
 }
 function animateNumber(el, from, to, duration = 600, prefix = '') {
-  if (!el || from === to) { if (el) el.textContent = prefix + to; return; }
+  if (!el || from === to) { if (el) el.textContent = prefix + to.toLocaleString(); return; }
   const start = performance.now();
   function tick(now) {
     const t = Math.min(1, (now - start) / duration);
     const eased = 1 - Math.pow(1 - t, 3);
-    el.textContent = prefix + Math.round(from + (to - from) * eased);
+    el.textContent = prefix + Math.round(from + (to - from) * eased).toLocaleString();
     if (t < 1) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -175,6 +175,19 @@ function pctOf(eaten, target) {
 function round1(x) {
   const n = Number(x) || 0;
   return Math.round(n * 10) / 10;
+}
+
+// Source badge for a logged entry or parsed item. Database and verified matches get the
+// accent tint, the user's own foods get info, and AI estimates or guesses get warn.
+const SOURCE_BADGES = {
+  usda: ['USDA', 'db'], 'usda+ai': ['USDA', 'db'], fatsecret: ['FatSecret', 'db'], openfoodfacts: ['Open Food Facts', 'db'],
+  'ai-verified': ['Verified', 'db'], custom: ['Your food', 'own'], template: ['Template', 'own'],
+  history: ['Logged before', 'own'], 'ai-estimate': ['AI estimate', 'guess'], guess: ['Guess', 'guess'],
+  manual: ['Manual', 'plain'], extra: ['Extra', 'plain']
+};
+function sourceBadge(source) {
+  const [label, tone] = SOURCE_BADGES[source] || [source || 'Manual', 'plain'];
+  return `<span class="src-badge src-${tone}">${escapeHtml(label)}</span>`;
 }
 
 function escapeHtml(s) {

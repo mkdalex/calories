@@ -1,11 +1,30 @@
 // ---------- TODAY ----------
+// null = today. A 'yyyy-mm-dd' string while browsing a past day from the header.
+let todayViewDate = null;
+
 async function loadToday() {
-  const [data, water] = await Promise.all([api('/api/log'), api('/api/water')]);
+  const q = todayViewDate ? `?date=${todayViewDate}` : '';
+  const [data, water] = await Promise.all([api('/api/log' + q), api('/api/water' + q)]);
   state.today = data;
-  state.stats = data.stats;
+  // Past days carry the historical target, not the current one — keep state.stats current.
+  if (!todayViewDate) state.stats = data.stats;
   state.water = water;
   renderToday();
   renderWater();
+}
+
+// Anything on or after today snaps back to live "today".
+function setTodayDate(date) {
+  todayViewDate = date && date < fmtDate(new Date()) ? date : null;
+  closeRowMenu();
+  $('#targetDetails').classList.add('hidden');
+  loadToday();
+}
+
+function shiftTodayDate(days) {
+  const d = new Date((todayViewDate || fmtDate(new Date())) + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  setTodayDate(fmtDate(d));
 }
 
 function buildMacroDonut(data) {
@@ -23,22 +42,22 @@ function buildMacroDonut(data) {
   const pLen = circ * pPct, fLen = circ * fPct, cLen = circ * cPct;
   const gap = 2;
 
-  const dominant = pPct >= fPct && pPct >= cPct ? { name: 'Protein', pct: pPct, color: 'var(--info)' }
+  const dominant = pPct >= fPct && pPct >= cPct ? { name: 'Protein', pct: pPct, color: 'var(--purple)' }
                   : cPct >= fPct ? { name: 'Carbs', pct: cPct, color: 'var(--accent)' }
                   : { name: 'Fat', pct: fPct, color: 'var(--warn)' };
 
   return `
     <div class="macro-donut-wrap">
-      <svg width="${W}" height="${W}" viewBox="0 0 ${W} ${W}" class="macro-donut-svg">
+      <svg width="${W}" height="${W}" viewBox="0 0 ${W} ${W}" class="macro-donut-svg" aria-hidden="true">
         <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--panel-2)" stroke-width="${sw}"/>
-        <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--info)"   stroke-width="${sw}" stroke-dasharray="${Math.max(0,pLen-gap)} ${circ}" stroke-dashoffset="0" stroke-linecap="butt"/>
+        <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--purple)" stroke-width="${sw}" stroke-dasharray="${Math.max(0,pLen-gap)} ${circ}" stroke-dashoffset="0" stroke-linecap="butt"/>
         <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--warn)"   stroke-width="${sw}" stroke-dasharray="${Math.max(0,fLen-gap)} ${circ}" stroke-dashoffset="${-pLen}"/>
         <circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--accent)" stroke-width="${sw}" stroke-dasharray="${Math.max(0,cLen-gap)} ${circ}" stroke-dashoffset="${-(pLen + fLen)}"/>
       </svg>
       <div class="macro-donut-info">
         <div class="md-headline"><span style="color:${dominant.color};">${dominant.name}-heavy</span> · ${Math.round(dominant.pct * 100)}% of kcal</div>
         <div class="md-legend">
-          <span><span class="md-dot" style="background:var(--info);"></span>Protein ${Math.round(pPct * 100)}%</span>
+          <span><span class="md-dot" style="background:var(--purple);"></span>Protein ${Math.round(pPct * 100)}%</span>
           <span><span class="md-dot" style="background:var(--warn);"></span>Fat ${Math.round(fPct * 100)}%</span>
           <span><span class="md-dot" style="background:var(--accent);"></span>Carbs ${Math.round(cPct * 100)}%</span>
         </div>
@@ -48,11 +67,9 @@ function buildMacroDonut(data) {
 }
 
 function todayFeedback(data) {
-  if (!data.entries?.length) return 'No meals logged yet. Your intake is unknown until you record it.';
-  if (data.stats.goal === 'reset') return 'Food logged today. Reset week focuses on logging; the targets are references.';
-  const protein = Math.round(data.totals.protein);
-  const remaining = Math.max(0, data.stats.protein_g - protein);
-  return `${data.totals.kcal.toLocaleString()} kcal logged so far. ${protein} of ${data.stats.protein_g} g protein logged${remaining ? ` · ${remaining} g remaining` : ''}. Today is in progress.`;
+  if (!data.entries?.length) return todayViewDate ? 'Nothing logged this day.' : 'Nothing logged yet.';
+  if (data.stats.goal === 'reset') return 'Reset week: logging is the goal. Targets are a reference.';
+  return todayViewDate ? 'Past day. Only what was logged counts.' : 'Today is in progress.';
 }
 
 function renderZoneBar(data) {
@@ -63,25 +80,26 @@ function renderZoneBar(data) {
   const maximum = Math.max(goal, maintenance, eaten, 1) * 1.15;
   const position = n => Math.max(0, Math.min(100, n / maximum * 100));
   const adjustment = goal - maintenance;
-  const plan = stats.goal === 'reset' ? 'Maintenance reference during reset week'
+  const plan = stats.goal === 'reset' ? 'maintenance reference'
     : adjustment < 0 ? `${Math.abs(adjustment)} kcal planned deficit`
-    : adjustment > 0 ? `${adjustment} kcal planned surplus` : 'Maintenance target';
+    : adjustment > 0 ? `${adjustment} kcal planned surplus` : 'maintenance target';
+  const source = stats.target_source === 'saved_override' ? 'saved override' : 'profile formula';
   el.innerHTML = `
     <div class="card goal-summary">
       <h2>${escapeHtml(label)}</h2>
-      <p><strong>${goal.toLocaleString()} kcal</strong> daily target · <strong>${stats.protein_g} g</strong> protein</p>
-      <p class="goal-note">${maintenance.toLocaleString()} kcal maintenance estimate · ${plan}.</p>
-      <p class="goal-note">Source: ${stats.target_source === 'saved_override' ? 'saved maintenance override' : 'profile formula'}.
-        ${stats.override_review ? 'The saved override needs review for your current circumstances.' : 'Review using recent food and weight records.'}
-        <button class="goal-link" type="button" onclick="setActiveView('profile')">Review target</button>
-      </p>
+      <p><strong>${goal.toLocaleString()} kcal</strong> a day · <strong>${stats.protein_g} g</strong> protein</p>
+      <p class="goal-note">Maintenance about ${maintenance.toLocaleString()} kcal · ${plan} · from ${source}</p>
+      ${stats.override_review ? '<p class="goal-note goal-warn">The saved override needs a review.</p>' : ''}
       <div class="intake-track" role="img" aria-label="${eaten} kcal logged, maintenance estimate ${maintenance}, target ${goal}">
         <div class="intake-fill" style="width:${position(eaten)}%"></div>
         <span class="intake-tick" style="left:${position(maintenance)}%" title="Maintenance estimate: ${maintenance}"></span>
         <span class="intake-tick target" style="left:${position(goal)}%" title="Target: ${goal}"></span>
       </div>
       <div class="intake-legend"><span>${eaten.toLocaleString()} logged</span><span>Maintenance ${maintenance.toLocaleString()}</span><span>Target ${goal.toLocaleString()}</span></div>
-      <p class="goal-note">${data.entries?.length ? 'Today is in progress. Logged intake does not predict a rate of weight change.' : 'No meals logged today.'}</p>
+      <div class="goal-foot">
+        <span class="goal-note">${data.entries?.length ? (todayViewDate ? 'Past day' : 'In progress') : 'No meals logged'}</span>
+        <button class="goal-link" type="button" onclick="setActiveView('profile')">Review target</button>
+      </div>
     </div>`;
 }
 
@@ -91,305 +109,407 @@ function renderToday() {
   // Reset week (or its day-8 prompt) sits above everything — during a reset it, not
   // the ring, is what the week is actually being judged on.
   if (typeof renderResetStrip === 'function') renderResetStrip(data);
+  renderTodayHead(data);
   if (!data.stats) {
-    banner.innerHTML = `<div class="setup-needed"><strong>Set up your profile first</strong><br/>Tap the Profile tab and fill in your stats so we can calculate your daily target.</div>`;
-    $('#ringWrap').innerHTML = '';
-    $('#proteinWrap').innerHTML = '';
-    $('#macroWrap').innerHTML = '';
-    $('#narrativeWrap').innerHTML = '';
+    banner.innerHTML = todayViewDate
+      ? `<div class="setup-needed">No target on record for this day.</div>`
+      : `<div class="setup-needed"><strong>Set up your profile first</strong><br/>Open Profile and fill in your stats so we can work out your daily target.</div>`;
+    $('#summaryCard').innerHTML = '';
+    $('#summaryCard').classList.add('hidden');
+    $('#targetDetails').classList.add('hidden');
     $('#zoneWrap').innerHTML = '';
+    $('#macroWrap').innerHTML = '';
   } else {
     banner.innerHTML = '';
-    const goal = data.stats.kcal_goal;
-    const eaten = data.totals.kcal;
-    const remaining = goal - eaten;
-    const pct = Math.min(eaten / goal, 1);
-    const over = eaten > goal;
-    const C = 226; // 2 * pi * 36
-    const R = 100;
-    const circ = 2 * Math.PI * R;
-    const offset = circ * (1 - pct);
-
-    const prevNumEl = $('#ringWrap .ring-num');
-    const prevNum = prevNumEl ? parseInt(prevNumEl.textContent.replace(/[^\d-]/g, '')) || 0 : 0;
-    const newNum = over ? eaten - goal : remaining;
-    const prefix = over ? '+' : '';
-
-    $('#ringWrap').innerHTML = `
-      <div class="ring">
-        <svg width="240" height="240">
-          <circle cx="120" cy="120" r="${R}" fill="none" stroke-width="14" class="ring-bg" />
-          <circle cx="120" cy="120" r="${R}" fill="none" stroke-width="14" stroke-linecap="round" class="ring-fg ${over ? 'over' : ''}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" />
-        </svg>
-        <div class="ring-center">
-          <div class="ring-num ${over ? 'over' : ''}">${prefix}${prevNum}</div>
-          <div class="ring-label">${over ? 'over goal' : 'kcal left'}</div>
-          <div class="ring-sub">${eaten} / ${goal} eaten</div>
-        </div>
-      </div>
-    `;
-    animateNumber($('#ringWrap .ring-num'), prevNum, newNum, 700, prefix);
-    if (prevNum !== newNum && prevNumEl) {
-      const ringEl = $('#ringWrap .ring');
-      if (ringEl) { ringEl.classList.remove('ring-pulse'); void ringEl.offsetWidth; ringEl.classList.add('ring-pulse'); }
-    }
-
-    const pPct = Math.min(data.totals.protein / data.stats.protein_g, 1) * 100;
-    const eduOpen = localStorage.getItem('eduProteinOpen') === '1';
-    $('#proteinWrap').innerHTML = `
-      <div class="protein-bar">
-        <div class="row">
-          <span class="label">Protein</span>
-          <span class="value">${Math.round(data.totals.protein)}g / ${data.stats.protein_g}g</span>
-        </div>
-        <div class="bar"><div class="bar-fill" style="width: ${pPct}%"></div></div>
-        <button class="info-toggle" id="eduToggle">${eduOpen ? '▾' : '▸'} Why does protein matter?</button>
-        <div class="edu-card ${eduOpen ? '' : 'hidden'}" id="eduCard">${EDU_PROTEIN_HTML}<div id="macroProteinRemaining"></div></div>
-      </div>
-    `;
-    $('#eduToggle').addEventListener('click', () => {
-      const card = $('#eduCard');
-      const isHidden = card.classList.toggle('hidden');
-      $('#eduToggle').textContent = (isHidden ? '▸' : '▾') + ' Why does protein matter?';
-      localStorage.setItem('eduProteinOpen', isHidden ? '0' : '1');
-      // Lazy-load protein suggestions only when the user opens the card (saves AI calls)
-      if (!isHidden && state.today) {
-        const remEl = $('#macroProteinRemaining');
-        if (remEl && !remEl.innerHTML.trim()) loadMacroRemaining(state.today);
-      }
-    });
-
-    // Macro bar (fat / carbs / fiber)
-    const fatEaten = Math.round(data.totals.fat || 0);
-    const carbEaten = Math.round(data.totals.carb || 0);
-    const fiberEaten = Math.round((data.totals.fiber || 0) * 10) / 10;
-    const fatTarget = data.stats.fat_g;
-    const carbTarget = data.stats.carb_g;
-    const fiberTarget = data.stats.fiber_g;
-    const fatPct = pctOf(fatEaten, fatTarget);
-    const carbPct = pctOf(carbEaten, carbTarget);
-    const fiberPct = pctOf(fiberEaten, fiberTarget);
-    const macroFatOpen = localStorage.getItem('macroFatOpen') === '1';
-    const macroCarbOpen = localStorage.getItem('macroCarbOpen') === '1';
-    const macroFiberOpen = localStorage.getItem('macroFiberOpen') === '1';
-
-    const macroDetailsOpen = localStorage.getItem('macroDetailsOpen') === '1';
-    $('#macroWrap').innerHTML = `
-      <div class="macro-bar-wrap">
-        <button class="macro-details-toggle" id="macroDetailsToggle">
-          <span id="mdTogArrow">${macroDetailsOpen ? '▾' : '▸'}</span>
-          <span class="md-tog-label">All macros</span>
-          <span class="md-tog-summary">F ${fatEaten}g · C ${carbEaten}g · Fib ${fiberEaten}g</span>
-        </button>
-        <div id="macroDetailsBody" class="${macroDetailsOpen ? '' : 'hidden'}" style="margin-top:10px;">
-          ${buildMacroDonut(data)}
-          <div class="macro-bar-grid">
-            <div class="macro-cell">
-              <div class="macro-row">
-                <span class="macro-label">Fat</span>
-                <span class="macro-value">${fatEaten} / ${fatTarget}g</span>
-              </div>
-              <div class="bar"><div class="bar-fill" style="width:${fatPct}%;background:var(--warn);"></div></div>
-              <button class="macro-toggle" id="macroFatToggle">${macroFatOpen ? '▾' : '▸'} Why fat matters</button>
-            </div>
-            <div class="macro-cell">
-              <div class="macro-row">
-                <span class="macro-label">Carbs</span>
-                <span class="macro-value">${carbEaten} / ${carbTarget}g</span>
-              </div>
-              <div class="bar"><div class="bar-fill" style="width:${carbPct}%;background:var(--accent);"></div></div>
-              <button class="macro-toggle" id="macroCarbToggle">${macroCarbOpen ? '▾' : '▸'} Why carbs matter</button>
-            </div>
-            <div class="macro-cell">
-              <div class="macro-row">
-                <span class="macro-label">Fiber</span>
-                <span class="macro-value">${fiberEaten} / ${fiberTarget}g</span>
-              </div>
-              <div class="bar"><div class="bar-fill" style="width:${fiberPct}%;background:var(--info);"></div></div>
-              <button class="macro-toggle" id="macroFiberToggle">${macroFiberOpen ? '▾' : '▸'} Why fiber matters</button>
-            </div>
-          </div>
-          <div class="macro-edu ${macroFatOpen ? '' : 'hidden'}" id="macroFatEdu">${EDU_FAT_HTML}<div id="macroFatRemaining"></div></div>
-          <div class="macro-edu ${macroCarbOpen ? '' : 'hidden'}" id="macroCarbEdu">${EDU_CARBS_HTML}<div id="macroCarbRemaining"></div></div>
-          <div class="macro-edu ${macroFiberOpen ? '' : 'hidden'}" id="macroFiberEdu">${EDU_FIBER_HTML}<div id="macroFiberRemaining"></div></div>
-        </div>
-      </div>
-    `;
-    $('#macroDetailsToggle').addEventListener('click', () => {
-      const body = $('#macroDetailsBody');
-      const wasHidden = body.classList.toggle('hidden');
-      $('#mdTogArrow').textContent = wasHidden ? '▸' : '▾';
-      localStorage.setItem('macroDetailsOpen', wasHidden ? '0' : '1');
-    });
-    [['macroFatToggle', 'macroFatEdu', 'macroFatOpen', 'Why fat matters', 'Why fat matters'],
-     ['macroCarbToggle', 'macroCarbEdu', 'macroCarbOpen', 'Why carbs matter', 'Why carbs matter'],
-     ['macroFiberToggle', 'macroFiberEdu', 'macroFiberOpen', 'Why fiber matters', 'Why fiber matters']
-    ].forEach(([toggleId, eduId, lsKey, openLabel, closeLabel]) => {
-      const toggle = $(`#${toggleId}`);
-      const edu = $(`#${eduId}`);
-      if (!toggle || !edu) return;
-      toggle.addEventListener('click', () => {
-        const nowHidden = edu.classList.toggle('hidden');
-        toggle.textContent = (nowHidden ? '▸' : '▾') + ' ' + (nowHidden ? openLabel : closeLabel);
-        localStorage.setItem(lsKey, nowHidden ? '0' : '1');
-      });
-    });
-    // Wire macro food chips (rendered inside edu cards)
-    renderMacroFoodChips('fatChips', 'fat');
-    renderMacroFoodChips('carbChips', 'carb');
-    renderMacroFoodChips('fiberChips', 'fiber');
-    // Wire protein chips (in protein bar edu card)
-    renderMacroFoodChips('proteinChips', 'protein');
-    // Macro-remaining suggestions only fire when user has the protein edu card open (saves AI calls)
-    if (eduOpen) loadMacroRemaining(data);
-
-    $('#narrativeWrap').innerHTML = `<div class="narrative">${escapeHtml(todayFeedback(data))}</div>`;
-
-    // Zone bar
+    renderSummary(data);
     renderZoneBar(data);
+    renderMacroDetails(data);
   }
 
-  // Streak + weekly avg. Suppressed entirely during a reset week: the reset strip
-  // above already counts the only thing that matters, and a second counter reading
-  // "1 day streak" next to it just makes a fresh start look small.
-  const streakEl = $('#streakWrap');
-  const inReset = !!(data.stats && data.stats.reset_meta && !data.stats.reset_meta.expired);
-  if (inReset) {
-    streakEl.innerHTML = '';
-  } else if (data.stats && (data.streak > 0 || data.weekly_avg_kcal)) {
-    const parts = [];
-    if (data.streak > 0) parts.push(`<div class="item"><div class="num">${data.streak}</div><div class="lbl">day streak</div></div>`);
-    if (data.weekly_avg_kcal) parts.push(`<div class="item"><div class="num">${data.weekly_avg_kcal.toLocaleString()}</div><div class="lbl">avg across ${data.weekly_logged_days} past logged day${data.weekly_logged_days === 1 ? '' : 's'} (last 7)</div></div>`);
-    streakEl.innerHTML = `<div class="streak-strip">${parts.join('')}</div>`;
-  } else {
-    streakEl.innerHTML = '';
-  }
-
-  // Meal list with period headers
-  const list = $('#mealList');
-  const entries = data.entries || [];
-  if (!entries.length) {
-    list.innerHTML = inReset
-      ? `<div class="gap-empty"><strong>Nothing logged today</strong>Log one meal and the day counts. It doesn't have to be the whole day, and it doesn't have to hit the number.</div>`
-      : `<div class="empty">No meals logged yet. Tap <strong>+ Log meal</strong> to start.</div>`;
-  } else {
-    // Group entries by meal period, inserting header divs when period changes
-    let lastPeriod = null;
-    const rows = [];
-    entries.forEach(e => {
-      const period = getMealPeriod(e.time);
-      if (period !== lastPeriod) {
-        rows.push(`<div class="meal-period-hdr">${PERIOD_ICON[period] || '🍽️'} ${period}</div>`);
-        lastPeriod = period;
-      }
-      rows.push(`
-        <div class="meal" data-id="${e.id}" style="cursor: pointer;">
-          <div class="meal-info">
-            <div class="meal-name">${escapeHtml(e.name)}</div>
-            <div class="meal-meta">${fmtTime(e.time)} <span class="badge ${e.source}">${e.source}</span></div>
-          </div>
-          <div class="meal-stats">
-            <div class="meal-kcal">${e.kcal} kcal</div>
-            <div class="meal-protein">${e.protein}g protein</div>
-            ${(e.fat || e.carb || e.fiber) ? `<div style="color:var(--text-dim);font-size:11px;">F${Math.round(e.fat||0)} C${Math.round(e.carb||0)} Fib${Math.round((e.fiber||0)*10)/10}</div>` : ''}
-          </div>
-          <button class="meal-rescan" data-id="${e.id}" title="Re-scan with new AI system">↻</button>
-          <button class="meal-tmpl" data-id="${e.id}" title="Save as template" style="background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:4px 6px;opacity:0.5;transition:opacity 0.15s;" onmouseover="this.style.opacity=1;this.style.color='var(--accent)'" onmouseout="this.style.opacity=0.5;this.style.color='var(--text-dim)'">📋</button>
-          <button class="meal-del" data-id="${e.id}" title="Delete">×</button>
-        </div>
-        <div class="rescan-panel hidden" id="rescan-${e.id}"></div>`);
-    });
-    list.innerHTML = rows.join('');
-    $$('.meal-del').forEach(btn => btn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const id = btn.dataset.id;
-      const entry = entries.find(e => e.id === id);
-      await fetch(`/api/log/${data.date}/${id}`, { method: 'DELETE' });
-      loadToday();
-      if (entry) {
-        showUndoToast(`Deleted "${entry.name.slice(0, 40)}"`, async () => {
-          await logMeal({
-            name: entry.name, kcal: entry.kcal, protein: entry.protein,
-            fat: entry.fat || 0, carb: entry.carb || 0, fiber: entry.fiber || 0,
-            source: entry.source, items: entry.items, time: entry.time
-          });
-          loadToday();
-        });
-      }
-    }));
-    $$('.meal-rescan').forEach(btn => btn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const id = btn.dataset.id;
-      const entry = entries.find(e => e.id === id);
-      if (!entry) return;
-      await rescanEntry(entry, data.date, btn);
-    }));
-    $$('.meal-tmpl').forEach(btn => btn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const entry = entries.find(e => e.id === btn.dataset.id);
-      if (!entry) return;
-      const name = prompt('Template name:', entry.name.slice(0, 60));
-      if (!name || !name.trim()) return;
-      await api('/api/templates', { method: 'POST', body: { name: name.trim(), from_log_entry_id: entry.id, date: data.date } });
-      showToast(`Template "${name.trim()}" saved`);
-      loadTemplates();
-    }));
-    $$('.meal[data-id]').forEach(row => row.addEventListener('click', (ev) => {
-      if (ev.target.classList.contains('meal-del') || ev.target.classList.contains('meal-rescan')) return;
-      const entry = entries.find(e => e.id === row.dataset.id);
-      if (entry) openEditModal(entry, data.date);
-    }));
-  }
-
-  // Day status card
-  renderDayStatus(data);
-
-  // Gap fill card
+  renderMeals(data);
   renderGapFill(data);
-
-  // Templates
   loadTemplates();
-
-  // Favorites
   loadFavorites();
-
-  // Desktop hero card extras (protein + water mini-stats + coach line).
-  // Renders unconditionally — on mobile the .hero-right is display:none via CSS.
-  renderHeroExtras(data);
 }
 
-// Renders the desktop hero card's right-hand block: protein mini-stat,
-// water mini-stat, and the coaching line. Mobile hides it via CSS.
-function renderHeroExtras(data) {
-  const wrap = document.getElementById('heroExtras');
-  if (!wrap || !data || !data.stats) return;
-  const water = state.water || { total_ml: 0 };
-  const GOAL_ML = 2000, GLASS_ML = 250, GOAL_GLASSES = 8;
-  const glasses = Math.floor((water.total_ml || 0) / GLASS_ML);
-  const pPct = Math.min(data.totals.protein / data.stats.protein_g, 1) * 100;
-  const wPct = Math.min((water.total_ml || 0) / GOAL_ML, 1) * 100;
+// ---------- HEADER ----------
+function renderTodayHead(data) {
+  const d = todayViewDate ? new Date(todayViewDate + 'T12:00:00') : new Date();
+  $('#tdDate').textContent = d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const goal = data.stats.kcal_goal;
-  const eaten = data.totals.kcal;
+  let short = 'Today', long = 'Today';
+  if (todayViewDate) {
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const ageDays = Math.round((new Date(fmtDate(new Date()) + 'T12:00:00') - d) / 86400000);
+    short = long = todayViewDate === fmtDate(yesterday) ? 'Yesterday'
+      : ageDays < 7 ? d.toLocaleDateString([], { weekday: 'long' })
+      : d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  } else {
+    const h = new Date().getHours();
+    const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+    const name = state.user && (state.user.global_name || state.user.username);
+    long = name ? `${greet}, ${name.split(' ')[0]}` : greet;
+  }
+  $('#tdTitle .th-short').textContent = short;
+  $('#tdGreeting').textContent = long;
+
+  const streak = $('#tdStreak');
+  const inReset = !!(data.stats && data.stats.reset_meta && !data.stats.reset_meta.expired);
+  // Suppressed during a reset week: the reset strip already counts the only thing that
+  // matters, and "1-day streak" next to it just makes a fresh start look small.
+  if (!todayViewDate && !inReset && data.streak > 0) {
+    streak.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.3 1.6 1.2 2.5 2 2.5 0-3 .5-5.5 1-8z"/></svg>${data.streak}-day streak`;
+    streak.classList.remove('hidden');
+  } else {
+    streak.classList.add('hidden');
+  }
+  $('#tdBack').classList.toggle('hidden', !todayViewDate);
+  $('#tdNext').disabled = !todayViewDate;
+  $('#tdPicker').max = fmtDate(new Date());
+  $('#tdPicker').value = todayViewDate || fmtDate(new Date());
+}
+
+// ---------- SUMMARY CARD ----------
+function renderSummary(data) {
+  const el = $('#summaryCard');
+  el.classList.remove('hidden');
+  const stats = data.stats;
+  const goal = stats.kcal_goal;
+  const eaten = Math.round(data.totals.kcal);
   const over = eaten > goal;
-  const remaining = goal - eaten;
-  const coach = todayFeedback(data);
+  const R = 64;
+  const circ = 2 * Math.PI * R;
+  const pct = goal > 0 ? Math.min(eaten / goal, 1) : 0;
 
-  wrap.innerHTML = `
-    <div class="hero-stats">
-      <div class="mini-stat">
-        <div class="ms-top"><span class="ms-label">Protein</span></div>
-        <div class="ms-val">${Math.round(data.totals.protein)}<span class="unit"> / ${data.stats.protein_g}g</span></div>
-        <div class="mini-bar"><i style="width:${pPct}%;background:linear-gradient(90deg,var(--accent-dim),var(--accent));"></i></div>
+  const prevNumEl = $('#summaryCard .ring-num');
+  const prevNum = prevNumEl ? parseInt(prevNumEl.textContent.replace(/[^\d-]/g, '')) || 0 : 0;
+  const newNum = over ? eaten - goal : goal - eaten;
+  const prefix = over ? '+' : '';
+  const goalLabel = (GoalPolicy.LABELS[stats.goal] || stats.goal_meta?.label || '').toLowerCase();
+  const detailsOpen = !$('#targetDetails').classList.contains('hidden');
+
+  const protein = Math.round(data.totals.protein);
+  const pPct = pctOf(protein, stats.protein_g);
+  const tile = (label, eatenG, targetG, warnOver) => `
+    <div class="sum-tile ${warnOver && eatenG > targetG ? 'over' : ''}">
+      <span class="st-label">${label}</span>
+      <span class="st-val">${eatenG} <span class="st-of">/ ${targetG}g</span></span>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="sum-top">
+      <div class="sum-ring">
+        <svg width="148" height="148" viewBox="0 0 148 148" role="img" aria-label="${eaten} of ${goal} kcal eaten">
+          <circle cx="74" cy="74" r="${R}" fill="none" stroke-width="14" class="ring-bg" />
+          <circle cx="74" cy="74" r="${R}" fill="none" stroke-width="14" stroke-linecap="round" class="ring-fg ${over ? 'over' : ''}"
+            stroke-dasharray="${circ}" stroke-dashoffset="${circ * (1 - pct)}" transform="rotate(-90 74 74)" />
+        </svg>
+        <div class="ring-center">
+          <span class="ring-num ${over ? 'over' : ''}">${prefix}${prevNum.toLocaleString()}</span>
+          <span class="ring-label">${over ? 'kcal over' : 'kcal left'}</span>
+        </div>
       </div>
-      <div class="mini-stat">
-        <div class="ms-top"><span class="ms-label">Water</span></div>
-        <div class="ms-val">${glasses}<span class="unit"> / ${GOAL_GLASSES} glasses</span></div>
-        <div class="mini-bar"><i style="width:${wPct}%;background:linear-gradient(90deg,#3b82f6,var(--info));"></i></div>
+      <div class="sum-figs">
+        <div class="sf">
+          <span class="sf-label">Eaten</span>
+          <span class="sf-num">${eaten.toLocaleString()}</span>
+        </div>
+        <div class="sf-rule"></div>
+        <button class="sf sf-target" id="sumTarget" type="button" aria-expanded="${detailsOpen}" aria-controls="targetDetails">
+          <span class="sf-label">Target · ${escapeHtml(goalLabel)}</span>
+          <span class="sf-num">${goal.toLocaleString()}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </span>
+        </button>
       </div>
     </div>
-    <div class="coach"><span>${escapeHtml(coach)}</span></div>
+    <div class="sum-protein">
+      <div class="sp-row">
+        <span class="sp-label">Protein</span>
+        <span class="sp-val"><strong>${protein}</strong> / ${stats.protein_g} g</span>
+      </div>
+      <div class="sp-bar"><div style="width:${pPct}%"></div></div>
+    </div>
+    <div class="sum-tiles">
+      ${tile('Carbs', Math.round(data.totals.carb || 0), stats.carb_g, true)}
+      ${tile('Fat', Math.round(data.totals.fat || 0), stats.fat_g, true)}
+      ${tile('Fibre', Math.round(data.totals.fiber || 0), stats.fiber_g, false)}
+    </div>
+    <p class="sum-status">${escapeHtml(todayFeedback(data))}</p>
   `;
+  animateNumber($('#summaryCard .ring-num'), prevNum, newNum, 700, prefix);
+  if (prevNum !== newNum && prevNumEl) {
+    const ring = $('#summaryCard .sum-ring');
+    ring.classList.remove('ring-pulse'); void ring.offsetWidth; ring.classList.add('ring-pulse');
+  }
+  $('#sumTarget').addEventListener('click', toggleTargetDetails);
+}
+
+function toggleTargetDetails() {
+  const panel = $('#targetDetails');
+  const open = panel.classList.toggle('hidden') === false;
+  $('#sumTarget').setAttribute('aria-expanded', String(open));
+  const remEl = $('#macroProteinRemaining');
+  if (open && state.today && remEl && !remEl.innerHTML.trim() && localStorage.getItem('eduProteinOpen') === '1') loadMacroRemaining(state.today);
+}
+
+// Protein + macro breakdown with the "why it matters" notes. Lives behind the target tap.
+function renderMacroDetails(data) {
+  const protein = Math.round(data.totals.protein);
+  const fatEaten = Math.round(data.totals.fat || 0);
+  const carbEaten = Math.round(data.totals.carb || 0);
+  const fiberEaten = Math.round((data.totals.fiber || 0) * 10) / 10;
+  const rows = [
+    ['protein', 'Protein', protein, data.stats.protein_g, 'var(--purple)', 'eduProteinOpen', EDU_PROTEIN_HTML, 'macroProteinRemaining'],
+    ['fat', 'Fat', fatEaten, data.stats.fat_g, 'var(--warn)', 'macroFatOpen', EDU_FAT_HTML, 'macroFatRemaining'],
+    ['carb', 'Carbs', carbEaten, data.stats.carb_g, 'var(--accent)', 'macroCarbOpen', EDU_CARBS_HTML, 'macroCarbRemaining'],
+    ['fiber', 'Fibre', fiberEaten, data.stats.fiber_g, 'var(--info)', 'macroFiberOpen', EDU_FIBER_HTML, 'macroFiberRemaining'],
+  ];
+  $('#macroWrap').innerHTML = `
+    <div class="card macro-card">
+      <h2>Macros</h2>
+      ${buildMacroDonut(data)}
+      ${rows.map(([key, label, eaten, target, color, lsKey, edu, remId]) => {
+        const open = localStorage.getItem(lsKey) === '1';
+        return `
+        <div class="macro-cell">
+          <div class="macro-row">
+            <span class="macro-label">${label}</span>
+            <span class="macro-value">${eaten} / ${target}g</span>
+          </div>
+          <div class="bar"><div class="bar-fill" style="width:${pctOf(eaten, target)}%;background:${color};"></div></div>
+          <button class="macro-toggle" type="button" data-key="${key}" data-ls="${lsKey}" aria-expanded="${open}">Why ${label.toLowerCase()} matters</button>
+          <div class="macro-edu ${open ? '' : 'hidden'}" id="edu-${key}">${edu}<div id="${remId}"></div></div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  $$('#macroWrap .macro-toggle').forEach(toggle => toggle.addEventListener('click', () => {
+    const edu = $(`#edu-${toggle.dataset.key}`);
+    const nowHidden = edu.classList.toggle('hidden');
+    toggle.setAttribute('aria-expanded', String(!nowHidden));
+    localStorage.setItem(toggle.dataset.ls, nowHidden ? '0' : '1');
+    // Protein suggestions cost an AI call, so they only load once someone opens the note.
+    if (toggle.dataset.key === 'protein' && !nowHidden && state.today) {
+      const remEl = $('#macroProteinRemaining');
+      if (remEl && !remEl.innerHTML.trim()) loadMacroRemaining(state.today);
+    }
+  }));
+  renderMacroFoodChips('fatChips', 'fat');
+  renderMacroFoodChips('carbChips', 'carb');
+  renderMacroFoodChips('fiberChips', 'fiber');
+  renderMacroFoodChips('proteinChips', 'protein');
+}
+
+// ---------- MEALS ----------
+function renderMeals(data) {
+  const list = $('#mealList');
+  const entries = [...(data.entries || [])].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+  // AI parses still running (or waiting for a check) for this day, from parse-jobs.js.
+  const jobs = typeof parseJobsForDate === 'function' && data.date ? parseJobsForDate(data.date) : [];
+  const inReset = !!(data.stats && data.stats.reset_meta && !data.stats.reset_meta.expired);
+  $('#mealsCount').textContent = [entries.length && `${entries.length} logged`, jobs.length && `${jobs.length} in progress`].filter(Boolean).join(' · ');
+
+  if (!entries.length && !jobs.length) {
+    list.innerHTML = inReset
+      ? `<div class="gap-empty"><strong>Nothing logged today</strong>Log one meal and the day counts. It doesn't have to be the whole day, and it doesn't have to hit the number.</div>`
+      : '';
+  } else {
+    const groups = new Map();
+    const group = period => groups.get(period) || groups.set(period, { entries: [], jobs: [] }).get(period);
+    entries.forEach(e => group(getMealPeriod(e.time)).entries.push(e));
+    jobs.forEach(job => group(job.period).jobs.push(job));
+    const html = PERIOD_ORDER.filter(p => groups.has(p)).map(period => {
+      const g = groups.get(period);
+      const first = g.entries[0] ? g.entries[0].time : g.jobs[0].time || new Date(g.jobs[0].createdAt).toISOString();
+      return `
+        <div class="meal-group">
+          <div class="meal-period">${period} · ${fmtTime(first)}</div>
+          ${g.entries.map(mealRowHtml).join('')}
+          ${g.jobs.map(pendingRowHtml).join('')}
+        </div>`;
+    }).join('');
+    list.innerHTML = `<div class="meals-card">${html}</div>`;
+
+    $$('#mealList .meal-main[data-id]').forEach(btn => btn.addEventListener('click', () => {
+      const entry = entries.find(e => e.id === btn.dataset.id);
+      if (entry) openEditModal(entry, data.date);
+    }));
+    $$('#mealList .meal-more[data-id]').forEach(btn => btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const entry = entries.find(e => e.id === btn.dataset.id);
+      if (entry) openRowMenu(btn, mealActions(entry, data.date, btn));
+    }));
+    $$('#mealList .meal-main[data-job]').forEach(btn => btn.addEventListener('click', () => openParseJob(btn.dataset.job)));
+    $$('#mealList .meal-more[data-job]').forEach(btn => btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.job;
+      openRowMenu(btn, [
+        { label: 'Open', run: () => openParseJob(id) },
+        { label: 'Discard', danger: true, run: () => { removeParseJob(id); renderMeals(state.today); } },
+      ]);
+    }));
+    if (jobs.some(j => j.status === 'parsing')) startPendingTicker();
+  }
+
+  // Dashed "Add dinner" slots for main meals that haven't been logged yet. On today only
+  // periods that have already started count as missing; on a past day all of them do.
+  const logged = new Set([...entries.map(e => getMealPeriod(e.time)), ...jobs.map(j => j.period)]);
+  const hour = new Date().getHours() + new Date().getMinutes() / 60;
+  const missing = MAIN_PERIODS.filter(p => !logged.has(p) && (todayViewDate || hour >= PERIOD_START[p]));
+  $('#mealSlots').innerHTML = missing.map(p => `
+    <button class="meal-slot" type="button" data-period="${p}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add ${p.toLowerCase()}
+    </button>`).join('');
+  $$('#mealSlots .meal-slot').forEach(btn => btn.addEventListener('click', () => openLogModal(todayViewDate, btn.dataset.period)));
+}
+
+function mealRowHtml(e) {
+  const hasMacros = e.fat || e.carb || e.fiber;
+  return `
+    <div class="meal-row">
+      <button class="meal-main" type="button" data-id="${e.id}">
+        <span class="meal-text">
+          <span class="meal-name">${escapeHtml(e.name)}</span>
+          <span class="meal-meta">${sourceBadge(e.source)}${hasMacros ? `<span>F${Math.round(e.fat || 0)} · C${Math.round(e.carb || 0)} · Fib${Math.round((e.fiber || 0) * 10) / 10}</span>` : ''}</span>
+        </span>
+        <span class="meal-nums">
+          <span class="meal-kcal">${Math.round(e.kcal).toLocaleString()}</span>
+          <span class="meal-prot">${Math.round(e.protein)}g P</span>
+        </span>
+      </button>
+      <button class="meal-more" type="button" data-id="${e.id}" aria-haspopup="menu" aria-expanded="false" aria-label="More options for ${escapeHtml(e.name)}">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </button>
+    </div>
+    <div class="rescan-panel hidden" id="rescan-${e.id}"></div>`;
+}
+
+// A background AI parse that hasn't been logged yet: mini dino and progress while it
+// works, then "Check 1 thing" if something was guessed, or a retry if it failed.
+function pendingRowHtml(job) {
+  const n = (job.checks || []).length;
+  const totals = job.result && job.result.totals;
+  let line;
+  if (job.status === 'parsing' || job.status === 'saving') {
+    line = `<span class="pending-dino" aria-hidden="true">${dinoSpriteSVG()}</span>
+      <span class="pending-bar" aria-hidden="true"><span style="width:${parseJobProgress(job).toFixed(1)}%"></span></span>
+      <span class="pending-label">${escapeHtml(parseJobLabel(job))}</span>`;
+  } else if (job.status === 'ready' || job.status === 'review') {
+    line = `<span class="src-badge ${n ? 'src-guess' : 'src-db'}">${n ? `Check ${n} thing${n === 1 ? '' : 's'}` : 'Ready to log'}</span>`;
+  } else {
+    line = `<span class="pending-error">${job.status === 'interrupted' ? 'Interrupted. Tap to try again' : "Couldn't work it out. Tap to see why"}</span>`;
+  }
+  const ready = totals && (job.status === 'ready' || job.status === 'review');
+  return `
+    <div class="meal-row pending">
+      <button class="meal-main" type="button" data-job="${job.id}">
+        <span class="meal-text">
+          <span class="meal-name">${escapeHtml(job.text)}</span>
+          <span class="pending-line">${line}</span>
+        </span>
+        <span class="meal-nums ${ready ? '' : 'waiting'}">
+          <span class="meal-kcal">${ready ? totals.kcal.toLocaleString() : '…'}</span>
+          <span class="meal-prot">${ready ? `${Math.round(totals.protein)}g P` : '…'}</span>
+        </span>
+      </button>
+      <button class="meal-more" type="button" data-job="${job.id}" aria-haspopup="menu" aria-expanded="false" aria-label="Options for ${escapeHtml(job.text)}">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </button>
+    </div>`;
+}
+
+// Moves the pending rows' progress bars without re-rendering the whole list.
+let pendingTicker = null;
+function startPendingTicker() {
+  if (pendingTicker) return;
+  pendingTicker = setInterval(() => {
+    const rows = $$('#mealList .meal-main[data-job]');
+    let running = 0;
+    rows.forEach(btn => {
+      const job = findParseJob(btn.dataset.job);
+      if (!job || job.status !== 'parsing') return;
+      running++;
+      const bar = btn.querySelector('.pending-bar > span');
+      const label = btn.querySelector('.pending-label');
+      if (bar) bar.style.width = `${parseJobProgress(job).toFixed(1)}%`;
+      if (label) label.textContent = parseJobLabel(job);
+    });
+    if (!running) { clearInterval(pendingTicker); pendingTicker = null; }
+  }, 250);
+}
+
+function mealActions(entry, date, anchor) {
+  return [
+    { label: 'Edit', run: () => openEditModal(entry, date) },
+    { label: 'Re-scan with AI', run: () => rescanEntry(entry, date, anchor) },
+    { label: 'Save as template', run: async () => {
+      const name = prompt('Template name:', entry.name.slice(0, 60));
+      if (!name || !name.trim()) return;
+      await api('/api/templates', { method: 'POST', body: { name: name.trim(), from_log_entry_id: entry.id, date } });
+      showToast(`Template "${name.trim()}" saved`);
+      loadTemplates();
+    } },
+    { label: 'Delete', danger: true, run: async () => {
+      await fetch(`/api/log/${date}/${entry.id}`, { method: 'DELETE' });
+      loadToday();
+      showUndoToast(`Deleted "${entry.name.slice(0, 40)}"`, async () => {
+        await logMeal({
+          name: entry.name, kcal: entry.kcal, protein: entry.protein,
+          fat: entry.fat || 0, carb: entry.carb || 0, fiber: entry.fiber || 0,
+          source: entry.source, items: entry.items, time: entry.time, date
+        });
+        loadToday();
+      });
+    } },
+  ];
+}
+
+// ---------- ROW MENU (the ⋯ on each meal) ----------
+let rowMenu = null;
+
+function openRowMenu(anchor, actions) {
+  const reopening = rowMenu && rowMenu.anchor === anchor;
+  closeRowMenu();
+  if (reopening) return;
+  const menu = document.createElement('div');
+  menu.className = 'row-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = actions.map((a, i) =>
+    `<button type="button" role="menuitem" data-i="${i}" class="${a.danger ? 'danger' : ''}">${escapeHtml(a.label)}</button>`).join('');
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  const top = r.bottom + menu.offsetHeight + 8 > innerHeight ? r.top - menu.offsetHeight - 4 : r.bottom + 4;
+  menu.style.top = `${top + scrollY}px`;
+  menu.style.left = `${Math.max(8, r.right - menu.offsetWidth) + scrollX}px`;
+  anchor.setAttribute('aria-expanded', 'true');
+
+  const items = [...menu.querySelectorAll('[role=menuitem]')];
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (!b) return;
+    closeRowMenu();
+    actions[Number(b.dataset.i)].run();
+  });
+  menu.addEventListener('keydown', (e) => {
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); closeRowMenu(); anchor.focus(); }
+    else if (e.key === 'Tab') closeRowMenu();
+  });
+  const outside = (e) => { if (!menu.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) closeRowMenu(); };
+  setTimeout(() => document.addEventListener('pointerdown', outside), 0);
+  rowMenu = { menu, anchor, outside };
+  items[0].focus();
+}
+
+function closeRowMenu() {
+  if (!rowMenu) return;
+  document.removeEventListener('pointerdown', rowMenu.outside);
+  rowMenu.anchor.setAttribute('aria-expanded', 'false');
+  rowMenu.menu.remove();
+  rowMenu = null;
 }
 
 // ---------- MEAL PERIOD ----------
@@ -403,19 +523,12 @@ function getMealPeriod(timeStr) {
   if (h < 22.5) return 'Dinner';
   return 'Late night';
 }
-const PERIOD_ICON = { Breakfast: '🌅', Lunch: '☀️', Snack: '🍎', Dinner: '🌙', 'Late night': '🌜', Other: '🍽️' };
-
-// ---------- DAY STATUS ----------
-function renderDayStatus(data) {
-  const el = $('#dayStatusWrap');
-  if (!el) return;
-  if (!data.stats) { el.innerHTML = ''; return; }
-  const count = (data.entries || []).length;
-  el.innerHTML = `<div class="day-status-card">
-    <div class="ds-meta-row"><span>Today · In progress</span><span>${count} meal entr${count === 1 ? 'y' : 'ies'} logged</span></div>
-    <div class="ds-advice">Log meals when it suits you. Past days with missing food are incomplete records, so review them before relying on averages.</div>
-  </div>`;
-}
+const PERIOD_ORDER = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Late night', 'Other'];
+const MAIN_PERIODS = ['Breakfast', 'Lunch', 'Dinner'];
+// Hour each period starts, matching getMealPeriod's boundaries.
+const PERIOD_START = { Breakfast: 0, Lunch: 10.5, Snack: 15, Dinner: 17, 'Late night': 22.5 };
+// Clock time an entry gets when it's logged into a period other than the current one.
+const PERIOD_TIME = { Breakfast: '08:00', Lunch: '12:30', Snack: '15:30', Dinner: '20:00', 'Late night': '23:00' };
 
 // ---------- GAP FILL ----------
 const GAP_FOODS = [
@@ -446,7 +559,7 @@ const GAP_FOODS = [
 function renderGapFill(data) {
   const wrap = $('#gapFillWrap');
   if (!wrap) return;
-  if (!data.stats || data.stats.goal === 'reset') { wrap.innerHTML = ''; return; }
+  if (todayViewDate || !data.stats || data.stats.goal === 'reset') { wrap.innerHTML = ''; return; }
 
   const { remaining_kcal, remaining_protein, remaining_fat, remaining_carb, remaining_fiber } = data;
   const hour = new Date().getHours();
@@ -481,24 +594,29 @@ function renderGapFill(data) {
 
   if (!scored.length) { wrap.innerHTML = ''; return; }
 
-  const names = { protein: 'protein', fat: 'fat', carb: 'carbs', fiber: 'fiber' };
-  const label = behind.slice(0, 2).map(m => `<strong>${names[m]}</strong>`).join(' & ');
-
   wrap.innerHTML = `
-    <div class="gap-fill-card">
-      <h4>Options for your remaining ${label} target:</h4>
-      ${scored.map(s => `
-        <div class="gap-fill-item">
-          <span class="gf-name">${escapeHtml(s.name)}</span>
-          <span class="gf-meta">${s.kcal} kcal · ${s.protein}g P${s.fiber ? ' · ' + s.fiber + 'g Fib' : ''}</span>
-          <button class="gf-log" data-s='${JSON.stringify({name:s.name,kcal:s.kcal,protein:s.protein,fat:s.fat,carb:s.carb,fiber:s.fiber}).replace(/'/g,"&#39;")}'>Log</button>
+    <section class="gap-card" aria-labelledby="gapTitle">
+      <div class="gap-head">
+        <h2 id="gapTitle">${Math.round(remaining_protein)}g protein to go</h2>
+        ${remaining_kcal !== null ? `<span>${Math.max(0, Math.round(remaining_kcal)).toLocaleString()} kcal left</span>` : ''}
+      </div>
+      ${scored.map((s, i) => `
+        <div class="gap-item">
+          <span class="gap-name">${escapeHtml(s.name)}</span>
+          <span class="gap-meta">${s.kcal} kcal · <strong>${s.protein}g</strong></span>
+          <button class="gap-add" type="button" data-i="${i}" aria-label="Log ${escapeHtml(s.name)}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
         </div>`).join('')}
-    </div>`;
+    </section>`;
 
-  wrap.querySelectorAll('.gf-log').forEach(btn => {
+  wrap.querySelectorAll('.gap-add').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const s = JSON.parse(btn.dataset.s.replace(/&#39;/g, "'"));
-      if (!await logMeal({ name: s.name, kcal: s.kcal, protein: s.protein, fat: s.fat, carb: s.carb, fiber: s.fiber, source: 'custom' }, btn)) return;
+      const s = scored[Number(btn.dataset.i)];
+      btn.disabled = true; // not passed to logMeal, which would replace the icon with text
+      const ok = await logMeal({ name: s.name, kcal: s.kcal, protein: s.protein, fat: s.fat, carb: s.carb, fiber: s.fiber, source: 'custom' });
+      btn.disabled = false;
+      if (!ok) return;
       showToast(`Logged: ${s.name}`);
       loadToday();
     });
@@ -507,7 +625,7 @@ function renderGapFill(data) {
 
 // ---------- MACRO REMAINING SUGGESTIONS ----------
 async function loadMacroRemaining(data) {
-  if (!data.stats) return;
+  if (!data.stats || todayViewDate) return;
   const hour = new Date().getHours();
   if (hour < 12) return; // only show after midday
   // Protein-only — user focuses on kcal + protein, fat/carb/fiber suggestions skipped to save AI calls

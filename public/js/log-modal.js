@@ -6,6 +6,7 @@ async function rescanEntry(entry, date, btn) {
     panel.innerHTML = '';
     return;
   }
+  const btnHtml = btn.innerHTML;
   btn.textContent = '…';
   btn.disabled = true;
   panel.classList.remove('hidden');
@@ -61,7 +62,7 @@ async function rescanEntry(entry, date, btn) {
   } catch (e) {
     panel.innerHTML = `<div style="padding:10px;color:#e05;font-size:13px;">Rescan failed: ${escapeHtml(e.message)}</div>`;
   } finally {
-    btn.textContent = '↻';
+    btn.innerHTML = btnHtml;
     btn.disabled = false;
   }
 }
@@ -139,48 +140,123 @@ $('#editDelete').addEventListener('click', async () => {
   });
 });
 
-// ---------- LOG MODAL ----------
-let currentLogDate = null;
-function openLogModal(date) {
-  currentLogDate = date || null;
-  const banner = $('#logDateBanner');
-  if (banner) {
-    if (currentLogDate) {
-      const d = new Date(currentLogDate + 'T00:00:00');
-      banner.textContent = `Logging to ${d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })} (defaults to 8pm; edit time after via the meal)`;
-      banner.classList.remove('hidden');
-    } else {
-      banner.classList.add('hidden');
-    }
-  }
-  $('#logModal').classList.remove('hidden');
+// ---------- LOG SHEET ----------
+// One sheet, four screens: type → parse → review → done. Typing something you've had
+// before relogs it with no AI call; anything new goes to the AI parse, which runs as a
+// background job (parse-jobs.js) so the sheet can close while it works.
+
+const LOG_PERIODS = ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Late night'];
+const PERIOD_PLURAL = { Breakfast: 'breakfasts', Lunch: 'lunches', Snack: 'snacks', Dinner: 'dinners', 'Late night': 'late-night meals' };
+const SHEET_TITLES = { type: 'Log a meal', parse: 'On it', review: 'Looks like', done: 'Logged' };
+
+const flow = { screen: 'type', date: null, period: 'Dinner', job: null, tool: null, opener: null, done: null, unwatch: null };
+
+// date: 'yyyy-mm-dd' to log into a past day. period: the meal to file it under
+// (e.g. from an "Add dinner" slot). Defaults: today, and the period on the clock.
+function openLogModal(date, period) {
+  flow.date = date || null;
+  flow.period = period || (flow.date ? 'Dinner' : getMealPeriod(new Date().toISOString()));
+  flow.opener = document.activeElement;
+  $('#logText').value = '';
+  updateGhost('', null);
+  setTool(null);
+  showSheet();
+  showScreen('type');
+  renderTypeLists();
   $('#logText').focus();
-  // Warm the meal search index in the background so the very first letter
-  // typed has matches ready instantly. No-op if already loaded.
-  if (typeof loadMealSearchIndex === 'function') loadMealSearchIndex();
+  // Warm the meal search index so the very first letter typed has matches ready.
+  loadMealSearchIndex().then(() => { renderTypeLists(); updatePrimary(); });
+  loadUsuals().then(() => { if (flow.screen === 'type') renderTypeLists(); });
 }
+
+// Open the sheet on a background parse (a pending row on Today was tapped).
+function openParseJob(id) {
+  const job = findParseJob(id);
+  if (!job || job.status === 'saving') return;
+  flow.date = job.date;
+  flow.period = job.period;
+  flow.opener = document.activeElement;
+  showSheet();
+  if (job.status === 'interrupted') runParseJob(job);
+  watchJob(job);
+}
+
+function showSheet() {
+  $('#logModal').classList.remove('hidden');
+  document.body.classList.add('sheet-open');
+  renderSheetHead();
+}
+
 function closeLogModal() {
+  const job = flow.job;
+  if (job) {
+    job.watched = false;
+    if (job.local || job.status === 'error' || job.status === 'interrupted') removeParseJob(job.id);
+    // Closed on the review screen without logging: keep it on Today to finish later.
+    else if (job.status === 'ready') { job.status = 'review'; notifyParseJob(job); }
+  }
+  unwatchJob();
+  stopDinoTicker();
   $('#logModal').classList.add('hidden');
-  currentLogDate = null;
-  if ($('#logDateBanner')) $('#logDateBanner').classList.add('hidden');
-  // Tear down any in-progress AI loader (incl. dino game) so it doesn't keep
-  // running invisibly with global key listeners attached.
-  clearAILoader($('#parsedItems'));
-  // Reset transient pickers so the next open starts clean.
-  const ghost = $('#logTextGhost');
-  if (ghost) ghost.innerHTML = '';
-  const chips = $('#portionChips');
-  if (chips) { chips.innerHTML = ''; chips.classList.add('hidden'); }
+  document.body.classList.remove('sheet-open');
+  flow.screen = 'type';
+  flow.done = null;
+  if (flow.opener && flow.opener.isConnected) flow.opener.focus();
 }
-$('#fab').addEventListener('click', () => openLogModal());
+
+function showScreen(screen) {
+  flow.screen = screen;
+  $('#logSheet').dataset.screen = screen;
+  [['type', '#lsType'], ['parse', '#lsParse'], ['review', '#lsReview'], ['done', '#lsDone']]
+    .forEach(([name, sel]) => $(sel).classList.toggle('hidden', name !== screen));
+  renderSheetHead();
+  if (screen === 'parse') startDinoTicker(); else stopDinoTicker();
+}
+
+function renderSheetHead() {
+  $('#logTitle').textContent = SHEET_TITLES[flow.screen];
+  $('#logPeriodLabel').textContent = flow.period;
+  $('#logPeriod').classList.toggle('hidden', flow.screen === 'done');
+  $('#logPeriod').setAttribute('aria-label', `Meal: ${flow.period}. Tap to change`);
+  const banner = $('#logDateBanner');
+  if (flow.date) {
+    banner.textContent = `Logging to ${new Date(flow.date + 'T12:00:00').toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })}`;
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
+function cyclePeriod() {
+  flow.period = LOG_PERIODS[(LOG_PERIODS.indexOf(flow.period) + 1) % LOG_PERIODS.length];
+  if (flow.job) {
+    flow.job.period = flow.period;
+    flow.job.time = entryTime(flow.date, flow.period);
+    notifyParseJob(flow.job);
+  }
+  renderSheetHead();
+  if (flow.screen === 'type') renderTypeLists();
+  if (flow.screen === 'review') renderReview();
+}
+
+// Time an entry gets filed at: now, unless it's going to another period or a past day,
+// in which case it gets that period's usual time (past days default to dinner, 8pm).
+function entryTime(date, period) {
+  if (!date && period === getMealPeriod(new Date().toISOString())) return null;
+  return new Date(`${date || fmtDate(new Date())}T${PERIOD_TIME[period]}:00`).toISOString();
+}
+
+function entryWhen() {
+  const time = entryTime(flow.date, flow.period);
+  return { ...(flow.date ? { date: flow.date } : {}), ...(time ? { time } : {}) };
+}
+
 $('#logClose').addEventListener('click', closeLogModal);
-$('#logModal').addEventListener('click', (e) => {
-  if (e.target === $('#logModal')) closeLogModal();
-});
+$('#logModal').addEventListener('click', (e) => { if (e.target === $('#logModal')) closeLogModal(); });
+$('#logPeriod').addEventListener('click', cyclePeriod);
 
 // ---------- KEYBOARD SHORTCUTS ----------
 document.addEventListener('keydown', (e) => {
-  // Close modals
   if (e.key === 'Escape') {
     if (!$('#editModal').classList.contains('hidden')) { closeEditModal(); return; }
     if (!$('#logModal').classList.contains('hidden')) { closeLogModal(); return; }
@@ -188,23 +264,19 @@ document.addEventListener('keydown', (e) => {
   // Don't fire nav shortcuts when typing
   const tag = document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-  if (e.key === 'l' || e.key === 'L') { openLogModal(); return; }
-  // Number keys 1-5 switch tabs
-  const viewMap = { '1': 'today', '2': 'gym', '3': 'history', '4': 'profile', '5': 'dev' };
-  if (viewMap[e.key]) {
-    const btn = document.querySelector(`.nav button[data-view="${viewMap[e.key]}"]`);
-    if (btn) btn.click();
-  }
+  if (!$('#logModal').classList.contains('hidden')) return;
+  if (e.key === 'l' || e.key === 'L') { openLogModal(typeof todayViewDate !== 'undefined' ? todayViewDate : null); return; }
+  // Number keys 1-5 switch tabs, in sidebar order
+  const viewMap = { '1': 'today', '2': 'history', '3': 'gym', '4': 'profile', '5': 'dev' };
+  if (viewMap[e.key]) setActiveView(viewMap[e.key]);
 });
 
 // ---------- TYPE-AHEAD (local index, smart ranking, ghost completion) ----------
 // The search index is built once per session: one round-trip to fetch
 // favourites + customs + templates, then every keystroke runs locally.
-// No more 300ms debounce, no more "open the log file on every letter" lag.
 
 let mealSearchIndex = null;
 let mealSearchIndexLoading = null;
-let currentMatches = [];
 let currentGhostSuggestion = null;
 
 async function loadMealSearchIndex() {
@@ -222,15 +294,14 @@ async function loadMealSearchIndex() {
         source: 'history',
         name: f.last_text || f.name,
         name_lower: (f.last_text || f.name).toLowerCase(),
-        // Median is what gets used by default — robust to outlier portions.
-        kcal: f.median_kcal ?? f.kcal,
-        protein: f.median_protein ?? f.protein,
-        fat: f.median_fat ?? 0,
-        carb: f.median_carb ?? 0,
-        fiber: f.median_fiber ?? 0,
+        // "Log again" means the same amounts as last time.
+        kcal: f.last_kcal ?? f.kcal,
+        protein: f.last_protein ?? f.protein,
+        fat: f.last_fat ?? 0,
+        carb: f.last_carb ?? 0,
+        fiber: f.last_fiber ?? 0,
         count: f.count || 0,
-        last_date: f.last_date || null,
-        portions: f.portions || null
+        last_date: f.last_date || null
       });
     }
     for (const c of Object.values(customs || {})) {
@@ -240,7 +311,7 @@ async function loadMealSearchIndex() {
         name_lower: c.name.toLowerCase(),
         kcal: c.kcal || 0, protein: c.protein || 0,
         fat: c.fat || 0, carb: c.carb || 0, fiber: c.fiber || 0,
-        count: 0, last_date: null, portions: null
+        count: 0, last_date: null
       });
     }
     for (const t of (templates || [])) {
@@ -251,10 +322,11 @@ async function loadMealSearchIndex() {
         name_lower: t.name.toLowerCase(),
         kcal: t.totals?.kcal || 0, protein: t.totals?.protein || 0,
         fat: t.totals?.fat || 0, carb: t.totals?.carb || 0, fiber: t.totals?.fiber || 0,
-        count: 0, last_date: null, portions: null
+        count: 0, last_date: null
       });
     }
     mealSearchIndex = items;
+    mealSearchIndexLoading = null;
     return items;
   })();
   return mealSearchIndexLoading;
@@ -297,242 +369,694 @@ function relDateLabel(dateStr) {
   return `${Math.round(days / 365)}y ago`;
 }
 
+// "Last had Monday" style label for a past day.
+function lastHadLabel(dateStr) {
+  const days = Math.round((new Date(fmtDate(new Date()) + 'T12:00:00') - new Date(dateStr + 'T12:00:00')) / 86400000);
+  if (days <= 0) return 'Earlier today';
+  if (days === 1) return 'Yesterday';
+  const d = new Date(dateStr + 'T12:00:00');
+  return `Last had ${days < 7 ? d.toLocaleDateString([], { weekday: 'long' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
+}
+
 function updateGhost(typed, suggestion) {
   const ghost = $('#logTextGhost');
   if (!ghost) return;
-  if (!typed || !suggestion || suggestion.length === typed.length
-      || !suggestion.toLowerCase().startsWith(typed.toLowerCase())) {
-    ghost.innerHTML = '';
+  const show = typed && suggestion && suggestion.length > typed.length
+    && suggestion.toLowerCase().startsWith(typed.toLowerCase());
+  ghost.innerHTML = show
+    ? `<span>${escapeHtml(typed)}</span><span class="ghost-suffix">${escapeHtml(suggestion.slice(typed.length))}</span>`
+    : '';
+  $('#ghostAccept').classList.toggle('hidden', !show);
+}
+
+function acceptGhost() {
+  if (!currentGhostSuggestion) return false;
+  $('#logText').value = currentGhostSuggestion;
+  currentGhostSuggestion = null;
+  onLogTextInput();
+  return true;
+}
+
+// ---------- TYPE screen ----------
+// Usuals: what you actually eat at each meal, from the last two weeks of entries
+// (with their times, which the favourites list doesn't carry). Loaded once per session.
+let usualsLoading = null;
+
+function loadUsuals() {
+  if (usualsLoading) return usualsLoading;
+  const days = Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return fmtDate(d); });
+  usualsLoading = Promise.all(days.map(d => api(`/api/log?date=${d}`).catch(() => null))).then(logs => {
+    const meals = new Map();
+    logs.forEach(log => (log && log.entries || []).forEach(e => {
+      if (!e.name) return;
+      const period = getMealPeriod(e.time);
+      const key = `${period}|${e.name.trim().toLowerCase()}`;
+      const m = meals.get(key) || { period, count: 0, entry: null, date: '' };
+      m.count++;
+      if (!m.entry || log.date > m.date) { m.entry = e; m.date = log.date; }
+      meals.set(key, m);
+    }));
+    return [...meals.values()];
+  });
+  return usualsLoading;
+}
+
+function usualsFor(meals, period) {
+  const byUse = (a, b) => b.count - a.count || b.date.localeCompare(a.date);
+  const picked = meals.filter(m => m.period === period).sort(byUse).slice(0, 3);
+  const names = new Set(picked.map(m => m.entry.name.toLowerCase()));
+  // Thin history for this meal? Top up with the user's most-eaten others.
+  for (const m of meals.filter(m => m.period !== period).sort(byUse)) {
+    if (picked.length >= 3) break;
+    if (names.has(m.entry.name.toLowerCase())) continue;
+    names.add(m.entry.name.toLowerCase());
+    picked.push(m);
+  }
+  return picked;
+}
+
+function typedQuery() {
+  return $('#logText').value.trim().toLowerCase().split('\n')[0].slice(0, 60);
+}
+
+function exactMatch() {
+  const q = $('#logText').value.trim().toLowerCase();
+  if (!q || !mealSearchIndex) return null;
+  return mealSearchIndex.find(it => it.name_lower === q && it.source === 'history')
+    || mealSearchIndex.find(it => it.name_lower === q) || null;
+}
+
+function renderTypeLists() {
+  const host = $('#logLists');
+  if (flow.tool) { host.innerHTML = ''; return; }
+  const q = typedQuery();
+  const row = (attrs, name, when, kcal, protein, plus) => `
+    <button class="pick-row" type="button" ${attrs}>
+      <span class="pick-text"><span class="pick-name">${escapeHtml(name)}</span><span class="pick-when">${escapeHtml(when)}</span></span>
+      <span class="pick-nums">${Math.round(kcal).toLocaleString()} · <strong>${Math.round(protein)}g</strong></span>
+      ${plus ? '<span class="pick-plus" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>' : ''}
+    </button>`;
+
+  if (!q) {
+    if (!usualsLoading) { host.innerHTML = ''; return; }
+    usualsLoading.then(meals => {
+      if (flow.screen !== 'type' || typedQuery() || flow.tool) return;
+      const usuals = usualsFor(meals, flow.period);
+      host.innerHTML = usuals.length ? `
+        <h3 class="ls-label">Your usual ${PERIOD_PLURAL[flow.period]} · one tap logs it</h3>
+        <div class="pick-list">${usuals.map((m, i) => row(`data-usual="${i}" aria-label="Log ${escapeHtml(m.entry.name)} again"`, m.entry.name, lastHadLabel(m.date), m.entry.kcal, m.entry.protein, true)).join('')}</div>` : '';
+      host.querySelectorAll('[data-usual]').forEach(btn => btn.addEventListener('click', () => {
+        const e = usuals[Number(btn.dataset.usual)].entry;
+        relog({ name: e.name, kcal: e.kcal, protein: e.protein, fat: e.fat || 0, carb: e.carb || 0, fiber: e.fiber || 0, source: e.source, items: e.items }, btn);
+      }));
+    });
     return;
   }
-  const suffix = suggestion.slice(typed.length);
-  ghost.innerHTML = `<span>${escapeHtml(typed)}</span><span class="ghost-suffix">${escapeHtml(suffix)}</span>`;
+
+  const matches = q.length >= 2 && mealSearchIndex ? rankMatches(mealSearchIndex, q).slice(0, 4) : [];
+  if (matches.length) {
+    const when = it => it.source === 'template' ? 'Template' : it.source === 'custom' ? 'Your food' : `${relDateLabel(it.last_date)} · same amounts`;
+    host.innerHTML = `
+      <h3 class="ls-label">You've had this before</h3>
+      <div class="pick-list">${matches.map((it, i) => row(`data-match="${i}"`, it.name, when(it).replace(/^./, c => c.toUpperCase()), it.kcal, it.protein, false)).join('')}</div>`;
+    host.querySelectorAll('[data-match]').forEach(btn => btn.addEventListener('click', () => relogIndexItem(matches[Number(btn.dataset.match)], btn)));
+  } else if (q.length > 2) {
+    host.innerHTML = `
+      <div class="new-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/></svg>
+        <span>New one. I'll split it into foods, look each up, and show you anything I had to guess.</span>
+      </div>`;
+  } else {
+    host.innerHTML = '';
+  }
+}
+
+function updatePrimary() {
+  const btn = $('#logPrimary');
+  const text = $('#logText').value.trim();
+  const exact = exactMatch();
+  btn.disabled = !text;
+  btn.textContent = !text ? 'Type something, or tap a usual'
+    : exact ? `Log again · ${Math.round(exact.kcal).toLocaleString()} kcal`
+    : 'Work it out';
+}
+
+function onLogTextInput() {
+  const text = $('#logText').value;
+  const q = typedQuery();
+  currentGhostSuggestion = null;
+  if (q.length >= 2 && mealSearchIndex) {
+    const top = rankMatches(mealSearchIndex, q)[0];
+    if (top && top.name_lower.startsWith(q) && !text.includes('\n')) currentGhostSuggestion = top.name;
+  }
+  updateGhost(text, currentGhostSuggestion);
+  renderTypeLists();
+  updatePrimary();
+}
+
+function primaryAction() {
+  const text = $('#logText').value.trim();
+  if (!text) return;
+  const exact = exactMatch();
+  if (exact) relogIndexItem(exact, $('#logPrimary'));
+  else workItOut();
 }
 
 $('#logText').addEventListener('input', () => {
-  const text = $('#logText').value;
-  const trimmed = text.trim();
-  const dd = $('#suggestDropdown');
-  if (!trimmed || trimmed.length < 2) {
-    dd.classList.add('hidden');
-    currentMatches = [];
-    currentGhostSuggestion = null;
-    updateGhost(text, null);
-    return;
-  }
-  loadMealSearchIndex().then(items => {
-    // Textarea may have changed during the await on the very first call.
-    const t = $('#logText').value;
-    const q = t.trim().toLowerCase().split('\n')[0].slice(0, 60);
-    if (q.length < 2) { dd.classList.add('hidden'); return; }
-    currentMatches = rankMatches(items, q).slice(0, 6);
-    if (!currentMatches.length) {
-      dd.classList.add('hidden');
-      currentGhostSuggestion = null;
-      updateGhost(t, null);
-      return;
-    }
-    dd.classList.remove('hidden');
-    dd.innerHTML = currentMatches.map((r, i) => {
-      const rel = r.last_date ? ` · ${relDateLabel(r.last_date)}` : '';
-      return `
-        <div class="suggest-item ${i === 0 ? 'top' : ''}" data-idx="${i}">
-          <span class="si-name">${escapeHtml(r.name)}</span>
-          <span class="si-meta">${r.kcal} kcal · ${r.protein}g P${rel}</span>
-          <span class="si-src">${r.source}</span>
-        </div>
-      `;
-    }).join('');
-    dd.querySelectorAll('.suggest-item').forEach(item => {
-      // mousedown so we beat the textarea-blur handler that hides the dropdown.
-      item.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        pickSuggestion(currentMatches[Number(item.dataset.idx)]);
-      });
-    });
-    const top = currentMatches[0];
-    if (top.name_lower.startsWith(q)) {
-      currentGhostSuggestion = top.name;
-      updateGhost(t, top.name);
-    } else {
-      currentGhostSuggestion = null;
-      updateGhost(t, null);
-    }
-  });
+  if (!mealSearchIndex) loadMealSearchIndex().then(onLogTextInput);
+  onLogTextInput();
 });
-
-// Tab on the textarea accepts the ghost suggestion (when one is showing).
-// Falls through to normal Tab behaviour otherwise so accessibility stays sane.
 $('#logText').addEventListener('keydown', (e) => {
-  if (e.key === 'Tab' && currentGhostSuggestion) {
+  const atEnd = e.target.selectionStart === e.target.value.length;
+  if ((e.key === 'Tab' || (e.key === 'ArrowRight' && atEnd)) && currentGhostSuggestion) {
     e.preventDefault();
-    $('#logText').value = currentGhostSuggestion;
-    currentGhostSuggestion = null;
-    updateGhost($('#logText').value, null);
-    $('#logText').dispatchEvent(new Event('input', { bubbles: true }));
+    acceptGhost();
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    if ($('#logText').value.trim()) workItOut();
+  } else if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    primaryAction();
   }
 });
+$('#ghostAccept').addEventListener('click', () => { acceptGhost(); $('#logText').focus(); });
+$('#logPrimary').addEventListener('click', primaryAction);
 
-$('#logText').addEventListener('blur', () => {
-  setTimeout(() => $('#suggestDropdown').classList.add('hidden'), 200);
-});
-
-// User picked a suggestion → fill the textarea, render the parsed view with
-// median macros so they can verify + adjust weight + save. Doesn't auto-save,
-// except for templates which are an explicit "log this whole combo" action.
-function pickSuggestion(r) {
-  if (!r) return;
-  if (r.source === 'template' && r.template_id) {
-    api(`/api/log-template/${r.template_id}`, { method: 'POST', body: {} }).then(res => {
-      showToast(`Logged ${res.logged} items from "${r.name}"`);
-      closeLogModal();
-      loadToday();
-    });
+// ---------- Relog (no AI) ----------
+async function relogIndexItem(it, btn) {
+  if (it.source === 'template' && it.template_id) {
+    btn.disabled = true;
+    const day = flow.date ? `?date=${flow.date}` : '';
+    const res = await api(`/api/log-template/${it.template_id}${day}`, { method: 'POST', body: {} }).catch(() => null);
+    btn.disabled = false;
+    if (!res || !res.entries) { showToast('Could not log that template'); return; }
+    afterLogged({ name: it.name, kcal: it.kcal, protein: it.protein, ids: res.entries.map(e => e.id) });
     return;
   }
-  $('#logText').value = r.name;
-  currentGhostSuggestion = null;
-  updateGhost(r.name, null);
-  $('#suggestDropdown').classList.add('hidden');
-  const fakeResult = {
-    items: [{ name: r.name, qty: 1, unit: 'serving', kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0, source: r.source, confidence: 'high' }],
-    totals: { kcal: r.kcal, protein: r.protein, fat: r.fat || 0, carb: r.carb || 0, fiber: r.fiber || 0 },
-    trace: [], suggested_extras: []
-  };
-  parsedCache = fakeResult;
-  renderParsed(fakeResult);
-  renderPortionChips(r);
+  relog({ name: it.name, kcal: it.kcal, protein: it.protein, fat: it.fat, carb: it.carb, fiber: it.fiber, source: it.source === 'custom' ? 'custom' : 'history' }, btn);
 }
 
-function renderPortionChips(r) {
-  const host = $('#portionChips');
-  if (!host) return;
-  if (!r.portions || r.portions.length < 2) {
-    host.innerHTML = '';
-    host.classList.add('hidden');
-    return;
-  }
-  host.classList.remove('hidden');
-  host.innerHTML = `
-    <span class="portion-chip-label">Portion you ate today —</span>
-    ${r.portions.map((p, i) => `
-      <button class="portion-chip" data-idx="${i}" type="button">
-        <span class="pc-kcal">${p.kcal} kcal</span>
-        <span class="pc-meta">${p.protein}g P</span>
-      </button>
-    `).join('')}
-  `;
-  host.querySelectorAll('.portion-chip').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const p = r.portions[Number(btn.dataset.idx)];
-      const fakeResult = {
-        items: [{ name: p.text || r.name, qty: 1, unit: 'serving', kcal: p.kcal, protein: p.protein, fat: p.fat, carb: p.carb, fiber: p.fiber, source: r.source, confidence: 'high' }],
-        totals: { kcal: p.kcal, protein: p.protein, fat: p.fat, carb: p.carb, fiber: p.fiber },
-        trace: [], suggested_extras: []
-      };
-      parsedCache = fakeResult;
-      renderParsed(fakeResult);
-      host.querySelectorAll('.portion-chip').forEach(b => b.classList.toggle('active', b === btn));
-    });
+async function relog(entry, btn) {
+  btn.disabled = true;
+  const res = await logMeal({ ...entry, ...entryWhen() });
+  btn.disabled = false;
+  if (!res || !res.entry) return;
+  afterLogged({ name: entry.name, kcal: res.entry.kcal, protein: res.entry.protein, ids: [res.entry.id] });
+}
+
+// ---------- Search / Barcode / Manual ----------
+$$('#lsType .tool-btn').forEach(btn => btn.addEventListener('click', () => setTool(flow.tool === btn.dataset.tool ? null : btn.dataset.tool)));
+
+function setTool(tool) {
+  stopBarcodeCamera();
+  flow.tool = tool;
+  $$('#lsType .tool-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === tool);
+    b.setAttribute('aria-expanded', String(b.dataset.tool === tool));
+  });
+  const panel = $('#logPanel');
+  panel.classList.toggle('hidden', !tool);
+  if (!tool) { panel.innerHTML = ''; renderTypeLists(); return; }
+  $('#logLists').innerHTML = '';
+  if (tool === 'search') renderSearchPanel();
+  if (tool === 'barcode') renderBarcodePanel();
+  if (tool === 'manual') renderManualPanel();
+}
+
+function renderSearchPanel() {
+  const panel = $('#logPanel');
+  panel.innerHTML = `
+    <form class="panel-row" id="searchForm">
+      <label class="sr-only" for="searchInput">Search food databases</label>
+      <input id="searchInput" type="search" placeholder="Search USDA, FatSecret, Open Food Facts" value="${escapeHtml($('#logText').value.trim().split('\n')[0])}" />
+      <button class="sheet-secondary" type="submit">Search</button>
+    </form>
+    <div id="searchResults"></div>`;
+  $('#searchInput').focus();
+  $('#searchForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = $('#searchInput').value.trim();
+    if (!q) return;
+    const out = $('#searchResults');
+    out.innerHTML = '<p class="panel-note">Searching…</p>';
+    const data = await api(`/api/search?q=${encodeURIComponent(q)}`).catch(() => null);
+    const results = (data && data.results) || [];
+    if (!results.length) { out.innerHTML = '<p class="panel-note">Nothing found. Try a simpler name, or describe it and let the AI work it out.</p>'; return; }
+    out.innerHTML = `<div class="pick-list">${results.map((r, i) => `
+      <button class="pick-row" type="button" data-r="${i}">
+        <span class="pick-text">
+          <span class="pick-name">${escapeHtml(r.name)}${r.brand ? ` <span class="pick-brand">${escapeHtml(r.brand)}</span>` : ''}</span>
+          <span class="pick-when">${sourceBadge(r.source)} per ${r.serving_g || 100} g</span>
+        </span>
+        <span class="pick-nums">${Math.round(r.kcal_per_serving)} · <strong>${Math.round(r.protein_per_serving)}g</strong></span>
+      </button>`).join('')}</div>`;
+    out.querySelectorAll('[data-r]').forEach(btn => btn.addEventListener('click', () => reviewFoodResult(results[Number(btn.dataset.r)])));
   });
 }
 
-let parsedCache = null;
+let barcodeStream = null;
 
-// ---------- HISTORY PICKER ----------
-function fmtRelDate(ds) {
-  if (!ds) return '';
-  const d = new Date(ds + 'T00:00:00');
-  const today = new Date(); today.setHours(0,0,0,0);
-  const diff = Math.round((today - d) / 86400000);
-  if (diff === 0) return 'today';
-  if (diff === 1) return 'yesterday';
-  if (diff < 7) return `${diff}d ago`;
-  if (diff < 30) return `${Math.round(diff/7)}w ago`;
-  return `${Math.round(diff/30)}mo ago`;
+function renderBarcodePanel() {
+  const panel = $('#logPanel');
+  const canScan = 'BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+  panel.innerHTML = `
+    ${canScan ? `<button class="sheet-secondary scan-btn" id="scanBtn" type="button">Scan with camera</button><video class="scan-video hidden" id="scanVideo" playsinline muted></video>` : ''}
+    <form class="panel-row" id="barcodeForm">
+      <label class="sr-only" for="barcodeInput">Barcode number</label>
+      <input id="barcodeInput" inputmode="numeric" pattern="[0-9]*" placeholder="Barcode number" />
+      <button class="sheet-secondary" type="submit">Look up</button>
+    </form>
+    <div id="barcodeResult"></div>`;
+  $('#barcodeForm').addEventListener('submit', (e) => { e.preventDefault(); lookupBarcode($('#barcodeInput').value.trim()); });
+  if (canScan) $('#scanBtn').addEventListener('click', startBarcodeCamera);
+  else $('#barcodeInput').focus();
 }
 
-$('#logHistory').addEventListener('click', async () => {
-  const panel = $('#historyPanel');
-  if (!panel.classList.contains('hidden')) {
-    panel.classList.add('hidden');
-    panel.innerHTML = '';
+async function lookupBarcode(code) {
+  if (!/^\d{6,14}$/.test(code)) { $('#barcodeResult').innerHTML = '<p class="panel-note">That doesn\'t look like a barcode number.</p>'; return; }
+  $('#barcodeResult').innerHTML = '<p class="panel-note">Looking it up…</p>';
+  const r = await fetch(`/api/barcode/${code}`).then(x => x.ok ? x.json() : null).catch(() => null);
+  if (!r) { $('#barcodeResult').innerHTML = '<p class="panel-note">Not found in Open Food Facts. Try Search, or describe it.</p>'; return; }
+  reviewFoodResult(r);
+}
+
+async function startBarcodeCamera() {
+  const video = $('#scanVideo');
+  try {
+    barcodeStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  } catch (_) {
+    $('#barcodeResult').innerHTML = '<p class="panel-note">No camera access. Type the number instead.</p>';
     return;
   }
-  panel.classList.remove('hidden');
-  panel.innerHTML = '<div class="empty" style="padding:12px;">Loading…</div>';
-  try {
-    const favs = await api('/api/favorites?limit=30&sort=recency');
-    if (!favs.length) {
-      panel.innerHTML = '<div class="empty" style="padding:12px;">No past meals yet — log a few and they\'ll show up here.</div>';
-      return;
-    }
-    panel.innerHTML = `
-      <div class="history-list">
-        ${favs.map((f, i) => `
-          <div class="history-item" data-idx="${i}">
-            <div class="hi-main">
-              <span class="hi-name">${escapeHtml(f.last_text || f.name)}</span>
-              <span class="hi-meta">${f.last_kcal} kcal · ${round1(f.last_protein)}g P</span>
-            </div>
-            <div class="hi-sub">
-              <span>${f.count}× · ${fmtRelDate(f.last_date)}</span>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    panel.querySelectorAll('.history-item').forEach(row => {
-      row.addEventListener('click', () => {
-        const f = favs[Number(row.dataset.idx)];
-        $('#logText').value = f.last_text || f.name;
-        panel.classList.add('hidden');
-        panel.innerHTML = '';
-        const fakeResult = {
-          items: [{
-            name: f.last_text || f.name, qty: 1, unit: 'serving',
-            kcal: f.last_kcal, protein: f.last_protein,
-            fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0,
-            source: 'history', confidence: 'high'
-          }],
-          totals: {
-            kcal: f.last_kcal, protein: f.last_protein,
-            fat: f.last_fat || 0, carb: f.last_carb || 0, fiber: f.last_fiber || 0
-          },
-          trace: [], suggested_extras: []
-        };
-        parsedCache = fakeResult;
-        renderParsed(fakeResult);
-      });
-    });
-  } catch (e) {
-    panel.innerHTML = `<div class="empty" style="padding:12px;color:var(--danger);">Failed to load: ${escapeHtml(e.message)}</div>`;
-  }
-});
+  video.srcObject = barcodeStream;
+  video.classList.remove('hidden');
+  $('#scanBtn').classList.add('hidden');
+  await video.play();
+  const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+  const tick = async () => {
+    if (!barcodeStream) return;
+    const codes = await detector.detect(video).catch(() => []);
+    if (codes.length) { const code = codes[0].rawValue; stopBarcodeCamera(); $('#barcodeInput').value = code; lookupBarcode(code); return; }
+    setTimeout(tick, 250);
+  };
+  tick();
+}
 
-$('#logParse').addEventListener('click', async () => {
+function stopBarcodeCamera() {
+  if (!barcodeStream) return;
+  barcodeStream.getTracks().forEach(t => t.stop());
+  barcodeStream = null;
+}
+
+function renderManualPanel() {
+  const panel = $('#logPanel');
+  panel.innerHTML = `
+    <form id="manualForm" class="manual-form">
+      <div class="field"><label for="manName">Name</label><input id="manName" value="${escapeHtml($('#logText').value.trim())}" /></div>
+      <div class="row2">
+        <div class="field"><label for="manKcal">kcal</label><input id="manKcal" type="number" inputmode="numeric" /></div>
+        <div class="field"><label for="manProtein">Protein (g)</label><input id="manProtein" type="number" inputmode="decimal" step="0.1" /></div>
+      </div>
+      <button class="sheet-primary" id="manSave" type="submit">Save</button>
+    </form>`;
+  $(panel.querySelector('#manName').value ? '#manKcal' : '#manName').focus();
+  $('#manualForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('#manName').value.trim();
+    const kcal = Number($('#manKcal').value);
+    if (!name || !kcal) { showToast('Need a name and kcal'); return; }
+    relog({ name, kcal, protein: Number($('#manProtein').value) || 0, source: 'manual' }, $('#manSave'));
+  });
+}
+
+// A database or barcode hit becomes a one-item review, with the amount to confirm.
+function reviewFoodResult(r) {
+  const serving = r.serving_g || 100;
+  const per = (key100, keyServing) => r[keyServing] ?? (r[key100] != null ? r[key100] * serving / 100 : 0);
+  const item = {
+    name: r.brand ? `${r.name} (${r.brand})` : r.name, qty: serving, unit: 'g',
+    kcal: Math.round(r.kcal_per_serving), protein: round1(r.protein_per_serving),
+    fat: round1(per('fat_100g', 'fat_per_serving')), carb: round1(per('carb_100g', 'carb_per_serving')), fiber: round1(r.fiber_100g != null ? r.fiber_100g * serving / 100 : 0),
+    source: r.source, confidence: 'high', needsAmount: true
+  };
+  item.base = { qty: item.qty, kcal: item.kcal, protein: item.protein, fat: item.fat, carb: item.carb, fiber: item.fiber };
+  stopBarcodeCamera();
+  const job = {
+    id: newIdemKey(), idemKey: newIdemKey(), local: true, createdAt: Date.now(),
+    text: item.name, date: flow.date, period: flow.period, time: entryTime(flow.date, flow.period),
+    status: 'ready', steps: [], checks: [0],
+    result: { items: [item], totals: sumItems([item]), trace: [], suggested_extras: [] }
+  };
+  flow.job = job;
+  showScreen('review');
+  renderReview();
+}
+
+// ---------- PARSE screen ----------
+function workItOut() {
   const text = $('#logText').value.trim();
   if (!text) return;
-  $('#logParse').disabled = true;
-  $('#logParse').textContent = 'Parsing...';
-  const live = startLiveParse($('#parsedItems'));
-  try {
-    const data = await apiStream('/api/parse/stream', { text }, live.onEvent);
-    live.stop();
-    parsedCache = data;
-    parsedCache.suggested_extras = data.suggested_extras || [];
-    renderParsed(data);
-  } catch (e) {
-    live.stop();
-    $('#parsedItems').innerHTML = `<div class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</div>`;
-  } finally {
-    $('#logParse').disabled = false;
-    $('#logParse').textContent = 'Parse with AI';
+  const job = startParseJob({ text, date: flow.date, period: flow.period, time: entryTime(flow.date, flow.period) });
+  watchJob(job);
+}
+
+function watchJob(job) {
+  unwatchJob();
+  flow.job = job;
+  job.watched = true;
+  const screenFor = () => job.status === 'ready' || job.status === 'review' ? 'review' : 'parse';
+  showScreen(screenFor());
+  if (flow.screen === 'review') renderReview(); else renderParse();
+  flow.unwatch = onParseJobChange(changed => {
+    if (changed !== job || flow.job !== job) return;
+    if (job.status === 'ready' && flow.screen === 'parse') {
+      renderParse();
+      // A beat on the finished steps before switching, so the summary is readable.
+      setTimeout(() => { if (flow.job === job && flow.screen === 'parse') { showScreen('review'); renderReview(); } }, 900);
+    } else if (flow.screen === 'parse') {
+      renderParse();
+    }
+  });
+}
+
+function unwatchJob() {
+  if (flow.unwatch) flow.unwatch();
+  flow.unwatch = null;
+}
+
+let dinoJumps = 0;
+
+function renderParse() {
+  const job = flow.job;
+  $('#parseBubble').textContent = job.text;
+  if (!$('#dinoRunner').innerHTML) $('#dinoRunner').innerHTML = dinoSpriteSVG();
+  const steps = $('#parseSteps');
+  if (job.status === 'error' || job.status === 'interrupted') {
+    steps.innerHTML = `
+      <li class="parse-error">
+        <strong>${job.status === 'error' ? "Couldn't work that out" : 'That got interrupted'}</strong>
+        <span>${escapeHtml(job.error || 'The page reloaded before it finished.')}</span>
+        <span class="parse-error-actions">
+          <button class="sheet-secondary" type="button" id="parseRetry">Try again</button>
+          <button class="link-btn" type="button" id="parseEdit">Edit what I typed</button>
+        </span>
+      </li>`;
+    $('#parseRetry').addEventListener('click', () => { runParseJob(job); });
+    $('#parseEdit').addEventListener('click', () => backToType(job));
+    $('#parseClose').textContent = 'Close';
+    return;
   }
+  $('#parseClose').textContent = "Close. Add it when it's ready";
+  steps.innerHTML = job.steps.map(s => `
+    <li class="parse-step ${s.state === 'done' ? 'done' : 'active'} ${s.tone || ''}">
+      <span class="ps-icon" aria-hidden="true">${s.state === 'done' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg>' : ''}</span>
+      <span class="ps-label">${escapeHtml(s.state === 'done' ? s.label : `${s.label}…`)}</span>
+    </li>`).join('') || '<li class="parse-step active"><span class="ps-icon" aria-hidden="true"></span><span class="ps-label">Starting…</span></li>';
+}
+
+let dinoTicker = null;
+
+function startDinoTicker() {
+  stopDinoTicker();
+  const tick = () => {
+    const job = flow.job;
+    if (!job) return;
+    $('#dinoStrip').style.setProperty('--p', (parseJobProgress(job) / 100).toFixed(3));
+  };
+  tick();
+  dinoTicker = setInterval(tick, 150);
+}
+
+function stopDinoTicker() {
+  if (dinoTicker) clearInterval(dinoTicker);
+  dinoTicker = null;
+}
+
+$('#dinoStrip').addEventListener('click', () => {
+  const strip = $('#dinoStrip');
+  if (strip.classList.contains('jumping')) return;
+  strip.classList.add('jumping');
+  dinoJumps++;
+  $('#dinoJumps').textContent = `${dinoJumps} JUMP${dinoJumps === 1 ? '' : 'S'}`;
+  setTimeout(() => strip.classList.remove('jumping'), 300);
 });
 
-// ---------- Live parse view: what the AI is thinking and doing, as it happens ----------
+$('#parseClose').addEventListener('click', closeLogModal);
 
+function backToType(job) {
+  removeParseJob(job.id);
+  unwatchJob();
+  flow.job = null;
+  showScreen('type');
+  $('#logText').value = job.text;
+  onLogTextInput();
+  $('#logText').focus();
+}
+
+// ---------- REVIEW screen ----------
+// Base day for "leaves you N kcal": only when the entry lands on the day Today has loaded.
+function dayBaseline(date) {
+  const t = state.today;
+  const day = date || fmtDate(new Date());
+  return t && t.date === day && t.remaining_kcal != null ? t : null;
+}
+
+// Quick amounts for a guessed item: none / half / as guessed / one and a half. For a
+// database or barcode hit (needsAmount): half to double a serving.
+function amountOptions(it) {
+  const b = it.base;
+  const unit = String(it.unit || '').toLowerCase();
+  const grams = /^(g|grams?|ml)$/.test(unit);
+  const factors = it.needsAmount ? [0.5, 1, 1.5, 2] : [0, 0.5, 1, 1.5];
+  if (!(b.qty > 0)) return factors.map(f => ({ f, label: f === 0 ? 'None' : f === 1 ? 'As guessed' : f === 0.5 ? 'Half' : `${f}×` }));
+  const step = grams ? 5 : 0.5;
+  const seen = new Set();
+  return factors.map(f => {
+    const qty = f === 1 ? b.qty : Math.max(f === 0 ? 0 : step, Math.round(b.qty * f / step) * step);
+    return { f: qty / b.qty, qty, label: qty === 0 ? 'None' : grams ? `${qty}${unit === 'ml' ? 'ml' : 'g'}` : `${qty} ${unit}` };
+  }).filter(o => !seen.has(o.qty) && seen.add(o.qty));
+}
+
+function scaleItem(it, f) {
+  const b = it.base;
+  Object.assign(it, {
+    qty: b.qty > 0 ? Math.round(b.qty * f * 10) / 10 : b.qty,
+    kcal: Math.round(b.kcal * f), protein: round1(b.protein * f),
+    fat: round1(b.fat * f), carb: round1(b.carb * f), fiber: round1(b.fiber * f), picked: f
+  });
+}
+
+function renderReview() {
+  const job = flow.job;
+  const { items } = job.result;
+  const totals = sumItems(items);
+  job.result.totals = totals;
+  const checks = job.checks.filter(i => items[i]);
+
+  // Callout: only for what was guessed (or, for a database hit, how much you had).
+  const others = items.length - checks.length;
+  $('#reviewChecks').innerHTML = checks.length ? `
+    <div class="check-card">
+      <strong class="check-title">${items[checks[0]].needsAmount ? 'How much did you have?' : checks.length === 1 ? 'One thing to check' : `${checks.length} things to check`}</strong>
+      ${checks.map(i => {
+        const it = items[i];
+        const trace = (job.result.trace || [])[i] || {};
+        const why = it.needsAmount ? `One serving is ${it.base.qty} g.`
+          : it.flagged === 'high-kcal' ? 'This came out unusually high, so it may be off.'
+          : `I guessed${trace.ai_kcal_low && trace.ai_kcal_high ? ` (it could be ${trace.ai_kcal_low}–${trace.ai_kcal_high} kcal)` : ''}${others ? ', the rest came from real data' : ''}.`;
+        return `
+          <div class="check-item">
+            ${it.needsAmount ? '' : `<span class="check-q">How much ${escapeHtml(it.name.toLowerCase())}?</span>`}
+            <span class="check-why">${why}</span>
+            <div class="amount-chips" role="group" aria-label="Amount of ${escapeHtml(it.name)}">
+              ${amountOptions(it).map(o => `<button type="button" class="amount-chip" data-i="${i}" data-f="${o.f}" aria-pressed="${Math.abs((it.picked ?? 1) - o.f) < 0.001}">${escapeHtml(o.label)}</button>`).join('')}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>` : '';
+  $$('#reviewChecks .amount-chip').forEach(btn => btn.addEventListener('click', () => {
+    scaleItem(items[Number(btn.dataset.i)], Number(btn.dataset.f));
+    renderReview();
+  }));
+
+  $('#parsedItems').innerHTML = `<div class="review-list">${items.map((it, i) => {
+    const guessed = checks.includes(i) && !it.needsAmount;
+    const amount = it.qty ? `${it.qty} ${it.unit || ''}`.trim() : '';
+    return `
+      <button class="review-row ${it.kcal === 0 && it.protein === 0 ? 'none' : ''}" type="button" data-i="${i}" aria-label="${escapeHtml(it.name)}: options">
+        <span class="rr-text">
+          <span class="rr-name">${escapeHtml(it.name)}</span>
+          <span class="rr-meta">${amount ? `${escapeHtml(amount)} · ` : ''}${it.isExtra ? sourceBadge('extra') : sourceBadge(guessed ? 'guess' : it.source)}</span>
+        </span>
+        <span class="rr-nums"><span class="rr-kcal">${it.kcal.toLocaleString()}</span><span class="rr-prot">${round1(it.protein)}g P</span></span>
+      </button>`;
+  }).join('')}</div>`;
+  $$('#parsedItems .review-row').forEach(btn => btn.addEventListener('click', () => openRowMenu(btn, reviewItemActions(Number(btn.dataset.i)))));
+
+  renderExtras();
+  $('#reviewMore').innerHTML = renderAIWork(job.result) + (job.result.trace && job.result.trace.length
+    ? `<details class="ai-work"><summary>How it looked up each item</summary>${renderTrace(job.result.trace)}</details>` : '');
+
+  const base = dayBaseline(job.date);
+  if (base) {
+    const left = base.remaining_kcal - totals.kcal;
+    const prot = Math.max(0, Math.round(base.remaining_protein - totals.protein));
+    $('#reviewLeft').innerHTML = `
+      <span>${left >= 0 ? `Leaves you <strong>${left.toLocaleString()} kcal</strong>` : `Puts you <strong class="warn">${Math.abs(left).toLocaleString()} kcal</strong> over`}</span>
+      <span><strong class="prot">${prot}g</strong> protein to go</span>`;
+  } else {
+    $('#reviewLeft').innerHTML = `<span>${round1(totals.protein)}g protein</span>`;
+  }
+  $('#parsedSaveBtn').textContent = `Log ${job.period.toLowerCase()} · ${totals.kcal.toLocaleString()} kcal`;
+  $('#parsedSaveBtn').disabled = !items.some(it => it.kcal > 0 || it.protein > 0);
+}
+
+function reviewItemActions(i) {
+  const job = flow.job;
+  const it = job.result.items[i];
+  const actions = [{ label: 'Set exact kcal', run: () => {
+    const val = prompt(`Exact calories for "${it.name}" (now ${it.kcal}):`, it.kcal);
+    const kcal = Math.round(Number(val));
+    if (val === null || !(kcal >= 0)) return;
+    // Keep the macros in proportion to the new kcal.
+    const f = it.kcal > 0 ? kcal / it.kcal : 1;
+    Object.assign(it, { kcal, protein: round1(it.protein * f), fat: round1(it.fat * f), carb: round1(it.carb * f), fiber: round1(it.fiber * f) });
+    it.base = { qty: it.qty, kcal: it.kcal, protein: it.protein, fat: it.fat, carb: it.carb, fiber: it.fiber };
+    it.picked = 1;
+    job.checks = job.checks.filter(c => c !== i);
+    renderReview();
+  } }];
+  if (it.source !== 'custom') actions.push({ label: 'Save as my food', run: async () => {
+    await api('/api/custom-foods', { method: 'POST', body: { name: it.name, kcal: it.kcal, protein: it.protein, fat: it.fat || 0, carb: it.carb || 0, fiber: it.fiber || 0 } });
+    mealSearchIndex = null;
+    showToast(`Saved "${it.name}" as your food`);
+  } });
+  if (job.result.items.length > 1) actions.push({ label: 'Remove', danger: true, run: () => {
+    job.result.items.splice(i, 1);
+    if (job.result.trace) job.result.trace.splice(i, 1);
+    job.checks = job.checks.filter(c => c !== i).map(c => (c > i ? c - 1 : c));
+    renderReview();
+  } });
+  return actions;
+}
+
+function renderExtras() {
+  const suggestions = flow.job.result.suggested_extras || [];
+  $('#extrasWrap').innerHTML = `
+    ${suggestions.length ? `<div class="extras-suggest"><span>Did you add:</span>${suggestions.map(s => `<button class="extras-chip" type="button" data-val="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}</div>` : ''}
+    <form class="panel-row" id="extrasForm">
+      <label class="sr-only" for="extrasInput">Cooking extras</label>
+      <input id="extrasInput" placeholder="Cooking extras? Oil, butter, sauce…" />
+      <button class="sheet-secondary" id="extrasAdd" type="submit">+ Add</button>
+    </form>`;
+  $('#extrasForm').addEventListener('submit', (e) => { e.preventDefault(); addExtras(); });
+  $$('#extrasWrap .extras-chip').forEach(chip => chip.addEventListener('click', () => { $('#extrasInput').value = chip.dataset.val; addExtras(); }));
+}
+
+async function addExtras() {
+  const text = ($('#extrasInput') && $('#extrasInput').value.trim()) || '';
+  const job = flow.job;
+  if (!text || !job) return;
+  const btn = $('#extrasAdd');
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const data = await api('/api/parse', { method: 'POST', body: { text } });
+    if (data.error || !data.items?.length) { showToast('Could not parse that. Try being more specific.'); return; }
+    const start = job.result.items.length;
+    data.items.forEach((it, i) => {
+      it.isExtra = true;
+      it.flagged = (data.trace || [])[i]?.flagged || null;
+      it.base = { qty: it.qty, kcal: it.kcal, protein: it.protein, fat: it.fat || 0, carb: it.carb || 0, fiber: it.fiber || 0 };
+    });
+    job.result.items.push(...data.items);
+    job.result.trace = [...(job.result.trace || []), ...(data.trace || [])];
+    job.checks.push(...itemsToCheck({ items: data.items, trace: data.trace }).map(i => i + start));
+    renderReview();
+  } catch (e) {
+    showToast('Failed to add extra: ' + e.message);
+  } finally {
+    if ($('#extrasAdd')) { $('#extrasAdd').disabled = false; $('#extrasAdd').textContent = '+ Add'; }
+  }
+}
+
+$('#reviewEdit').addEventListener('click', () => backToType(flow.job));
+
+$('#reviewTemplate').addEventListener('click', async () => {
+  const job = flow.job;
+  const name = prompt('Template name:', job.text.slice(0, 60) || 'My meal');
+  if (!name || !name.trim()) return;
+  const items = job.result.items.filter(i => i.kcal > 0 || i.protein > 0);
+  await api('/api/templates', { method: 'POST', body: {
+    name: name.trim(),
+    items: items.map(i => ({ name: i.name, kcal: i.kcal, protein: i.protein, fat: i.fat || 0, carb: i.carb || 0, fiber: i.fiber || 0 })),
+    totals: sumItems(items)
+  }});
+  mealSearchIndex = null;
+  showToast(`Template "${name.trim()}" saved`);
+});
+
+$('#parsedSaveBtn').addEventListener('click', async () => {
+  const job = flow.job;
+  if (!job) return;
+  const btn = $('#parsedSaveBtn');
+  btn.disabled = true;
+  job.time = entryTime(job.date, job.period);
+  const res = await logMeal(parseJobEntry(job));
+  btn.disabled = false;
+  if (!res || !res.entry) return;
+  removeParseJob(job.id);
+  afterLogged({ name: job.text, kcal: res.entry.kcal, protein: res.entry.protein, ids: [res.entry.id], text: job.local ? '' : job.text });
+});
+
+// ---------- DONE screen ----------
+function afterLogged({ name, kcal, protein, ids, text = '' }) {
+  const date = flow.date;
+  const base = dayBaseline(date);
+  unwatchJob();
+  flow.job = null;
+  flow.done = { ids, date, text };
+  usualsLoading = null;
+  mealSearchIndex = null;
+  showScreen('done');
+  const onToday = !$('#view-today').classList.contains('hidden');
+  $('#lsDone').innerHTML = `
+    <span class="done-check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg></span>
+    <div class="done-text">
+      <strong>${escapeHtml(name)}</strong>
+      <span>${Math.round(kcal).toLocaleString()} kcal · ${round1(protein)}g protein</span>
+    </div>
+    ${base ? `
+    <div class="done-tiles">
+      <div class="done-tile"><strong class="${base.remaining_kcal - kcal < 0 ? 'warn' : ''}">${Math.abs(Math.round(base.remaining_kcal - kcal)).toLocaleString()}</strong><span>${base.remaining_kcal - kcal < 0 ? 'kcal over' : `kcal left ${date ? 'that day' : 'today'}`}</span></div>
+      <div class="done-tile"><strong class="prot">${Math.max(0, Math.round(base.remaining_protein - protein))}g</strong><span>protein to go</span></div>
+    </div>` : ''}
+    <div class="done-actions">
+      <button class="sheet-secondary" id="doneUndo" type="button">Undo</button>
+      <button class="sheet-primary" id="doneBack" type="button">${onToday ? 'Back to Today' : 'Done'}</button>
+    </div>`;
+  $('#doneUndo').addEventListener('click', undoLogged);
+  $('#doneBack').addEventListener('click', closeLogModal);
+  $('#doneBack').focus();
+  refreshAfterChange(date || undefined);
+}
+
+async function undoLogged() {
+  const done = flow.done;
+  if (!done) return;
+  const day = done.date || fmtDate(new Date());
+  $('#doneUndo').disabled = true;
+  await Promise.all(done.ids.map(id => fetch(`/api/log/${day}/${id}`, { method: 'DELETE' })));
+  flow.done = null;
+  refreshAfterChange(done.date || undefined);
+  showToast('Removed');
+  showScreen('type');
+  $('#logText').value = done.text;
+  onLogTextInput();
+  $('#logText').focus();
+}
+
+// ---------- How the AI worked it out ----------
 // Reasoning summaries come as "**Short title**\n\nBody…". Split so the title can
 // label the step and the body shows underneath.
 function splitThought(text) {
@@ -540,59 +1064,6 @@ function splitThought(text) {
   const title = m ? m[1].trim() : '';
   const body = (m ? text.slice(m[0].length) : text || '').replace(/\*\*/g, '').trim();
   return { title, body };
-}
-
-function startLiveParse(container) {
-  container.innerHTML = `
-    <div class="ai-live" aria-live="polite">
-      <ol class="ai-live-steps"></ol>
-      <div class="ai-live-thought" hidden></div>
-    </div>
-    <div class="ai-live-loader"></div>`;
-  const stepsEl = container.querySelector('.ai-live-steps');
-  const thoughtEl = container.querySelector('.ai-live-thought');
-  const loaderEl = container.querySelector('.ai-live-loader');
-  showAILoader(loaderEl, 'The AI is on it…');
-
-  const steps = {};
-  const setStep = (id, state, label) => {
-    let li = steps[id];
-    if (!li) {
-      li = document.createElement('li');
-      li.innerHTML = '<span class="ai-live-icon"></span><span class="ai-live-label"></span>';
-      stepsEl.appendChild(li);
-      steps[id] = li;
-    }
-    li.className = `ai-live-step is-${state}`;
-    if (label) li.querySelector('.ai-live-label').textContent = label;
-  };
-  // Earlier thinking step finishes once the AI moves on to something else
-  const finishThinking = () => {
-    if (steps.think && steps.think.classList.contains('is-active')) setStep('think', 'done');
-    thoughtEl.hidden = true;
-  };
-
-  const onEvent = ev => {
-    if (ev.type === 'thinking') {
-      const { title, body } = splitThought(ev.text);
-      setStep('think', 'active', title ? `Thinking: ${title}` : 'Thinking…');
-      if (body) {
-        thoughtEl.hidden = false;
-        // Show the tail so it reads like it's being written live
-        thoughtEl.textContent = body.length > 260 ? '…' + body.slice(-260) : body;
-      }
-    } else if (ev.type === 'search') {
-      finishThinking();
-      setStep('search', ev.done ? 'done' : 'active',
-        ev.done ? (ev.query ? `Searched the web: “${ev.query}”` : 'Searched the web') : 'Searching the web…');
-    } else if (ev.type === 'step') {
-      if (ev.id !== 'ai') finishThinking();
-      if (ev.id === 'ai' && ev.state === 'done') finishThinking();
-      setStep(ev.id, ev.state, ev.label);
-    }
-  };
-  const stop = () => clearAILoader(loaderEl);
-  return { onEvent, stop };
 }
 
 // Collapsible "how it worked this out": the AI's thinking and any web sources
@@ -614,7 +1085,7 @@ function renderAIWork(data) {
       }).join('')}
     </div>` : '';
   const summary = sources.length ? `How the AI worked this out · ${sources.length} source${sources.length === 1 ? '' : 's'}` : 'How the AI worked this out';
-  return `<details class="ai-work"><summary>🧠 ${summary}</summary>${thoughtHtml}${sourceHtml}</details>`;
+  return `<details class="ai-work"><summary>${summary}</summary>${thoughtHtml}${sourceHtml}</details>`;
 }
 
 const TRACE_CONF_COLOR = { high: 'var(--green)', medium: 'var(--warn)', low: 'var(--danger-bright)' };
@@ -683,186 +1154,3 @@ function renderTrace(trace) {
     ${rows}
   </div>`;
 }
-
-function refreshParsedTotals() {
-  if (!parsedCache) return;
-  const t = parsedCache.totals;
-  const proteinR = round1(t.protein);
-  const extras = (t.fat || t.carb || t.fiber) ? ` · ${t.fat||0}g F · ${t.carb||0}g C · ${t.fiber||0}g Fib` : '';
-  $('#parsedTotals').innerHTML = `
-    <div class="card" style="margin: 0; padding: 12px 14px;">
-      <div style="display: flex; justify-content: space-between;">
-        <strong>Total</strong>
-        <span><strong>${t.kcal} kcal</strong> · ${proteinR}g P${extras}</span>
-      </div>
-    </div>
-  `;
-}
-
-function renderParsed(data) {
-  const confChip = (conf) => {
-    const colors = { high: '#1a7a1a', medium: '#7a5a00', low: '#7a0010' };
-    const bg = { high: '#1a3d1a', medium: '#3d2e00', low: '#3d0008' };
-    const c = conf || 'medium';
-    return `<span class="conf-chip" style="background:${bg[c]};color:${colors[c]};" title="Confidence: ${c}. ${c === 'low' ? 'Rough estimate — consider setting exact value.' : c === 'medium' ? 'Reasonable estimate.' : 'High-quality source.'}">${c.toUpperCase()}</span>`;
-  };
-
-  $('#parsedItems').innerHTML = data.items.map((it, i) => `
-    <div class="parsed-item" id="pitem-${i}">
-      <div class="top">
-        <div class="name">${escapeHtml(it.name)} ${confChip(it.confidence)}</div>
-        <div class="stats">
-          <span class="editable-kcal" data-idx="${i}" title="Click to set exact calories">${it.kcal}</span> kcal · ${it.protein}g P
-          ${(it.fat || it.carb || it.fiber) ? `<span style="color:var(--text-dim);font-size:11px;"> · ${it.fat||0}g F · ${it.carb||0}g C · ${it.fiber||0}g Fib</span>` : ''}
-        </div>
-      </div>
-      <div class="meta">
-        <span>${it.qty} ${it.unit}</span>
-        <span class="badge ${it.isExtra ? 'extra' : it.source}">${it.isExtra ? 'extra' : it.source === 'usda+ai' ? 'USDA' : it.source === 'ai-estimate' ? 'AI' : it.source === 'fatsecret' ? 'FS' : it.source === 'ai-verified' ? 'AI✓' : it.source}</span>
-        ${it.confidence !== 'high' ? `<button class="save-custom-btn" data-idx="${i}" data-name="${escapeHtml(it.name)}" data-kcal="${it.kcal}" data-protein="${it.protein}" data-fat="${it.fat||0}" data-carb="${it.carb||0}" data-fiber="${it.fiber||0}" title="Save this value to your personal library — next time you log this food it'll use your number, not an AI guess">Save as my food</button>` : ''}
-      </div>
-    </div>
-  `).join('') + renderAIWork(data) + renderTrace(data.trace);
-
-  // Wire editable kcal clicks — patch the changed row + totals instead of rebuilding the whole list
-  document.querySelectorAll('.editable-kcal').forEach(el => {
-    el.addEventListener('click', () => {
-      const idx = Number(el.dataset.idx);
-      const it = parsedCache.items[idx];
-      const val = prompt(`Set exact calories for "${it.name}" (currently ${it.kcal}):`, it.kcal);
-      if (val === null) return;
-      const newKcal = Math.round(Number(val));
-      if (isNaN(newKcal) || newKcal <= 0) return;
-      parsedCache.items[idx].kcal = newKcal;
-      parsedCache.totals.kcal = parsedCache.items.reduce((a, x) => a + x.kcal, 0);
-      el.textContent = newKcal;
-      refreshParsedTotals();
-      if (confirm(`Save "${it.name}" as ${newKcal} kcal for next time?`)) {
-        api('/api/custom-foods', { method: 'POST', body: { name: it.name, kcal: newKcal, protein: it.protein, fat: it.fat || 0, carb: it.carb || 0, fiber: it.fiber || 0 } });
-      }
-    });
-  });
-
-  // Wire "Save as my food" buttons
-  document.querySelectorAll('.save-custom-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const { name, kcal, protein, fat, carb, fiber } = btn.dataset;
-      api('/api/custom-foods', { method: 'POST', body: { name, kcal: Number(kcal), protein: Number(protein), fat: Number(fat)||0, carb: Number(carb)||0, fiber: Number(fiber)||0 } })
-        .then(() => { btn.textContent = 'Saved!'; btn.disabled = true; });
-    });
-  });
-  refreshParsedTotals();
-  $('#parsedSave').innerHTML = `
-    <div style="display:flex;gap:8px;">
-      <button class="btn" id="parsedSaveBtn" style="flex:1;">Save to today</button>
-      <button class="btn btn-secondary" id="parsedSaveTmplBtn" style="padding:10px 14px;white-space:nowrap;">+ Template</button>
-    </div>
-  `;
-  $('#parsedSaveBtn').addEventListener('click', saveParsed);
-  $('#parsedSaveTmplBtn').addEventListener('click', async () => {
-    const name = prompt('Template name:', $('#logText').value.trim().slice(0, 60) || 'My meal');
-    if (!name || !name.trim()) return;
-    await api('/api/templates', { method: 'POST', body: {
-      name: name.trim(),
-      items: parsedCache.items.map(i => ({ name: i.name, kcal: i.kcal, protein: i.protein, fat: i.fat || 0, carb: i.carb || 0, fiber: i.fiber || 0 })),
-      totals: parsedCache.totals
-    }});
-    showToast(`Template "${name.trim()}" saved`);
-  });
-
-  const suggestions = (parsedCache && parsedCache.suggested_extras) || [];
-  const chipHtml = suggestions.length
-    ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-        <span style="font-size:12px;color:var(--text-dim);align-self:center;">Did you add:</span>
-        ${suggestions.map(s => `<button class="extras-chip" data-val="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}
-       </div>`
-    : '';
-  $('#extrasWrap').innerHTML = `
-    ${chipHtml}
-    <div style="display:flex;gap:8px;">
-      <input id="extrasInput" placeholder="cooking extras? (oil, butter, sauce…)" style="flex:1;font-size:14px;" />
-      <button class="btn btn-secondary" id="extrasAdd" style="padding:10px 14px;white-space:nowrap;">+ Add</button>
-    </div>
-  `;
-  $('#extrasAdd').addEventListener('click', addExtras);
-  $('#extrasInput').addEventListener('keydown', e => { if (e.key === 'Enter') addExtras(); });
-  document.querySelectorAll('.extras-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      $('#extrasInput').value = chip.dataset.val;
-      addExtras();
-    });
-  });
-}
-
-async function addExtras() {
-  const text = ($('#extrasInput') && $('#extrasInput').value.trim()) || '';
-  if (!text || !parsedCache) return;
-  const btn = $('#extrasAdd');
-  btn.disabled = true;
-  btn.textContent = '…';
-  try {
-    const data = await api('/api/parse', { method: 'POST', body: { text } });
-    if (data.error || !data.items?.length) { showToast('Could not parse that — try being more specific'); return; }
-    data.items.forEach(it => { it.isExtra = true; });
-    parsedCache.items.push(...data.items);
-    parsedCache.trace = [...(parsedCache.trace || []), ...(data.trace || [])];
-    // Recompute totals from all items
-    parsedCache.totals = parsedCache.items.reduce((a, i) => ({
-      kcal: a.kcal + (i.kcal || 0),
-      protein: Math.round((a.protein + (i.protein || 0)) * 10) / 10,
-      fat: Math.round((a.fat + (i.fat || 0)) * 10) / 10,
-      carb: Math.round((a.carb + (i.carb || 0)) * 10) / 10,
-      fiber: Math.round((a.fiber + (i.fiber || 0)) * 10) / 10
-    }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
-    renderParsed(parsedCache);
-  } catch (e) {
-    showToast('Failed to add extra: ' + e.message);
-  } finally {
-    if ($('#extrasAdd')) { $('#extrasAdd').disabled = false; $('#extrasAdd').textContent = '+ Add'; }
-  }
-}
-
-async function saveParsed() {
-  if (!parsedCache) return;
-  const body = {
-    name: $('#logText').value.trim().slice(0, 200),
-    kcal: parsedCache.totals.kcal,
-    protein: parsedCache.totals.protein,
-    fat: parsedCache.totals.fat || 0,
-    carb: parsedCache.totals.carb || 0,
-    fiber: parsedCache.totals.fiber || 0,
-    source: parsedCache.items.some(i => i.source === 'ai-estimate') ? 'ai-estimate' : parsedCache.items[0]?.source || 'manual',
-    items: parsedCache.items
-  };
-  if (currentLogDate) {
-    body.date = currentLogDate;
-    body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
-  }
-  if (!await logMeal(body, $('#parsedSaveBtn'))) return;
-  $('#logText').value = '';
-  $('#parsedItems').innerHTML = '';
-  $('#parsedTotals').innerHTML = '';
-  $('#extrasWrap').innerHTML = '';
-  $('#parsedSave').innerHTML = '';
-  parsedCache = null;
-  closeLogModal();
-  showToast('Meal logged');
-  refreshAfterChange();
-}
-
-$('#manSave').addEventListener('click', async () => {
-  const name = $('#manName').value.trim();
-  const kcal = Number($('#manKcal').value);
-  const protein = Number($('#manProtein').value) || 0;
-  if (!name || !kcal) return showToast('Need name and kcal');
-  const body = { name, kcal, protein, source: 'manual' };
-  if (currentLogDate) {
-    body.date = currentLogDate;
-    body.time = new Date(currentLogDate + 'T20:00:00').toISOString();
-  }
-  if (!await logMeal(body, $('#manSave'))) return;
-  $('#manName').value = ''; $('#manKcal').value = ''; $('#manProtein').value = '';
-  closeLogModal();
-  showToast('Meal logged');
-  refreshAfterChange();
-});

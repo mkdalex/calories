@@ -48,6 +48,8 @@
     <link rel="stylesheet" href="/css/comeback.css" />
     <link rel="stylesheet" href="/css/login.css" />
     <link rel="stylesheet" href="/css/redesign.css" />
+    <link rel="stylesheet" href="/css/shell.css" />
+    <link rel="stylesheet" href="/css/log-sheet.css" />
   </head>
   <body>
     <!-- ========== LOGIN SCREEN (hidden by default; auth.js shows if no session) ========== -->
@@ -76,156 +78,107 @@
     <!-- ========== SIDEBAR (desktop only; hidden via CSS on mobile) ========== -->
     <aside class="sidebar">
       <div class="sb-brand">
-        <div class="sb-brand-dot"></div>
-        <div>
-          <div class="sb-brand-name">Calories</div>
-          <div class="sb-brand-sub">kcal + protein</div>
-        </div>
+        <span class="sb-brand-dot" aria-hidden="true"></span>
+        <span class="sb-brand-name">Calories</span>
       </div>
-      <div class="sb-nav-label">Track</div>
-      <button class="sb-nav-item active" data-view="today" type="button">
-        <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today
-      </button>
-      <button class="sb-nav-item" data-view="gym" type="button">
-        <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M7 17l-4 4M17 7l4-4"/></svg>Gym
-      </button>
-      <button class="sb-nav-item" data-view="history" type="button">
-        <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>History
-      </button>
-      <button class="sb-nav-item" data-view="profile" type="button">
-        <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>Profile
-      </button>
-      <button class="sb-nav-item" data-view="dev" type="button">
-        <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>Dev
-      </button>
-      <div class="sb-spacer"></div>
-      <div class="sb-quicklog">
-        <div class="sb-quicklog-head">
-          <svg class="ai-spark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6L12 2z"/></svg>
-          <span>Quick log — just type it</span>
-        </div>
-        <textarea id="sbQuickLog" placeholder="e.g. &quot;2 eggs and a banana&quot;"></textarea>
-        <button class="sb-quicklog-btn" id="sbQuickLogBtn" type="button">+ Parse with AI</button>
-      </div>
-      <div class="sb-user">
-        <div class="sb-user-avatar" id="sbUserAvatar">?</div>
-        <div class="sb-user-meta">
-          <span class="sb-user-name" id="sbUserName">…</span>
-        </div>
-        <button class="sb-theme-btn" id="themeToggleDesktop" type="button" aria-label="Toggle day/night theme" title="Toggle theme">
-          <svg class="th-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-          </svg>
-          <svg class="th-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
+      <nav class="sb-nav" aria-label="Main">
+        <button class="sb-nav-item active" data-view="today" type="button">
+          <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today
         </button>
+        <button class="sb-nav-item" data-view="history" type="button">
+          <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Trends
+        </button>
+        <button class="sb-nav-item" data-view="gym" type="button">
+          <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Gym
+        </button>
+        <button class="sb-nav-item" data-view="profile" type="button">
+          <svg class="sb-nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>Profile
+        </button>
+      </nav>
+      <div class="sb-foot">
+        <button class="sb-dev" data-view="dev" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg>Dev tools
+        </button>
+        <div class="sb-user">
+          <div class="sb-user-avatar" id="sbUserAvatar">?</div>
+          <span class="sb-user-name" id="sbUserName">…</span>
+          <button class="sb-theme-btn" id="themeToggle" type="button" aria-label="Toggle day/night theme" title="Toggle theme">
+            <svg class="th-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+            <svg class="th-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
+        </div>
       </div>
     </aside>
 
     <!-- ========== MAIN (everything else; full-width on mobile) ========== -->
-    <div class="app-main">
-
-    <div class="topbar">
-      <h1>Calories</h1>
-      <div style="display: flex; align-items: center; gap: 12px">
-        <div class="date" id="todayDate"></div>
-        <button
-          class="theme-toggle"
-          id="themeToggle"
-          type="button"
-          aria-label="Toggle day/night theme"
-          title="Toggle theme"
-        >
-          <svg
-            class="th-sun"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="4" />
-            <path
-              d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-            />
-          </svg>
-          <svg
-            class="th-moon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-        </button>
-        <div class="user-chip" id="userChip"></div>
-      </div>
-    </div>
+    <main class="app-main">
 
     <!-- ========== TODAY VIEW ========== -->
     <div class="view" id="view-today">
-      <div class="page-head">
-        <div>
-          <div class="ph-greeting"><span id="phGreet">Hello</span>, <span class="accent" id="phName">there</span></div>
-          <div class="ph-date" id="phDate"></div>
+      <header class="today-head">
+        <div class="th-title">
+          <span class="th-date" id="tdDate"></span>
+          <h1 id="tdTitle"><span class="th-short">Today</span><span class="th-long" id="tdGreeting">Today</span></h1>
         </div>
-        <div class="ph-actions">
-          <span class="ph-pace" id="phPace" style="display: none">
-            <span class="dot"></span>
-            <span class="ph-pace-label">On pace</span>
-            <span class="ph-pace-sub"></span>
-          </span>
-          <button class="ph-log-btn" id="phLogBtn" type="button">+ Log meal</button>
+        <div class="th-actions">
+          <span class="streak-chip hidden" id="tdStreak"></span>
+          <button class="chip-btn hidden" id="tdBack" type="button">Back to today</button>
+          <button class="icon-btn th-step" id="tdPrev" type="button" aria-label="Previous day">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="icon-btn th-step" id="tdNext" type="button" aria-label="Next day">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+          <button class="icon-btn th-pick" id="tdPickBtn" type="button" aria-label="Pick a past day">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+          </button>
+          <input class="th-picker" id="tdPicker" type="date" tabindex="-1" aria-hidden="true" />
         </div>
-      </div>
+      </header>
       <div id="setupBanner"></div>
       <div id="resetWrap"></div>
-      <div class="dash-grid">
-        <div class="dash-col-left">
-          <div class="card hero" id="heroCard">
-            <div class="ring-row-wrap">
-              <div class="ring-wrap" id="ringWrap"></div>
-            </div>
-            <div class="hero-right" id="heroExtras"></div>
+      <div class="today-grid">
+        <div class="today-main">
+          <form class="quick-log" id="quickLog" autocomplete="off">
+            <svg class="ql-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+            <label class="sr-only" for="quickLogInput">What did you eat?</label>
+            <input id="quickLogInput" type="text" placeholder="What did you eat?" />
+            <button class="ql-btn" type="submit">Log</button>
+          </form>
+          <div class="quick-label hidden" id="quickLabel"></div>
+          <div class="quick-row" id="quickRow">
+            <div id="templateWrap"></div>
+            <div id="favWrap"></div>
           </div>
-          <div id="narrativeWrap"></div>
-          <h3
-            style="
-              color: var(--text-dim);
-              font-size: 12px;
-              text-transform: uppercase;
-              letter-spacing: 0.04em;
-              margin: 16px 0 8px;
-            "
-          >
-            Today's meals
-          </h3>
-          <div id="templateWrap"></div>
-          <div id="favWrap"></div>
-          <div class="meal-list" id="mealList"></div>
+          <section class="meals-section" aria-labelledby="mealsTitle">
+            <div class="section-head">
+              <h2 id="mealsTitle">Meals</h2>
+              <span id="mealsCount"></span>
+            </div>
+            <div id="mealList"></div>
+            <div class="meal-slots" id="mealSlots"></div>
+          </section>
         </div>
-        <div class="dash-col-right">
-          <div id="streakWrap"></div>
-          <div id="waterWrap"></div>
-          <div id="proteinWrap"></div>
-          <div id="zoneWrap"></div>
-          <div id="macroWrap"></div>
-          <div id="dayStatusWrap"></div>
+        <div class="today-rail">
+          <section class="summary-card" id="summaryCard" aria-label="Daily summary"></section>
+          <div class="target-details hidden" id="targetDetails">
+            <div id="zoneWrap"></div>
+            <div id="macroWrap"></div>
+          </div>
           <div id="gapFillWrap"></div>
+          <div id="waterWrap"></div>
         </div>
       </div>
     </div>
 
     <!-- ========== GYM VIEW ========== -->
     <div class="view hidden" id="view-gym">
+      <header class="view-head"><h1>Gym</h1></header>
       <div class="card" id="gymStatsCard"></div>
       <div class="card">
         <div class="gym-week-header">
@@ -273,6 +226,7 @@
 
     <!-- ========== HISTORY VIEW ========== -->
     <div class="view hidden" id="view-history">
+      <header class="view-head"><h1>Trends</h1></header>
       <div id="plateauBannerWrap"></div>
       <!-- Narrative banners span full width above the two columns -->
       <div class="card" id="debriefCard"></div>
@@ -321,6 +275,7 @@
 
     <!-- ========== PROFILE VIEW ========== -->
     <div class="view hidden" id="view-profile">
+      <header class="view-head"><h1>Profile</h1></header>
       <div class="card">
         <h2>Your profile</h2>
         <div class="row2">
@@ -420,83 +375,95 @@
         <div id="themePicker" class="theme-picker"></div>
       </div>
       <div class="card" id="backupRestoreCard" style="margin-top: 18px"></div>
+      <div class="card account-card" id="accountCard">
+        <div class="account-user" id="accountUser"></div>
+        <div class="account-actions">
+          <button class="btn btn-secondary" type="button" data-view="dev">Dev tools</button>
+          <button class="btn btn-secondary" type="button" id="logoutBtn">Log out</button>
+        </div>
+      </div>
     </div>
 
-    <!-- ========== FAB ========== -->
-    <button class="fab" id="fab">+ Log meal</button>
+    <!-- ========== LOG MEAL SHEET (type → parse → review → done) ========== -->
+    <div class="modal-bg sheet-bg hidden" id="logModal">
+      <section class="sheet" id="logSheet" role="dialog" aria-modal="true" aria-labelledby="logTitle" data-screen="type">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-head">
+          <div class="sheet-title">
+            <h2 id="logTitle">Log a meal</h2>
+            <button class="period-chip" id="logPeriod" type="button" aria-label="Meal period">
+              <span id="logPeriodLabel">Dinner</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </div>
+          <button class="sheet-close" id="logClose" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </header>
+        <div class="sheet-date hidden" id="logDateBanner"></div>
 
-    <!-- ========== LOG MEAL MODAL ========== -->
-    <div class="modal-bg hidden" id="logModal">
-      <div class="modal">
-        <div class="modal-header">
-          <h2>Log a meal</h2>
-          <button class="modal-close" id="logClose">×</button>
-        </div>
-        <div
-          id="logDateBanner"
-          class="hidden"
-          style="
-            background: rgba(96, 165, 250, 0.1);
-            border: 1px solid rgba(96, 165, 250, 0.3);
-            border-radius: 8px;
-            padding: 8px 12px;
-            margin-bottom: 12px;
-            font-size: 13px;
-            color: var(--info);
-          "
-        ></div>
-        <div class="field suggest-wrap">
-          <label>What did you eat?</label>
+        <!-- TYPE -->
+        <div class="ls" id="lsType">
           <div class="logtext-wrap">
             <div class="logtext-ghost" id="logTextGhost" aria-hidden="true"></div>
-            <textarea
-              id="logText"
-              placeholder="e.g. 2 eggs scrambled with butter and a slice of sourdough toast"
-            ></textarea>
+            <label class="sr-only" for="logText">What did you eat?</label>
+            <textarea id="logText" rows="3" placeholder="What did you eat? Just say it how you'd text it"></textarea>
+            <button class="ghost-accept hidden" id="ghostAccept" type="button">Tab to finish</button>
           </div>
-          <div class="suggest-dropdown hidden" id="suggestDropdown"></div>
+          <div class="ls-lists" id="logLists"></div>
+          <div class="ls-panel hidden" id="logPanel"></div>
+          <div class="ls-foot">
+            <div class="ls-tools">
+              <button class="tool-btn" type="button" data-tool="search" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search
+              </button>
+              <button class="tool-btn" type="button" data-tool="barcode" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M12 8v8M16 8v8"/></svg>Barcode
+              </button>
+              <button class="tool-btn" type="button" data-tool="manual" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Manual
+              </button>
+            </div>
+            <button class="sheet-primary" id="logPrimary" type="button" disabled>Type something, or tap a usual</button>
+          </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="btn" id="logParse">Parse with AI</button>
-          <button class="btn btn-secondary" id="logHistory" title="Pick from your past meals">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:6px;">
-              <path d="M3 3v5h5"/>
-              <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
-              <path d="M12 7v5l3 2"/>
-            </svg>History
-          </button>
-        </div>
-        <div id="historyPanel" class="hidden" style="margin-top: 12px"></div>
-        <div id="portionChips" class="hidden" style="margin-top: 12px"></div>
-        <div id="parsedItems" style="margin-top: 16px"></div>
-        <div id="parsedTotals" style="margin-top: 12px"></div>
-        <div id="extrasWrap" style="margin-top: 8px"></div>
-        <div id="parsedSave" style="margin-top: 12px"></div>
 
-        <h3
-          style="
-            color: var(--text-dim);
-            font-size: 12px;
-            text-transform: uppercase;
-            margin-top: 24px;
-          "
-        >
-          Or type it manually
-        </h3>
-        <div class="row2">
-          <div class="field"><label>Name</label><input id="manName" /></div>
-          <div class="field">
-            <label>kcal</label><input id="manKcal" type="number" />
+        <!-- PARSE -->
+        <div class="ls hidden" id="lsParse">
+          <div class="you-said" id="parseBubble"></div>
+          <button class="dino-strip" id="dinoStrip" type="button" aria-label="Make the dino jump">
+            <span class="ds-hint" aria-hidden="true">TAP TO JUMP</span>
+            <span class="ds-jumps" id="dinoJumps" aria-hidden="true">0 JUMPS</span>
+            <span class="ds-ground" aria-hidden="true"></span>
+            <span class="ds-track" aria-hidden="true"><span id="dinoBar"></span></span>
+            <span class="ds-dino" id="dinoRunner" aria-hidden="true"></span>
+          </button>
+          <ol class="parse-steps" id="parseSteps" aria-live="polite"></ol>
+          <div class="ls-foot ls-foot-center">
+            <button class="sheet-secondary" id="parseClose" type="button">Close. Add it when it's ready</button>
+            <span class="ls-caption">It shows on Today as a pending meal until it finishes</span>
           </div>
         </div>
-        <div class="field">
-          <label>Protein (g)</label
-          ><input id="manProtein" type="number" step="0.1" />
+
+        <!-- REVIEW -->
+        <div class="ls hidden" id="lsReview">
+          <div id="reviewChecks"></div>
+          <div class="review-items" id="parsedItems"></div>
+          <button class="link-btn" id="reviewEdit" type="button">Not right? Edit what I typed</button>
+          <div class="review-extras" id="extrasWrap"></div>
+          <div id="reviewMore"></div>
+          <div class="ls-foot">
+            <div class="review-left" id="reviewLeft"></div>
+            <div class="review-actions">
+              <button class="sheet-secondary" id="reviewTemplate" type="button">+ Template</button>
+              <button class="sheet-primary" id="parsedSaveBtn" type="button">Log</button>
+            </div>
+          </div>
         </div>
-        <button class="btn btn-secondary" id="manSave">
-          Save manual entry
-        </button>
-      </div>
+
+        <!-- DONE -->
+        <div class="ls hidden" id="lsDone" aria-live="polite"></div>
+      </section>
     </div>
 
     <!-- ========== EDIT MEAL MODAL ========== -->
@@ -546,6 +513,7 @@
 
     <!-- ========== DEV VIEW ========== -->
     <div class="view hidden" id="view-dev">
+      <header class="view-head"><h1>Dev tools</h1></header>
       <div class="card" style="padding: 12px 16px">
         <div
           style="
@@ -622,26 +590,26 @@
       </div>
     </div>
 
-    <!-- ========== NAV ========== -->
-    <div class="nav">
-      <button data-view="today" class="active">
+    <!-- ========== NAV (mobile bottom bar) ========== -->
+    <nav class="nav" aria-label="Main">
+      <button data-view="today" class="active" type="button">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Today</span>
       </button>
-      <button data-view="gym">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5l11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M7 17l-4 4M17 7l4-4"/></svg><span>Gym</span>
+      <button data-view="history" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Trends</span>
       </button>
-      <button data-view="history">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>History</span>
+      <button class="nav-log" id="navLog" type="button" aria-label="Log a meal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
-      <button data-view="profile">
+      <button data-view="gym" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg><span>Gym</span>
+      </button>
+      <button data-view="profile" type="button">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg><span>Profile</span>
       </button>
-      <button data-view="dev">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg><span>Dev</span>
-      </button>
-    </div>
+    </nav>
 
-    </div>
+    </main>
     </div>
     <!-- ========== /APP SHELL ========== -->
 
@@ -653,6 +621,7 @@
     <script src="/js/edu-content.js"></script>
     <script src="/js/water.js"></script>
     <script src="/js/log-modal.js"></script>
+    <script src="/js/parse-jobs.js"></script>
     <script src="/js/comeback.js"></script>
     <script src="/js/templates-favorites.js"></script>
     <script src="/js/today.js"></script>

@@ -225,22 +225,12 @@
 @media (min-width: 720px) {
   #logModal .modal, #editModal .modal { border-radius: 18px; }
 }
-#logModal .modal-header h2 { font-size: 19px; font-weight: 680; letter-spacing: -0.01em; }
+
 #logModal .modal-close, #editModal .modal-close {
   border-radius: 9px; width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
 }
 
 /* primary textarea */
-#logText {
-  background: var(--panel-deep, var(--panel-2));
-  border: 1px solid var(--border);
-  border-radius: 12px; padding: 13px 14px; line-height: 1.5; min-height: 84px; resize: none;
-}
-#logText:focus {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-  outline: none;
-}
 
 /* manual-entry inputs — kill the ugly native number spinner everywhere */
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
@@ -257,39 +247,6 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appe
 }
 
 /* the "Or type it manually" divider header */
-#logModal h3 {
-  display: flex; align-items: center; gap: 12px;
-  font-size: 10.5px; letter-spacing: 0.12em; color: var(--rd-faint); margin-top: 22px;
-}
-#logModal h3::before, #logModal h3::after {
-  content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--border) 70%, transparent);
-}
 
 /* autocomplete dropdown — rounded, active highlight, calm source badges */
-#suggestDropdown {
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  margin-top: 8px;
-  overflow: hidden;
-  box-shadow: 0 18px 40px rgba(0,0,0,0.4);
-}
-#suggestDropdown .suggest-item {
-  padding: 11px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-left: 2px solid transparent;
-}
-#suggestDropdown .suggest-item:hover,
-#suggestDropdown .suggest-item.active,
-#suggestDropdown .suggest-item[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-  border-left-color: var(--accent);
-}
-#suggestDropdown .si-meta { font-variant-numeric: tabular-nums; }
-#suggestDropdown .si-src {
-  border: none;
-  border-radius: 5px;
-  padding: 3px 7px;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
-  background: color-mix(in srgb, var(--info) 14%, transparent);
-  color: var(--info);
-}
+
