@@ -18,6 +18,7 @@ const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json');
 
 // Pricing per 1M tokens
 const PRICING = {
+  'gpt-6-luna':   { in: 0.10, out: 0.50 },
   'gpt-5-nano':   { in: 0.05, out: 0.40 },
   'gpt-5-mini':   { in: 0.25, out: 2.00 },
   'gpt-5':        { in: 1.25, out: 10.00 },
@@ -36,7 +37,11 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-nano';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-6-luna';
+// OpenAI's web_search tool: $10 per 1,000 calls, on top of tokens
+const SEARCH_CALL_USD = 0.01;
+// Meal parsing may search the web once (chain/branded nutrition). Set PARSE_WEB_SEARCH=0 to turn off.
+const PARSE_WEB_SEARCH = process.env.PARSE_WEB_SEARCH !== '0';
 
 const AI_LOG_FILE = path.join(DATA_DIR, 'ai_calls.log');
 const DAILY_TOKEN_CAP = Number(process.env.DAILY_TOKEN_CAP || 500_000);  // hard stop past 500k tokens/day default
@@ -64,13 +69,15 @@ function checkAiAllowed() {
   return { ok: true };
 }
 
-function recordUsage(endpoint, model, usage) {
+function recordUsage(endpoint, model, usage, searches = 0) {
   if (!usage) return;
   const p = priceFor(model);
-  const inT = usage.prompt_tokens || 0;
-  const outT = usage.completion_tokens || 0;
-  const reasoning = usage.completion_tokens_details?.reasoning_tokens || 0;
-  const cost = (inT * p.in + outT * p.out) / 1_000_000;
+  // Chat Completions says prompt/completion_tokens; the Responses API says input/output_tokens
+  const inT = usage.prompt_tokens ?? usage.input_tokens ?? 0;
+  const outT = usage.completion_tokens ?? usage.output_tokens ?? 0;
+  const reasoning = usage.completion_tokens_details?.reasoning_tokens
+                 ?? usage.output_tokens_details?.reasoning_tokens ?? 0;
+  const cost = (inT * p.in + outT * p.out) / 1_000_000 + searches * SEARCH_CALL_USD;
   const entry = {
     ts: new Date().toISOString(),
     endpoint,
@@ -78,6 +85,7 @@ function recordUsage(endpoint, model, usage) {
     in: inT,
     out: outT,
     reasoning,
+    ...(searches ? { searches } : {}),
     cost: Math.round(cost * 1_000_000) / 1_000_000
   };
   // Serialize the trimmed-list write so concurrent AI calls don't clobber each other.
@@ -91,7 +99,119 @@ function recordUsage(endpoint, model, usage) {
   try {
     fs.appendFileSync(AI_LOG_FILE, JSON.stringify(entry) + '\n');
   } catch (e) { console.warn('[AI] failed to append ai_calls.log:', e.message); }
-  console.log(`[AI] ${entry.ts} ${endpoint} model=${model} in=${inT} out=${outT} reasoning=${reasoning} cost=$${entry.cost.toFixed(4)}`);
+  console.log(`[AI] ${entry.ts} ${endpoint} model=${model} in=${inT} out=${outT} reasoning=${reasoning} searches=${searches} cost=$${entry.cost.toFixed(4)}`);
+}
+
+// Pull a JSON object out of model text. With web search on, JSON mode isn't used
+// (the two don't reliably combine), so the model may wrap the object in prose,
+// code fences or citation markers.
+function extractJsonObject(text) {
+  try { return JSON.parse(text); } catch (_) { /* fall through */ }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('Model reply contained no JSON object');
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+// Reasoning summaries are on until a model refuses them once (same as mkask).
+let reasoningSummaries = true;
+
+// Responses API version of aiJson: optional web search, and live progress through
+// onEvent({type:'thinking', text}) / ({type:'search', done, query}) while it streams.
+// Returns { data, sources, searches, thinking }.
+async function aiJsonLive(endpoint, systemPrompt, userPrompt, { maxTokens = 8000, search = false, onEvent = () => {}, model = OPENAI_MODEL } = {}) {
+  const allowed = checkAiAllowed();
+  if (!allowed.ok) {
+    console.warn(`[AI] BLOCKED ${endpoint}: ${allowed.reason}`);
+    throw new Error(`AI call blocked: ${allowed.reason}`);
+  }
+  const body = {
+    model,
+    instructions: systemPrompt,
+    input: userPrompt,
+    max_output_tokens: maxTokens,
+    store: false,
+    stream: true,
+  };
+  if (search) {
+    body.tools = [{ type: 'web_search' }];
+    body.max_tool_calls = 1; // one paid search per parse at most
+  } else {
+    body.text = { format: { type: 'json_object' } };
+  }
+  if (reasoningSummaries) body.reasoning = { summary: 'auto' };
+
+  let stream;
+  try {
+    stream = await openai.responses.create(body);
+  } catch (e) {
+    if (body.reasoning && e.status === 400 && /reasoning|summar|verif/i.test(e.message || '')) {
+      reasoningSummaries = false;
+      console.warn(`[AI] reasoning summaries refused, continuing without them: ${e.message}`);
+      return aiJsonLive(endpoint, systemPrompt, userPrompt, { maxTokens, search, onEvent, model });
+    }
+    throw e;
+  }
+
+  let thinking = '';      // the summary paragraph currently being written
+  const thoughts = [];    // finished paragraphs, kept for the "how it worked this out" panel
+  let final = null;
+  for await (const event of stream) {
+    switch (event.type) {
+      case 'response.reasoning_summary_part.added':
+        if (thinking.trim()) thoughts.push(thinking.trim());
+        thinking = '';
+        break;
+      case 'response.reasoning_summary_text.delta':
+        thinking += event.delta || '';
+        onEvent({ type: 'thinking', text: thinking });
+        break;
+      case 'response.output_item.added':
+        if (event.item?.type === 'web_search_call') onEvent({ type: 'search', done: false });
+        break;
+      case 'response.output_item.done':
+        if (event.item?.type === 'web_search_call') {
+          onEvent({ type: 'search', done: true, query: event.item.action?.query || '' });
+        }
+        break;
+      case 'response.output_text.delta':
+        onEvent({ type: 'writing' });
+        break;
+      case 'response.completed':
+      case 'response.incomplete':
+        final = event.response;
+        break;
+      case 'response.failed':
+        throw new Error(`OpenAI response failed: ${event.response?.error?.message || 'unknown'}`);
+      case 'error':
+        throw new Error(`OpenAI stream error: ${event.message || event.error?.message || 'unknown'}`);
+    }
+  }
+  if (thinking.trim()) thoughts.push(thinking.trim());
+  if (!final) throw new Error('OpenAI stream ended without a response');
+
+  const output = final.output || [];
+  const searches = output.filter(o => o.type === 'web_search_call').length;
+  recordUsage(endpoint, final.model || model, final.usage, searches);
+
+  const parts = output
+    .filter(o => o.type === 'message')
+    .flatMap(o => o.content || [])
+    .filter(c => c.type === 'output_text');
+  const text = parts.map(c => c.text).join('\n');
+  if (!text.trim()) {
+    const reasoning = final.usage?.output_tokens_details?.reasoning_tokens || 0;
+    throw new Error(`Empty response from model (status=${final.status}, used ${reasoning} reasoning tokens of ${maxTokens} budget — try increasing maxTokens)`);
+  }
+
+  const seen = new Set();
+  const sources = parts
+    .flatMap(c => c.annotations || [])
+    .filter(a => a.type === 'url_citation' && a.url && !seen.has(a.url) && seen.add(a.url))
+    .slice(0, 5)
+    .map(a => ({ url: a.url, title: (a.title || a.url).slice(0, 80) }));
+
+  return { data: extractJsonObject(text), sources, searches, thinking: thoughts };
 }
 
 async function aiJson(endpoint, systemPrompt, userPrompt, maxTokens = 4000, modelOverride = null) {
@@ -2491,38 +2611,121 @@ async function verifyItems(items, trace) {
   }
 }
 
+// Extra instructions for when the parser can search the web
+const PARSE_SEARCH_ADDENDUM = `
+
+WEB SEARCH: You have a web search tool and may use it AT MOST ONCE per meal.
+- Use it only for chain or branded items whose exact published Australian nutrition you don't already know precisely (e.g. a specific Guzman burrito, a new Maccas item, a protein bar flavour). If there are several such items, search for the single most calorie-significant one.
+- Do NOT search for whole foods, generic dishes or home-cooked meals: estimate those yourself.
+- If you used a search result for an item, set its confidence from how well the result matched, and mention the source in that item's "reasoning".
+- Your final reply must still be ONLY the JSON object described above.`;
+
+class ParseError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+// The whole parse pipeline. emit() receives progress events for the live view:
+// {type:'step', id, state:'active'|'done', label} plus the AI's thinking/search events.
+async function runParse(text, customsFile, emit = () => {}) {
+  emit({ type: 'step', id: 'ai', state: 'active', label: 'Reading your meal' });
+  let ai;
+  try {
+    ai = await aiJsonLive('parse', PARSE_WEB_SEARCH ? PARSE_SYSTEM + PARSE_SEARCH_ADDENDUM : PARSE_SYSTEM, text, {
+      maxTokens: 8000,
+      search: PARSE_WEB_SEARCH,
+      onEvent: emit,
+    });
+  } catch (e) {
+    throw new ParseError(502, 'AI parse failed: ' + e.message);
+  }
+  const parsed = ai.data;
+  const parsedItems = parsed.items || [];
+  emit({ type: 'step', id: 'ai', state: 'done', label: `Found ${parsedItems.length} item${parsedItems.length === 1 ? '' : 's'}` });
+
+  emit({ type: 'step', id: 'db', state: 'active', label: 'Checking USDA & FatSecret' });
+  const customs = readJson(customsFile, {});
+  const resolved = await Promise.all(parsedItems.map(item => resolveItem(item, customs)));
+  const items = resolved.map(r => r.item);
+  const trace = resolved.map(r => r.trace);
+  const dbHits = items.filter(i => i.source !== 'ai-estimate').length;
+  emit({ type: 'step', id: 'db', state: 'done', label: dbHits ? `Matched ${dbHits} in food databases` : 'No database matches, using AI estimates' });
+
+  if (items.some(it => ['fatsecret', 'usda', 'usda+ai'].includes(it.source))) {
+    emit({ type: 'step', id: 'verify', state: 'active', label: 'Double-checking database numbers' });
+    await verifyItems(items, trace);
+    const fixed = items.filter(i => i.source === 'ai-verified').length;
+    emit({ type: 'step', id: 'verify', state: 'done', label: fixed ? `Corrected ${fixed} item${fixed === 1 ? '' : 's'}` : 'Numbers look right' });
+  }
+
+  const totals = items.reduce((a, i) => ({
+    kcal: a.kcal + i.kcal,
+    protein: a.protein + i.protein,
+    fat: round1(a.fat + i.fat),
+    carb: round1(a.carb + i.carb),
+    fiber: round1(a.fiber + i.fiber)
+  }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
+  return {
+    items, totals, raw_text: text, trace,
+    suggested_extras: parsed.suggested_extras || [],
+    sources: ai.sources,
+    thinking: ai.thinking,
+    searches: ai.searches,
+  };
+}
+
 app.post('/api/parse', async (req, res) => {
   if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
   const text = (req.body && req.body.text) || '';
   if (!text.trim()) return res.status(400).json({ error: 'text required' });
 
   try {
-    let parsed;
-    try {
-      parsed = await aiJson('parse', PARSE_SYSTEM, text, 8000);
-    } catch (e) {
-      return res.status(502).json({ error: 'AI parse failed: ' + e.message });
-    }
-
-    const customs = readJson(req.dataFiles.custom_foods, {});
-    const resolved = await Promise.all((parsed.items || []).map(item => resolveItem(item, customs)));
-    const items = resolved.map(r => r.item);
-    const trace = resolved.map(r => r.trace);
-
-    await verifyItems(items, trace);
-
-    const totals = items.reduce((a, i) => ({
-      kcal: a.kcal + i.kcal,
-      protein: a.protein + i.protein,
-      fat: round1(a.fat + i.fat),
-      carb: round1(a.carb + i.carb),
-      fiber: round1(a.fiber + i.fiber)
-    }), { kcal: 0, protein: 0, fat: 0, carb: 0, fiber: 0 });
-    res.json({ items, totals, raw_text: text, trace, suggested_extras: parsed.suggested_extras || [] });
+    res.json(await runParse(text, req.dataFiles.custom_foods));
   } catch (e) {
-    console.error('Parse error:', e);
-    res.status(500).json({ error: e.message });
+    if (!(e instanceof ParseError)) console.error('Parse error:', e);
+    res.status(e.status || 500).json({ error: e.message });
   }
+});
+
+// Same as /api/parse, but streams progress as newline-delimited JSON so the page
+// can show what the AI is thinking and doing. The last line is {type:'result'} or {type:'error'}.
+app.post('/api/parse/stream', async (req, res) => {
+  if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY not set' });
+  const text = (req.body && req.body.text) || '';
+  if (!text.trim()) return res.status(400).json({ error: 'text required' });
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no', // stop nginx-style proxies from holding the stream back
+  });
+  let closed = false;
+  res.on('close', () => { closed = true; });
+  const send = obj => { if (!closed) res.write(JSON.stringify(obj) + '\n'); };
+
+  // Thinking deltas arrive per token; send at most ~10 a second
+  let lastThinkingAt = 0, pendingThinking = null;
+  const emit = ev => {
+    if (ev.type === 'thinking') {
+      const now = Date.now();
+      if (now - lastThinkingAt < 100) { pendingThinking = ev; return; }
+      lastThinkingAt = now;
+      pendingThinking = null;
+    } else if (pendingThinking) {
+      send(pendingThinking);
+      pendingThinking = null;
+    }
+    if (ev.type === 'writing') return; // nothing worth showing per token
+    send(ev);
+  };
+
+  try {
+    const result = await runParse(text, req.dataFiles.custom_foods, emit);
+    send({ type: 'result', data: result });
+  } catch (e) {
+    if (!(e instanceof ParseError)) console.error('Parse error:', e);
+    send({ type: 'error', error: e.message });
+  }
+  res.end();
 });
 
 // ---------- /api/health ----------
@@ -2682,7 +2885,7 @@ if (require.main === module) {
     app, createTestSession,
     round1, fmtDate, todayStr, forEachDateInRange,
     readJson, writeJson, withFileLock,
-    normalizeFoodName, customLookup, isRelevantMatch,
+    normalizeFoodName, customLookup, isRelevantMatch, usdaSearch, fsSearch,
     initialFinals, applyCustomFood, applySanityCaps,
     computeFavorites,
     computeStats, recordGoalContext, historicalContext, compute7DayBlock, resetMeta, comebackTier, lastActiveStretch, GOALS, RESET_DAYS

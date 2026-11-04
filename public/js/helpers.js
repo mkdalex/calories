@@ -76,6 +76,44 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
+// POST and read a newline-delimited JSON stream, calling onEvent for each line.
+// Resolves with the {type:'result'} line's data; rejects on {type:'error'}.
+async function apiStream(path, body, onEvent = () => {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (CLIENT_TZ) headers['X-Client-TZ'] = CLIENT_TZ;
+  const r = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const type = r.headers.get('content-type') || '';
+  if (!type.includes('ndjson')) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.error || `Request failed (${r.status})`);
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result = null;
+  const handle = line => {
+    if (!line.trim()) return;
+    let ev;
+    try { ev = JSON.parse(line); } catch (_) { return; }
+    if (ev.type === 'result') result = ev.data;
+    else if (ev.type === 'error') throw new Error(ev.error);
+    else onEvent(ev);
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf('\n')) >= 0) {
+      handle(buffer.slice(0, cut));
+      buffer = buffer.slice(cut + 1);
+    }
+  }
+  handle(buffer);
+  if (!result) throw new Error('Connection ended before the meal was parsed');
+  return result;
+}
+
 // Reasonably-unique key per save action. Used to dedupe accidental double-clicks
 // and post-crash retries — server returns the existing entry if it sees this key.
 function newIdemKey() {

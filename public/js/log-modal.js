@@ -515,23 +515,107 @@ $('#logParse').addEventListener('click', async () => {
   if (!text) return;
   $('#logParse').disabled = true;
   $('#logParse').textContent = 'Parsing...';
-  showAILoader($('#parsedItems'));
+  const live = startLiveParse($('#parsedItems'));
   try {
-    const data = await api('/api/parse', { method: 'POST', body: { text } });
-    if (data.error) {
-      $('#parsedItems').innerHTML = `<div class="empty" style="color: var(--danger);">Error: ${data.error}</div>`;
-      return;
-    }
+    const data = await apiStream('/api/parse/stream', { text }, live.onEvent);
+    live.stop();
     parsedCache = data;
     parsedCache.suggested_extras = data.suggested_extras || [];
     renderParsed(data);
   } catch (e) {
-    $('#parsedItems').innerHTML = `<div class="empty" style="color: var(--danger);">${e.message}</div>`;
+    live.stop();
+    $('#parsedItems').innerHTML = `<div class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</div>`;
   } finally {
     $('#logParse').disabled = false;
     $('#logParse').textContent = 'Parse with AI';
   }
 });
+
+// ---------- Live parse view: what the AI is thinking and doing, as it happens ----------
+
+// Reasoning summaries come as "**Short title**\n\nBody…". Split so the title can
+// label the step and the body shows underneath.
+function splitThought(text) {
+  const m = /^\s*\*\*(.+?)\*\*\s*/.exec(text || '');
+  const title = m ? m[1].trim() : '';
+  const body = (m ? text.slice(m[0].length) : text || '').replace(/\*\*/g, '').trim();
+  return { title, body };
+}
+
+function startLiveParse(container) {
+  container.innerHTML = `
+    <div class="ai-live" aria-live="polite">
+      <ol class="ai-live-steps"></ol>
+      <div class="ai-live-thought" hidden></div>
+    </div>
+    <div class="ai-live-loader"></div>`;
+  const stepsEl = container.querySelector('.ai-live-steps');
+  const thoughtEl = container.querySelector('.ai-live-thought');
+  const loaderEl = container.querySelector('.ai-live-loader');
+  showAILoader(loaderEl, 'The AI is on it…');
+
+  const steps = {};
+  const setStep = (id, state, label) => {
+    let li = steps[id];
+    if (!li) {
+      li = document.createElement('li');
+      li.innerHTML = '<span class="ai-live-icon"></span><span class="ai-live-label"></span>';
+      stepsEl.appendChild(li);
+      steps[id] = li;
+    }
+    li.className = `ai-live-step is-${state}`;
+    if (label) li.querySelector('.ai-live-label').textContent = label;
+  };
+  // Earlier thinking step finishes once the AI moves on to something else
+  const finishThinking = () => {
+    if (steps.think && steps.think.classList.contains('is-active')) setStep('think', 'done');
+    thoughtEl.hidden = true;
+  };
+
+  const onEvent = ev => {
+    if (ev.type === 'thinking') {
+      const { title, body } = splitThought(ev.text);
+      setStep('think', 'active', title ? `Thinking: ${title}` : 'Thinking…');
+      if (body) {
+        thoughtEl.hidden = false;
+        // Show the tail so it reads like it's being written live
+        thoughtEl.textContent = body.length > 260 ? '…' + body.slice(-260) : body;
+      }
+    } else if (ev.type === 'search') {
+      finishThinking();
+      setStep('search', ev.done ? 'done' : 'active',
+        ev.done ? (ev.query ? `Searched the web: “${ev.query}”` : 'Searched the web') : 'Searching the web…');
+    } else if (ev.type === 'step') {
+      if (ev.id !== 'ai') finishThinking();
+      if (ev.id === 'ai' && ev.state === 'done') finishThinking();
+      setStep(ev.id, ev.state, ev.label);
+    }
+  };
+  const stop = () => clearAILoader(loaderEl);
+  return { onEvent, stop };
+}
+
+// Collapsible "how it worked this out": the AI's thinking and any web sources
+function renderAIWork(data) {
+  const thoughts = (data.thinking || []).map(splitThought).filter(t => t.title || t.body);
+  const sources = data.sources || [];
+  if (!thoughts.length && !sources.length) return '';
+  const thoughtHtml = thoughts.map(t => `
+    <div class="ai-work-thought">
+      ${t.title ? `<div class="ai-work-thought-title">${escapeHtml(t.title)}</div>` : ''}
+      ${t.body ? `<div>${escapeHtml(t.body)}</div>` : ''}
+    </div>`).join('');
+  const sourceHtml = sources.length ? `
+    <div class="ai-work-sources">
+      <div class="ai-work-thought-title">Sources</div>
+      ${sources.map(s => {
+        const safeUrl = /^https?:\/\//i.test(s.url) ? s.url : '#';
+        return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a>`;
+      }).join('')}
+    </div>` : '';
+  const summary = sources.length ? `How the AI worked this out · ${sources.length} source${sources.length === 1 ? '' : 's'}` : 'How the AI worked this out';
+  return `<details class="ai-work"><summary>🧠 ${summary}</summary>${thoughtHtml}${sourceHtml}</details>`;
+}
 
 const TRACE_CONF_COLOR = { high: 'var(--green)', medium: 'var(--warn)', low: 'var(--danger-bright)' };
 const TRACE_CAT_LABEL = { 'whole-food': 'whole food', chain: 'chain restaurant', branded: 'branded product', generic: 'generic', 'home-cooked': 'home-cooked' };
@@ -638,7 +722,7 @@ function renderParsed(data) {
         ${it.confidence !== 'high' ? `<button class="save-custom-btn" data-idx="${i}" data-name="${escapeHtml(it.name)}" data-kcal="${it.kcal}" data-protein="${it.protein}" data-fat="${it.fat||0}" data-carb="${it.carb||0}" data-fiber="${it.fiber||0}" title="Save this value to your personal library — next time you log this food it'll use your number, not an AI guess">Save as my food</button>` : ''}
       </div>
     </div>
-  `).join('') + renderTrace(data.trace);
+  `).join('') + renderAIWork(data) + renderTrace(data.trace);
 
   // Wire editable kcal clicks — patch the changed row + totals instead of rebuilding the whole list
   document.querySelectorAll('.editable-kcal').forEach(el => {
