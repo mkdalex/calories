@@ -240,7 +240,7 @@ function releaseJob() {
   }
   flow.job = null;
   unwatchJob();
-  stopDinoTicker();
+  stopParseVisuals();
 }
 
 function closeLogModal() {
@@ -260,7 +260,7 @@ function showScreen(screen) {
   [['type', '#lsType'], ['parse', '#lsParse'], ['review', '#lsReview'], ['done', '#lsDone']]
     .forEach(([name, sel]) => $(sel).classList.toggle('hidden', name !== screen));
   renderSheetHead();
-  if (screen === 'parse') startDinoTicker(); else stopDinoTicker();
+  if (screen === 'parse') startParseVisuals(); else stopParseVisuals();
 }
 
 function renderSheetHead() {
@@ -802,14 +802,16 @@ function watchJob(job) {
   showScreen(screenFor());
   if (flow.screen === 'review') renderReview(); else renderParse();
   flow.unwatch = onParseJobChange(changed => {
-    if (changed !== job || flow.job !== job) return;
-    if (job.status === 'ready' && flow.screen === 'parse') {
-      renderParse();
-      // A beat on the finished steps before switching, so the summary is readable.
-      setTimeout(() => { if (flow.job === job && flow.screen === 'parse') { showScreen('review'); renderReview(); } }, 900);
-    } else if (flow.screen === 'parse') {
-      renderParse();
-    }
+    if (changed !== job || flow.job !== job || flow.screen !== 'parse') return;
+    renderParse();
+    if (job.status !== 'ready') return;
+    // Never cut a run short: mid-game, the review waits behind a button instead.
+    if (gameInProgress()) { showParseReady(); return; }
+    // Otherwise a beat on the finished steps before switching, so the summary is readable.
+    setTimeout(() => {
+      if (flow.job !== job || flow.screen !== 'parse') return;
+      if (gameInProgress()) showParseReady(); else openReview();
+    }, 900);
   });
 }
 
@@ -818,12 +820,9 @@ function unwatchJob() {
   flow.unwatch = null;
 }
 
-let dinoJumps = 0;
-
 function renderParse() {
   const job = flow.job;
   $('#parseBubble').textContent = job.text;
-  if (!$('#dinoRunner').innerHTML) $('#dinoRunner').innerHTML = dinoSpriteSVG();
   const steps = $('#parseSteps');
   if (job.status === 'error' || job.status === 'interrupted') {
     steps.innerHTML = `
@@ -841,40 +840,73 @@ function renderParse() {
     return;
   }
   $('#parseClose').textContent = "Close. Add it when it's ready";
-  steps.innerHTML = job.steps.map(s => `
-    <li class="parse-step ${s.state === 'done' ? 'done' : 'active'} ${s.tone || ''}">
-      <span class="ps-icon" aria-hidden="true">${s.state === 'done' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg>' : ''}</span>
-      <span class="ps-label">${escapeHtml(s.state === 'done' ? s.label : `${s.label}…`)}</span>
-    </li>`).join('') || '<li class="parse-step active"><span class="ps-icon" aria-hidden="true"></span><span class="ps-label">Starting…</span></li>';
+  // Update the list in place so only newly added steps play their entrance animation.
+  const list = job.steps.length ? job.steps : [{ id: 'start', state: 'active', label: 'Starting' }];
+  steps.querySelectorAll(':scope > :not([data-step])').forEach(el => el.remove());
+  const keep = new Set(list.map(s => s.id));
+  steps.querySelectorAll('[data-step]').forEach(el => { if (!keep.has(el.dataset.step)) el.remove(); });
+  list.forEach((s, i) => {
+    let li = steps.querySelector(`[data-step="${s.id}"]`);
+    if (!li) {
+      li = document.createElement('li');
+      li.dataset.step = s.id;
+      li.innerHTML = '<span class="ps-icon" aria-hidden="true"></span><span class="ps-label"></span>';
+    }
+    if (steps.children[i] !== li) steps.insertBefore(li, steps.children[i] || null);
+    const done = s.state === 'done';
+    li.className = `parse-step ${done ? 'done' : 'active'} ${s.tone || ''}`;
+    li.querySelector('.ps-icon').innerHTML = done ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L19 7"/></svg>' : '';
+    li.querySelector('.ps-label').textContent = done ? s.label : `${s.label}…`;
+  });
 }
 
-let dinoTicker = null;
+// The runner game and the progress bar live as long as the parse screen does, so a
+// retry keeps your run going.
+let parseRunner = null;
+let parseTicker = null;
 
-function startDinoTicker() {
-  stopDinoTicker();
+function startParseVisuals() {
+  if (!parseRunner) parseRunner = createDinoRunner($('#parseRunner'), { height: sheetInline ? 100 : 112 });
+  stopParseTicker();
   const tick = () => {
     const job = flow.job;
     if (!job) return;
-    $('#dinoStrip').style.setProperty('--p', (parseJobProgress(job) / 100).toFixed(3));
+    const p = parseJobProgress(job);
+    $('#parseProgress span').style.width = `${p.toFixed(1)}%`;
+    $('#parseProgress').setAttribute('aria-valuenow', String(Math.round(p)));
   };
   tick();
-  dinoTicker = setInterval(tick, 150);
+  parseTicker = setInterval(tick, 150);
 }
 
-function stopDinoTicker() {
-  if (dinoTicker) clearInterval(dinoTicker);
-  dinoTicker = null;
+function stopParseTicker() {
+  if (parseTicker) clearInterval(parseTicker);
+  parseTicker = null;
 }
 
-$('#dinoStrip').addEventListener('click', () => {
-  const strip = $('#dinoStrip');
-  if (strip.classList.contains('jumping')) return;
-  strip.classList.add('jumping');
-  dinoJumps++;
-  $('#dinoJumps').textContent = `${dinoJumps} JUMP${dinoJumps === 1 ? '' : 'S'}`;
-  setTimeout(() => strip.classList.remove('jumping'), 300);
-});
+function stopParseVisuals() {
+  stopParseTicker();
+  if (parseRunner) { parseRunner.destroy(); parseRunner = null; $('#parseRunner').innerHTML = ''; }
+  $('#parseReady').classList.add('hidden');
+}
 
+function gameInProgress() {
+  return !!parseRunner && parseRunner.phase() !== 'idle';
+}
+
+function showParseReady() {
+  const btn = $('#parseReady');
+  const n = (flow.job && flow.job.checks || []).length;
+  btn.textContent = n ? `Your meal's ready · ${n} thing${n === 1 ? '' : 's'} to check` : "Your meal's ready · Check it";
+  btn.classList.remove('hidden');
+}
+
+function openReview() {
+  showScreen('review');
+  renderReview();
+}
+
+$('#parseReady').addEventListener('click', openReview);
 $('#parseClose').addEventListener('click', closeLogModal);
 
 function backToType(job) {

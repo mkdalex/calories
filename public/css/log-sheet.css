@@ -146,33 +146,14 @@ body.sheet-open { overflow: hidden; }
   background: var(--panel-2); border-radius: 18px 18px 6px 18px;
   font-size: 15px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere;
 }
-.dino-strip {
-  --p: 0; position: relative; flex: none; height: 118px; width: 100%; padding: 0; overflow: hidden; cursor: pointer;
-  border: 1px solid var(--hairline); border-radius: 20px;
-  background: color-mix(in srgb, var(--bg) 60%, var(--panel)); color: inherit; font: inherit;
-}
-.ds-hint, .ds-jumps {
-  position: absolute; top: 12px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-dim);
-}
-.ds-hint { left: 14px; }
-.ds-jumps { right: 14px; font-variant-numeric: tabular-nums; }
-.ds-ground {
-  position: absolute; left: 0; right: 0; bottom: 30px; height: 2px;
-  background-image: linear-gradient(90deg, var(--border) 0 10px, transparent 10px 24px);
-  background-size: 24px 2px; background-repeat: repeat-x;
-  animation: ds-ground 0.4s linear infinite;
-}
-@keyframes ds-ground { to { background-position: -24px 0; } }
-.ds-track { position: absolute; left: 14px; right: 14px; bottom: 14px; height: 4px; border-radius: 2px; background: var(--panel-2); }
-.ds-track > span { display: block; height: 100%; width: calc(var(--p) * 100%); border-radius: 2px; background: var(--accent); transition: width 0.15s linear; }
-.ds-dino {
-  position: absolute; bottom: 31px; left: calc(14px + (100% - 62px) * var(--p));
-  width: 34px; height: 34px; transition: left 0.15s linear, transform 0.22s ease-out;
-}
-.ds-dino svg, .pending-dino svg { width: 100%; height: 100%; display: block; }
-.ds-dino .dino-leg-l, .pending-dino .dino-leg-l { animation: dino-leg-l 0.24s steps(2) infinite; }
-.ds-dino .dino-leg-r, .pending-dino .dino-leg-r { animation: dino-leg-r 0.24s steps(2) infinite; }
-.dino-strip.jumping .ds-dino { transform: translateY(-34px); }
+.parse-game { display: flex; flex-direction: column; gap: 10px; flex: none; }
+.parse-progress { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.parse-progress span { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); transition: width 0.15s linear; }
+#parseReady { width: 100%; min-height: 56px; font-size: 16px; border-radius: 18px; }
+
+.pending-dino svg { width: 100%; height: 100%; display: block; }
+.pending-dino .dino-leg-l { animation: dino-leg-l 0.24s steps(2) infinite; }
+.pending-dino .dino-leg-r { animation: dino-leg-r 0.24s steps(2) infinite; }
 
 .parse-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .parse-step { display: flex; align-items: center; gap: 12px; font-size: 14px; animation: step-in 0.3s ease-out both; }
@@ -289,7 +270,7 @@ body.sheet-open { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .sheet, .parse-step, .done-check { animation: none; }
-  .ds-ground, .ds-dino .dino-leg-l, .ds-dino .dino-leg-r, .pending-dino .dino-leg-l, .pending-dino .dino-leg-r { animation: none; }
+  .pending-dino .dino-leg-l, .pending-dino .dino-leg-r { animation: none; }
   .parse-step.active .ps-icon { animation-duration: 2.4s; }
 }
 
@@ -325,7 +306,6 @@ kbd {
 .sheet.inline #logText, .sheet.inline .logtext-ghost { padding: 14px 16px; }
 .sheet.inline .logtext-ghost { background: var(--panel); }
 .sheet.inline .ghost-accept { display: none !important; }
-.sheet.inline .dino-strip { height: 104px; }
 .sheet.inline #lsDone { padding-bottom: 4px; }
 .pick-row.active { background: var(--panel-2); }
 .pick-row.active::after {
