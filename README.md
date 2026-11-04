@@ -40,7 +40,7 @@ Then edit `.env`:
 
 ```
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5-nano
+OPENAI_MODEL=gpt-6-luna
 
 # --- Discord OAuth (required to log in) ---
 DISCORD_CLIENT_ID=...
@@ -102,7 +102,7 @@ Maintenance review uses the current goal period within the last 42 days. It requ
 
 ## Cost & API usage
 
-Built around `gpt-5-nano` ($0.05 / $0.40 per million tokens) by default. With the daily caps in place the most you can spend per day is what `DAILY_COST_CAP_USD` is set to (default: $2).
+Built around `gpt-6-luna` ($0.10 / $0.50 per million tokens) by default, including the weekly debrief. With the daily caps in place the most you can spend per day is what `DAILY_COST_CAP_USD` is set to (default: $2).
 
 Real-world usage on a normal 3-meal day is around 3 cents. Heavy use (lots of rescans, suggestions) tops out around 30 cents.
 

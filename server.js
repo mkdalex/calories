@@ -1223,9 +1223,9 @@ const DEBRIEF_PROMPTS = require('./prompts/debrief');
 const DEBRIEF_TRIGGERS = ['weekly', 'plateau', 'drift', 'drop', 'streak_break'];
 const DEBRIEF_MIN_DAYS = 5;          // 5+ logged days in last 7 to unlock
 const DEBRIEF_KEEP = 24;             // keep last 24 debriefs per user (~6 months)
-// Upgraded model for debrief only — the nuanced "on_plan" rule requires more
-// capability than gpt-5-nano consistently delivers. Other endpoints stay on nano.
-const DEBRIEF_MODEL = process.env.OPENAI_MODEL_DEBRIEF || 'gpt-5-mini';
+// Optional separate model for debrief — the nuanced "on_plan" rule needs a capable
+// model. Defaults to gpt-6-luna, same as the other endpoints.
+const DEBRIEF_MODEL = process.env.OPENAI_MODEL_DEBRIEF || 'gpt-6-luna';
 // Per-user rate limits to keep the bigger model from accidentally getting hammered.
 const DEBRIEF_MAX_PER_DAY      = 5;          // 5 calls in any 24-hour window
 const DEBRIEF_MAX_REGENS_WEEK  = 3;          // 3 force=true calls in any 7-day window
