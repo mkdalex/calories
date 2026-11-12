@@ -10,3 +10,6 @@ release/
 Calories github/
 Calories github.zip
 calories-redesign/
+
+# Accuracy benchmark output
+bench-results/

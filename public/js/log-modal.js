@@ -1212,6 +1212,11 @@ const TRACE_USDA_STATUS = {
   conflict:  { icon: '!', color: 'var(--warn)',  note: 'differs from AI — used USDA (lab data)' }
 };
 const TRACE_USDA_FALLBACK = { icon: '?', color: 'var(--warn)', note: 'differs from AI — used USDA (lab data)' };
+const TRACE_FS_STATUS = {
+  confirmed:   { icon: '✓', color: 'var(--green)', note: 'agrees with AI — used FatSecret' },
+  conflict:    { icon: '!', color: 'var(--warn)',  note: 'far from AI estimate — kept AI' },
+  unscalable:  { icon: '?', color: 'var(--text-dim)', note: "serving doesn't match what you ate — not used" }
+};
 
 function renderTrace(trace) {
   if (!trace || !trace.length) return '';
@@ -1224,7 +1229,7 @@ function renderTrace(trace) {
     let aiRow = `<div class="trace-step">
       <span class="src" style="color:${cColor};">AI (${conf} conf)</span>
       <span class="arrow">→</span>
-      <span class="detail">${t.ai_kcal_total} kcal`;
+      <span class="detail">${t.ai_kcal_total} kcal${t.grams ? ` · ~${Math.round(t.grams)} g` : ''}`;
     if (t.ai_kcal_low && t.ai_kcal_high) aiRow += ` <span style="color:var(--text-dim);font-size:11px;">(range ${t.ai_kcal_low}–${t.ai_kcal_high})</span>`;
     if (t.reasoning) aiRow += ` <span style="color:var(--text-dim);font-size:11px;">— ${escapeHtml(t.reasoning)}</span>`;
     aiRow += `</span></div>`;
@@ -1236,7 +1241,15 @@ function renderTrace(trace) {
       usdaRow = `<div class="trace-step">
         <span class="src" style="color:${u.color};">${u.icon} USDA</span>
         <span class="arrow">→</span>
-        <span class="detail">${escapeHtml(t.usda.name)} · ${t.usda.kcal_100g} kcal/100g · ${u.note}</span>
+        <span class="detail">${escapeHtml(t.usda.name)} · ${escapeHtml(t.usda.method || t.usda.kcal_100g + ' kcal/100g')} · ${u.note}</span>
+      </div>`;
+    }
+    if (t.fatsecret) {
+      const u = TRACE_FS_STATUS[t.fatsecret.status] || TRACE_FS_STATUS.unscalable;
+      usdaRow += `<div class="trace-step">
+        <span class="src" style="color:${u.color};">${u.icon} FatSecret</span>
+        <span class="arrow">→</span>
+        <span class="detail">${escapeHtml(t.fatsecret.name)} · ${escapeHtml(t.fatsecret.method || 'per ' + (t.fatsecret.serving || 'serving'))}${t.fatsecret.total ? ' = ' + t.fatsecret.total + ' kcal' : ''} · ${u.note}</span>
       </div>`;
     }
 

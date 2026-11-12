@@ -2289,31 +2289,63 @@ async function fsToken() {
   }
 }
 
+// FatSecret's search summary describes one serving, e.g.
+//   "Per 100g - Calories: 165kcal | Fat: 3.57g | Carbs: 0g | Protein: 31g"
+//   "Per 1 medium drumstick - Calories: ..."   "Per 1 serving (85g) - Calories: ..."
+// Returns the values for that serving plus what the serving is, so callers can
+// check it matches what was eaten before multiplying by a quantity.
 function parseFsServingDescription(desc) {
-  // "Per 100g - Calories: 165kcal | Fat: 3.57g | Carbs: 0g | Protein: 31g"
-  // "Per 1 muffin - Calories: 400kcal | ..."
-  // "Per 1 serving (85g) - Calories: 340kcal | ..."
   if (!desc) return null;
   const kcal = desc.match(/Calories:\s*([\d.]+)\s*kcal/i);
-  const protein = desc.match(/Protein:\s*([\d.]+)\s*g/i);
   if (!kcal) return null;
-  const kcalVal = Number(kcal[1]);
-  const proteinVal = protein ? Number(protein[1]) : 0;
-  const fatMatch = desc.match(/Fat:\s*([\d.]+)\s*g/i);
-  const carbMatch = desc.match(/Carbs:\s*([\d.]+)\s*g/i);
-  const fatVal = fatMatch ? Number(fatMatch[1]) : 0;
-  const carbVal = carbMatch ? Number(carbMatch[1]) : 0;
+  const grab = re => { const m = desc.match(re); return m ? Number(m[1]) : 0; };
+  const label = ((desc.match(/^\s*per\s+(.+?)\s+-\s/i) || [])[1] || '').trim();
+  const isPer100g = /^100\s*g$/i.test(label);
+  const gramsInLabel = label.match(/\((\d+(?:\.\d+)?)\s*g\)/i) || label.match(/^(\d+(?:\.\d+)?)\s*g$/i);
+  const servingGrams = isPer100g ? 100 : gramsInLabel ? Number(gramsInLabel[1]) : null;
+  const countMatch = label.match(/^(\d+\/\d+|\d+(?:\.\d+)?)\s+/);
+  const count = countMatch ? (countMatch[1].includes('/') ? countMatch[1].split('/').map(Number).reduce((a, b) => a / b) : Number(countMatch[1])) : 1;
+  return {
+    kcal: Number(kcal[1]), protein: grab(/Protein:\s*([\d.]+)\s*g/i), fat: grab(/Fat:\s*([\d.]+)\s*g/i), carb: grab(/Carbs:\s*([\d.]+)\s*g/i),
+    label: isPer100g ? '100g' : label.replace(/\s*\(\d+(?:\.\d+)?\s*g\)/i, '').trim(),
+    count: count > 0 ? count : 1,
+    serving_g: servingGrams,
+    per100g: isPer100g
+  };
+}
 
-  const isPer100g = /per\s+100\s*g/i.test(desc);
-  const servingGramsMatch = desc.match(/per\s+[^-]+\((\d+)\s*g\)/i);
-  const servingGrams = servingGramsMatch ? Number(servingGramsMatch[1]) : null;
-
-  if (isPer100g) return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: true };
-  if (servingGrams) {
-    const k = 100 / servingGrams;
-    return { kcal: Math.round(kcalVal * k), protein: round1(proteinVal * k), fat: round1(fatVal * k), carb: round1(carbVal * k), per100g: true };
+// Pick the best of FatSecret's results for a query, rather than the first.
+// Returns the normalised record (per-serving + per-100g where known) or null.
+function pickFsFood(query, foods) {
+  let best = null;
+  for (const f of foods || []) {
+    const p = parseFsServingDescription(f.food_description);
+    if (!p) continue;
+    const per100 = p.serving_g ? p.kcal * 100 / p.serving_g : null;
+    // Sanity: >900 kcal/100g is impossible (pure fat ~900). >2000 per serving = bad data.
+    if ((per100 !== null && per100 > 900) || p.kcal > 2000) continue;
+    let score = matchScore(query, f.food_name);
+    if (score === 0) continue;
+    score -= unaskedPenalty(query, (f.brand_name ? f.brand_name + ' ' : '') + f.food_name);
+    if (!f.brand_name) score += 0.05; // generic entries are more representative than one brand's
+    if (!best || score > best.score) best = { f, p, score };
   }
-  return { kcal: kcalVal, protein: proteinVal, fat: fatVal, carb: carbVal, per100g: false };
+  if (!best) return null;
+  const { f, p } = best;
+  const k = p.serving_g ? 100 / p.serving_g : null;
+  return {
+    name: f.food_name,
+    brand: f.brand_name || null,
+    serving_label: p.label, serving_count: p.count, serving_g: p.serving_g,
+    kcal_per_serving: Math.round(p.kcal), protein_per_serving: round1(p.protein), fat_per_serving: round1(p.fat), carb_per_serving: round1(p.carb),
+    kcal_100g: k ? Math.round(p.kcal * k) : null,
+    protein_100g: k ? round1(p.protein * k) : null,
+    fat_100g: k ? round1(p.fat * k) : null,
+    carb_100g: k ? round1(p.carb * k) : null,
+    source: 'fatsecret',
+    food_id: f.food_id,
+    match_score: Math.round(best.score * 100) / 100
+  };
 }
 
 async function fsSearch(name) {
@@ -2325,33 +2357,7 @@ async function fsSearch(name) {
     const j = await r.json();
     const foods = j.foods && j.foods.food;
     if (!foods) return null;
-    const list = Array.isArray(foods) ? foods : [foods];
-    for (const f of list) {
-      const parsed = parseFsServingDescription(f.food_description);
-      if (!parsed) continue;
-      // Sanity: >900 kcal/100g is impossible (pure fat ~900). >2000 per-serving = bad data.
-      if (parsed.per100g && parsed.kcal > 900) continue;
-      if (!parsed.per100g && parsed.kcal > 2000) continue;
-      // Round once; mirror into both per-serving and per-100g fields (when applicable).
-      const kcal = Math.round(parsed.kcal);
-      const protein = round1(parsed.protein);
-      const fat = round1(parsed.fat || 0);
-      const carb = round1(parsed.carb || 0);
-      const per100 = parsed.per100g;
-      return {
-        name: f.food_name,
-        brand: f.brand_name || null,
-        serving_g: per100 ? 100 : null,
-        kcal_per_serving: kcal, protein_per_serving: protein, fat_per_serving: fat, carb_per_serving: carb,
-        kcal_100g: per100 ? kcal : null,
-        protein_100g: per100 ? protein : null,
-        fat_100g: per100 ? fat : null,
-        carb_100g: per100 ? carb : null,
-        source: 'fatsecret',
-        food_id: f.food_id
-      };
-    }
-    return null;
+    return pickFsFood(name, Array.isArray(foods) ? foods : [foods]);
   } catch (e) {
     console.error('FatSecret search error:', e.message);
     return null;
@@ -2371,21 +2377,8 @@ async function usdaSearch(name) {
     const j = await r.json();
     if (!j.foods || !j.foods.length) return null;
 
-    // Score candidates: prefer Foundation > SR Legacy > Survey, prefer raw/plain, demote processed variants
-    const dataTypeBonus = { 'Foundation': 40, 'SR Legacy': 25, 'Survey (FNDDS)': 15 };
-    const bad  = /\b(patty|patties|breaded|battered|fried|nuggets?|fingers?|wings?|tenders?|sticks?|sausage|bacon|cured|smoked|canned\s+with|in\s+oil|frozen\s+meals?|with\s+sauce|with\s+gravy|stuffed|skin)\b/i;
-    const good = /\b(raw|uncooked|plain|whole|fresh|skinless|boneless|meat\s+only)\b/i;
-    const queryWords = name.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
-
-    const scored = j.foods.map(f => {
-      let score = dataTypeBonus[f.dataType] || 0;
-      const desc = (f.description || '').toLowerCase();
-      score += queryWords.filter(w => desc.includes(w)).length * 8;
-      if (bad.test(desc))  score -= 35;
-      if (good.test(desc)) score += 12;
-      return { f, score };
-    }).sort((a, b) => b.score - a.score);
-    const f = scored[0].f;
+    const f = pickUsdaFood(name, j.foods);
+    if (!f) return null;
     const nut = (id) => {
       const found = (f.foodNutrients || []).find(n => n.nutrientId === id || n.nutrientNumber === String(id));
       return found ? Number(found.value) : 0;
@@ -2414,22 +2407,70 @@ async function usdaSearch(name) {
   }
 }
 
-// Relevance check: does the DB result actually refer to the food we searched for?
+// ---------- Database matching ----------
+// Words that say little about WHICH food it is. Cooking methods are here too: they
+// matter for nutrition, but a missing "grilled" shouldn't reject an otherwise exact match.
+const MATCH_STOP = new Set(['and','or','the','a','an','with','in','of','per','for','to','from',
+  'slice','slices','piece','pieces','serving','raw','cooked','plain','whole','half','cup','tbsp','tsp',
+  'large','small','medium','fresh','dried','frozen','canned','diced','chopped',
+  'classic','original','regular','style','brand','homestyle','homemade',
+  'grilled','baked','roasted','roast','boiled','steamed','toasted','barbecued','bbq','pan','meat','only','edible','portion','yield','after','cooking']);
+const stemWord = w => w.replace(/ies$/, 'y').replace(/oes$/, 'o').replace(/([^s])s$/, '$1');
+function matchWords(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter(w => w.length >= 3 && !MATCH_STOP.has(w)).map(stemWord);
+}
+
+// 0..1: how well a database food name covers the query. The query's last key word is
+// its head noun ("chicken DRUMSTICK", "wholegrain BREAD"); if that's missing, it's a
+// different food and scores 0. Returns 0.5 when either side has no usable words.
+function matchScore(query, dbName) {
+  const qw = matchWords(query), dw = matchWords(dbName);
+  if (!qw.length || !dw.length) return 0.5;
+  const has = w => dw.some(d => d === w || d.startsWith(w) || w.startsWith(d));
+  if (!has(qw[qw.length - 1])) return 0;
+  return qw.filter(has).length / qw.length;
+}
+
+// Preparations and fast-food brands that change nutrition a lot. Penalised only when
+// the database entry has them and the query didn't ask for them.
+const UNASKED = /\b(fried|deep[- ]fried|battered|breaded|crumbed|crispy|nuggets?|kfc|mcdonalds?|with sauce|with gravy|in oil|stuffed|marinated|glazed)\b/gi;
+function unaskedPenalty(query, dbName) {
+  const q = String(query || '').toLowerCase();
+  const hits = String(dbName || '').toLowerCase().replace(/'/g, '').match(UNASKED) || [];
+  return hits.some(h => !q.includes(h)) ? 0.5 : 0;
+}
+
 function isRelevantMatch(searchName, dbName) {
   if (!dbName) return false;
-  // Generic words that appear in many food names — not useful for matching
-  const stop = new Set(['and','or','the','a','an','with','in','of','per','for','to','from',
-    'slice','piece','serving','raw','cooked','plain','whole','half','cup','tbsp','tsp',
-    'large','small','medium','fresh','dried','frozen','canned','diced','chopped',
-    'classic','original','regular','style','brand','homestyle','homemade']);
-  const words = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3 && !stop.has(w));
-  const sw = words(searchName);
-  const dw = words(dbName);
-  if (!sw.length || !dw.length) return true; // can't tell — give benefit of doubt
-  for (const a of sw) for (const b of dw) {
-    if (a === b || a.includes(b) || b.includes(a)) return true;
-  }
-  return false;
+  return matchScore(searchName, dbName) >= 0.5;
+}
+
+// Foods normally weighed and eaten cooked. For these, "raw" database entries are the
+// wrong default: raw chicken breast is ~120 kcal/100g, cooked ~165.
+const USUALLY_COOKED = /\b(chicken|beef|steak|mince|pork|lamb|veal|turkey|sausages?|bacon|fish|salmon|barramundi|snapper|prawns?|rice|pasta|spaghetti|noodles?|quinoa|lentils|eggs?|potato(es)?)\b/i;
+
+function pickUsdaFood(query, foods) {
+  const dataTypeBonus = { 'Foundation': 40, 'SR Legacy': 25, 'Survey (FNDDS)': 15 };
+  const q = String(query || '').toLowerCase();
+  const wantsRaw = /\b(raw|uncooked)\b/.test(q);
+  const preferCooked = !wantsRaw && USUALLY_COOKED.test(q);
+  const processed = /\b(patty|patties|breaded|battered|fried|nuggets?|fingers?|tenders?|sticks?|sausages?|bacon|cured|smoked|stuffed)\b/g;
+  const scored = (foods || []).map(f => {
+    const desc = (f.description || '').toLowerCase();
+    const m = matchScore(query, desc);
+    let score = (dataTypeBonus[f.dataType] || 0) + m * 40 - (m === 0 ? 100 : 0);
+    // Only penalise processing the user didn't ask for ("bacon" queries want bacon).
+    if ((desc.match(processed) || []).some(w => !q.includes(w))) score -= 35;
+    if (/\b(with sauce|with gravy|in oil|canned with)\b/.test(desc) && !/\b(sauce|gravy|oil)\b/.test(q)) score -= 35;
+    if (/\b(plain|skinless|boneless|meat only)\b/.test(desc)) score += 6;
+    const isRaw = /\b(raw|uncooked)\b/.test(desc);
+    const isCooked = /\b(cooked|roasted|grilled|baked|boiled|broiled|braised|steamed|scrambled|poached)\b/.test(desc);
+    if (preferCooked) score += isCooked ? 15 : isRaw ? -15 : 0;
+    else if (isRaw) score += 12; // fruit, veg, nuts, or the user said raw
+    return { f, score };
+  }).sort((a, b) => b.score - a.score);
+  return scored.length && scored[0].score > -50 ? scored[0].f : null;
 }
 
 // offSearch, fsSearch kept for future barcode use — not called from typed-meal flow
@@ -2466,6 +2507,7 @@ function initialFinals(item) {
     source: 'ai-estimate',
     confidence: item.confidence || 'medium',
     usda: null,
+    fatsecret: null,
     flagged: null
   };
 }
@@ -2482,69 +2524,99 @@ function applyCustomFood(custom, item, f) {
   f.confidence = 'high';
 }
 
-// Try USDA + FatSecret in parallel. Mutates `f` if a relevant match wins per the resolution rules.
-async function applyDbSources(item, f) {
-  const category = item.category || 'generic';
+// Edible grams for the full quantity: stated for g/ml items, otherwise the AI's estimate.
+function itemGrams(item) {
+  if ((item.unit === 'g' || item.unit === 'ml') && item.qty > 0) return item.qty;
+  const g = Number(item.grams);
+  return g > 0 ? g : null;
+}
+
+// Does a database serving ("1 medium drumstick", "2 slices") describe the unit eaten?
+// A generic "1 serving" or a different unit ("1 cup" for pieces) does not.
+function servingMatches(item, db) {
+  const label = String(db.serving_label || '').toLowerCase();
+  if (!label || /^(\d+\s+)?serving\b/.test(label) || label === '100g') return false;
+  // "1 large drumstick" is not a typical drumstick. Size-specific servings only count
+  // when the user said that size.
+  const said = `${item.name || ''} ${item.search_name || ''}`.toLowerCase();
+  const size = label.match(/\b(extra large|large|small|jumbo|mini|king size)\b/);
+  if (size && !said.includes(size[1])) return false;
+  const head = matchWords(item.search_name || item.name).pop();
+  if (head && matchWords(label).includes(head)) return true;
+  const unitWords = { piece: /\b(piece|each|whole|item)s?\b/, slice: /\bslices?\b/, cup: /\bcups?\b/, tbsp: /\b(tbsp|tablespoons?)\b/, can: /\bcans?\b/ };
+  return !!(unitWords[item.unit] && unitWords[item.unit].test(label));
+}
+
+// Scale a database record to what was eaten. Prefers per-100g × grams (reliable),
+// falls back to per-serving × count only when the serving matches the unit eaten.
+// Returns null when there's no trustworthy way to scale it.
+function dbTotals(item, db) {
+  const grams = itemGrams(item);
+  if (grams && db.kcal_100g) {
+    const k = grams / 100;
+    return { kcal: Math.round(db.kcal_100g * k), protein: round1((db.protein_100g || 0) * k), fat: round1((db.fat_100g || 0) * k),
+      carb: round1((db.carb_100g || 0) * k), fiber: db.fiber_100g != null ? round1(db.fiber_100g * k) : null,
+      method: `${db.kcal_100g} kcal/100g × ${Math.round(grams)}g` };
+  }
   const isGram = item.unit === 'g' || item.unit === 'ml';
+  if (!isGram && db.kcal_per_serving && servingMatches(item, db)) {
+    const k = (item.qty || 1) / (db.serving_count || 1);
+    return { kcal: Math.round(db.kcal_per_serving * k), protein: round1((db.protein_per_serving || 0) * k), fat: round1((db.fat_per_serving || 0) * k),
+      carb: round1((db.carb_per_serving || 0) * k), fiber: null,
+      method: `${db.kcal_per_serving} kcal per ${db.serving_label} × ${round1(k)}` };
+  }
+  return null;
+}
+
+// Try USDA + FatSecret in parallel. Mutates `f` if a relevant match wins per the resolution rules.
+async function applyDbSources(item, f, lookups = { usdaSearch, fsSearch }) {
+  const category = item.category || 'generic';
   const aiLow = item.kcal_low || f.kcal * 0.6;
   const aiHigh = item.kcal_high || f.kcal * 1.4;
-  // USDA is only reliable for whole foods — branded items match wrong (e.g. "Emu, full rump" for beef steak)
-  const tryUsda = isGram && category === 'whole-food';
+  // USDA lab data only suits whole foods (branded items match wrong, e.g. "Emu, full rump"
+  // for beef steak), and it's per-100g, so it needs a weight.
+  const tryUsda = category === 'whole-food' && !!itemGrams(item);
   const dbQuery = item.search_name || item.name;
 
   const [usdaResult, fsResult] = await Promise.all([
-    tryUsda ? usdaSearch(dbQuery).catch(() => null) : Promise.resolve(null),
-    fsSearch(dbQuery).catch(() => null)
+    tryUsda ? lookups.usdaSearch(dbQuery).catch(() => null) : Promise.resolve(null),
+    lookups.fsSearch(dbQuery).catch(() => null)
   ]);
 
-  // USDA branch: whole-food gram items, full macros including fiber
-  if (usdaResult && isRelevantMatch(item.name, usdaResult.name)) {
-    const usdaTotal = Math.round(usdaResult.kcal_100g * item.qty / 100);
-    const scaled = {
-      kcal: usdaTotal,
-      protein: round1(usdaResult.protein_100g * item.qty / 100),
-      fat: round1((usdaResult.fat_100g || 0) * item.qty / 100),
-      carb: round1((usdaResult.carb_100g || 0) * item.qty / 100),
-      fiber: round1((usdaResult.fiber_100g || 0) * item.qty / 100)
-    };
-    f.usda = {
-      name: usdaResult.name, kcal_100g: usdaResult.kcal_100g, protein_100g: usdaResult.protein_100g,
-      fat_100g: usdaResult.fat_100g, carb_100g: usdaResult.carb_100g, fiber_100g: usdaResult.fiber_100g,
-      total: usdaTotal
-    };
-    const inRange = usdaTotal >= aiLow * 0.5 && usdaTotal <= aiHigh * 1.5;
-    if (inRange) {
-      f.usda.status = 'confirmed';
-      Object.assign(f, scaled, { source: 'usda+ai', confidence: 'high' });
-    } else if (category === 'whole-food') {
-      // On conflict, trust USDA lab data for whole foods
-      f.usda.status = 'conflict';
-      Object.assign(f, scaled, { source: 'usda', confidence: 'high' });
-    } else {
-      // On conflict for branded/generic, USDA probably found wrong food — fall through to FatSecret
-      f.usda.status = 'conflict';
+  // USDA branch: whole foods, full macros including fiber
+  if (usdaResult && isRelevantMatch(dbQuery, usdaResult.name)) {
+    const scaled = dbTotals(item, usdaResult);
+    if (scaled) {
+      f.usda = {
+        name: usdaResult.name, kcal_100g: usdaResult.kcal_100g, protein_100g: usdaResult.protein_100g,
+        fat_100g: usdaResult.fat_100g, carb_100g: usdaResult.carb_100g, fiber_100g: usdaResult.fiber_100g,
+        total: scaled.kcal, method: scaled.method
+      };
+      const inRange = scaled.kcal >= aiLow * 0.5 && scaled.kcal <= aiHigh * 1.5;
+      // Whole foods: lab data beats an AI guess about the same food, even on conflict.
+      f.usda.status = inRange ? 'confirmed' : 'conflict';
+      Object.assign(f, { kcal: scaled.kcal, protein: scaled.protein, fat: scaled.fat, carb: scaled.carb, fiber: scaled.fiber ?? f.fiber,
+        source: inRange ? 'usda+ai' : 'usda', confidence: 'high' });
     }
   }
 
   // FatSecret branch: runs only if USDA didn't resolve (or wasn't tried)
-  if (f.source !== 'ai-estimate' || !fsResult || !isRelevantMatch(item.name, fsResult.name)) return;
-  let fsKcal, fsProtein, fsFat, fsCarb;
-  if (isGram && fsResult.kcal_100g) {
-    fsKcal    = Math.round(fsResult.kcal_100g * item.qty / 100);
-    fsProtein = round1((fsResult.protein_100g || 0) * item.qty / 100);
-    fsFat     = round1((fsResult.fat_100g || 0) * item.qty / 100);
-    fsCarb    = round1((fsResult.carb_100g || 0) * item.qty / 100);
-  } else if (!isGram && !fsResult.serving_g) {
-    fsKcal    = Math.round(fsResult.kcal_per_serving * item.qty);
-    fsProtein = round1((fsResult.protein_per_serving || 0) * item.qty);
-    fsFat     = round1((fsResult.fat_per_serving || 0) * item.qty);
-    fsCarb    = round1((fsResult.carb_per_serving || 0) * item.qty);
-  }
-  if (fsKcal && fsKcal > 0) {
-    // fiber stays as AI estimate — FatSecret basic search doesn't provide it
-    Object.assign(f, { kcal: fsKcal, protein: fsProtein, fat: fsFat, carb: fsCarb, source: 'fatsecret' });
-    f.confidence = (fsKcal >= aiLow * 0.5 && fsKcal <= aiHigh * 1.5) ? 'high' : 'medium';
-  }
+  if (f.source !== 'ai-estimate' || !fsResult || !isRelevantMatch(dbQuery, fsResult.name)) return;
+  const scaled = dbTotals(item, fsResult);
+  f.fatsecret = {
+    name: fsResult.brand ? `${fsResult.brand} ${fsResult.name}` : fsResult.name,
+    serving: fsResult.serving_label, kcal_per_serving: fsResult.kcal_per_serving, kcal_100g: fsResult.kcal_100g,
+    total: scaled ? scaled.kcal : null, method: scaled ? scaled.method : null,
+    status: !scaled ? 'unscalable' : null
+  };
+  if (!scaled || !(scaled.kcal > 0)) return;
+  // FatSecret is partly user-submitted. If it disagrees strongly with the AI's own range,
+  // one of them matched the wrong food or portion: keep the AI estimate and show both.
+  const agrees = scaled.kcal >= aiLow * 0.75 && scaled.kcal <= aiHigh * 1.25;
+  f.fatsecret.status = agrees ? 'confirmed' : 'conflict';
+  if (!agrees) return;
+  // fiber stays as AI estimate — FatSecret basic search doesn't provide it
+  Object.assign(f, { kcal: scaled.kcal, protein: scaled.protein, fat: scaled.fat, carb: scaled.carb, source: 'fatsecret', confidence: 'high' });
 }
 
 // Defensive caps for physically-impossible values from upstream sources.
@@ -2565,19 +2637,19 @@ function applySanityCaps(item, f) {
   }
 }
 
-async function resolveItem(item, customs) {
+async function resolveItem(item, customs, lookups) {
   const f = initialFinals(item);
 
   const custom = customLookup(customs, item.name);
   if (custom) applyCustomFood(custom, item, f);
-  else await applyDbSources(item, f);
+  else await applyDbSources(item, f, lookups);
 
   applySanityCaps(item, f);
 
   return {
-    item: { name: item.name, qty: item.qty, unit: item.unit, kcal: f.kcal, protein: f.protein, fat: f.fat, carb: f.carb, fiber: f.fiber, source: f.source, confidence: f.confidence },
+    item: { name: item.name, qty: item.qty, unit: item.unit, grams: itemGrams(item), kcal: f.kcal, protein: f.protein, fat: f.fat, carb: f.carb, fiber: f.fiber, source: f.source, confidence: f.confidence },
     trace: {
-      name: item.name, qty: item.qty, unit: item.unit,
+      name: item.name, qty: item.qty, unit: item.unit, grams: itemGrams(item),
       category: item.category || 'generic', confidence: f.confidence, reasoning: item.reasoning || '',
       ai_kcal_total: Math.round(item.kcal_total || 0),
       ai_kcal_low: Math.round(item.kcal_low || 0),
@@ -2586,7 +2658,7 @@ async function resolveItem(item, customs) {
       ai_fat: round1(item.fat_g),
       ai_carb: round1(item.carb_g),
       ai_fiber: round1(item.fiber_g),
-      usda: f.usda, source: f.source,
+      usda: f.usda, fatsecret: f.fatsecret, source: f.source,
       final_kcal: f.kcal, final_protein: f.protein, final_fat: f.fat, final_carb: f.carb, final_fiber: f.fiber,
       flagged: f.flagged
     }
@@ -2595,16 +2667,20 @@ async function resolveItem(item, customs) {
 
 // AI second-pass: reviews DB-sourced items only (pure AI estimates are already the AI's best guess —
 // re-asking just adds noise). Mutates `items` and `trace` in place on accepted corrections.
-async function verifyItems(items, trace) {
+async function verifyItems(items, trace, mealText = '') {
   const verifyTargets = items.map((it, i) => ({ i, it })).filter(({ it }) =>
     it.source === 'fatsecret' || it.source === 'usda' || it.source === 'usda+ai'
   );
   if (!openai || !verifyTargets.length) return;
   try {
-    const verifyPrompt = verifyTargets.map(({ it }, n) =>
-      `Item ${n + 1}: "${it.name}" · ${it.qty} ${it.unit} · source: ${it.source}\n` +
-      `  ${it.kcal} kcal / ${it.protein}g P / ${it.fat}g F / ${it.carb}g C / ${it.fiber}g Fib`
-    ).join('\n\n');
+    const verifyPrompt = `What the user typed: "${mealText}"\n\n` + verifyTargets.map(({ it, i }, n) => {
+      const t = trace[i] || {};
+      const db = t.usda ? `USDA "${t.usda.name}"` : t.fatsecret ? `FatSecret "${t.fatsecret.name}"` : it.source;
+      const how = (t.usda && t.usda.method) || (t.fatsecret && t.fatsecret.method) || '';
+      return `Item ${n + 1}: "${it.name}" · ${it.qty} ${it.unit}${it.grams ? ` (~${it.grams} g edible)` : ''}\n` +
+        `  matched: ${db}${how ? ` · ${how}` : ''}\n` +
+        `  ${it.kcal} kcal / ${it.protein}g P / ${it.fat}g F / ${it.carb}g C / ${it.fiber}g Fib`;
+    }).join('\n\n');
     const vResult = await aiJson('verify', VERIFY_SYSTEM, verifyPrompt, 8000);
     const corrections = vResult.items || [];
     verifyTargets.forEach(({ i }, n) => {
@@ -2677,7 +2753,7 @@ async function runParse(text, customsFile, emit = () => {}) {
 
   if (items.some(it => ['fatsecret', 'usda', 'usda+ai'].includes(it.source))) {
     emit({ type: 'step', id: 'verify', state: 'active', label: 'Double-checking database numbers' });
-    await verifyItems(items, trace);
+    await verifyItems(items, trace, text);
     const fixed = items.filter(i => i.source === 'ai-verified').length;
     emit({ type: 'step', id: 'verify', state: 'done', label: fixed ? `Corrected ${fixed} item${fixed === 1 ? '' : 's'}` : 'Numbers look right' });
   }
@@ -2911,7 +2987,8 @@ if (require.main === module) {
     round1, fmtDate, todayStr, forEachDateInRange,
     readJson, writeJson, withFileLock,
     normalizeFoodName, customLookup, isRelevantMatch, usdaSearch, fsSearch,
-    initialFinals, applyCustomFood, applySanityCaps,
+    initialFinals, applyCustomFood, applySanityCaps, runParse,
+    parseFsServingDescription, pickFsFood, pickUsdaFood, matchScore, servingMatches, dbTotals, applyDbSources,
     computeFavorites,
     computeStats, recordGoalContext, historicalContext, compute7DayBlock, resetMeta, comebackTier, lastActiveStretch, GOALS, RESET_DAYS
   };

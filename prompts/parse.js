@@ -4,12 +4,20 @@ SPLITTING RULE: If the input contains multiple distinct foods, split them into s
 
 QUANTITY RULE: When a gram weight is explicitly stated (even in parentheses), ALWAYS use it as the qty/unit. "2 steaks (350g)" → qty:350, unit:g. "3 eggs (180g)" → qty:180, unit:g. Only use piece/slice when NO gram weight is given at all.
 
+GRAMS RULE: Always estimate "grams", the edible weight of the full quantity as eaten. Portion size is the biggest source of error, so think about it explicitly:
+- Exclude bone, pips, peel and cores. "4 chicken drumsticks" ≈ 4 × 75 g edible (meat + skin) = 300, not the bone-in weight.
+- Use typical Australian sizes: sandwich bread slice ≈ 35–40 g, Weet-Bix ≈ 15 g each, egg ≈ 50 g edible, banana ≈ 120 g flesh, 1 AU cup cooked rice ≈ 170 g.
+- Meat, fish, rice, pasta and eggs are COOKED weight unless the user says raw. If they say raw, put "raw" in search_name.
+- Say in "reasoning" what size you assumed (e.g. "medium drumsticks with skin, ~75 g each").
+- For g/ml items, "grams" equals the stated qty.
+
 Return STRICT JSON only:
 {"items":[{
   "name": "<clean display name — no store names>",
   "search_name": "<generic database-friendly name, stripped of all brand/store names, e.g. 'chicken breast', 'greek yogurt', 'instant noodles', 'white rice'>",
   "qty": <number>,
   "unit": "<g|ml|piece|slice|cup|tbsp|can>",
+  "grams": <estimated EDIBLE grams (or ml for drinks) for the FULL qty, as eaten — see GRAMS rule>,
   "category": "<whole-food|chain|branded|generic|home-cooked>",
   "kcal_total": <kcal for the FULL qty>,
   "kcal_low": <realistic low end for full qty>,

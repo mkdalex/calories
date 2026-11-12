@@ -1,0 +1,1136 @@
+[
+  {
+    "id": "4-chicken-drumsticks-wholegrain-bread",
+    "category": "protein",
+    "text": "4 chicken drumsticks and two wholegrain slices of bread",
+    "reference": {
+      "kcal": 918,
+      "protein": 94.1,
+      "fat": 44.4,
+      "carb": 32.7
+    },
+    "acceptable_kcal": [
+      720,
+      1120
+    ],
+    "assumptions": "Typical Australian supermarket drumsticks (~120-130 g raw with bone); oven-baked, skin eaten, no added fat; ~75 g edible meat+skin per drumstick (range ~55-95 g). 'Wholegrain' bread taken as AFCD mixed grain bread, standard sandwich slice ~40 g (range ~32-48 g), untoasted, no spread. Wholemeal (F001553) would be ~12 kcal less for the two slices. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "chicken drumstick, meat + skin, baked",
+        "grams": 300,
+        "kcal": 712,
+        "protein": 85.5,
+        "fat": 40.8,
+        "carb": 0.9,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F002648 'Chicken, drumstick, lean flesh, skin & fat, baked, no added fat'"
+      },
+      {
+        "food": "wholegrain (mixed grain) bread",
+        "grams": 80,
+        "kcal": 206,
+        "protein": 8.6,
+        "fat": 3.6,
+        "carb": 31.8,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F001621 'Bread, mixed grain'"
+      }
+    ]
+  },
+  {
+    "id": "chicken-breast-200g",
+    "category": "protein",
+    "text": "200g cooked chicken breast",
+    "reference": {
+      "kcal": 286,
+      "protein": 59.6,
+      "fat": 5,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      260,
+      340
+    ],
+    "assumptions": "Weight given as cooked; skinless breast, grilled, no added fat. Range covers baked/pan-cooked breast (AFCD baked F002590 = 304 kcal) and USDA roasted breast (FDC 171477, 165 kcal/100 g = 330 kcal). AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "chicken breast, skinless, grilled",
+        "grams": 200,
+        "kcal": 286,
+        "protein": 59.6,
+        "fat": 5,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F002593 'Chicken, breast, lean flesh, grilled, no added fat'"
+      }
+    ]
+  },
+  {
+    "id": "rump-steak-300g",
+    "category": "protein",
+    "text": "300g raw rump steak",
+    "reference": {
+      "kcal": 391,
+      "protein": 60,
+      "fat": 16.8,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      340,
+      450
+    ],
+    "assumptions": "Assumed 300 g is the raw butcher/pack weight (how Australians usually quote steak size), untrimmed, grilled with no added oil; energy computed from raw composition (cooking loss is mostly water). If the user meant 300 g cooked, AFCD grilled untrimmed rump (F000764) gives ~653 kcal; fully trimmed lean raw would give ~323 kcal, so range is wide. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184. Text says raw to remove the raw/cooked ambiguity.",
+    "components": [
+      {
+        "food": "rump steak, untrimmed (raw weight)",
+        "grams": 300,
+        "kcal": 391,
+        "protein": 60,
+        "fat": 16.8,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F000765 'Beef, rump steak, untrimmed, raw'"
+      }
+    ]
+  },
+  {
+    "id": "scrambled-eggs-3",
+    "category": "protein",
+    "text": "3 scrambled eggs",
+    "reference": {
+      "kcal": 199,
+      "protein": 17.8,
+      "fat": 12.7,
+      "carb": 3.5
+    },
+    "acceptable_kcal": [
+      180,
+      330
+    ],
+    "assumptions": "3 large/extra-large Australian eggs (~50-55 g edible each) plus a splash (~15 mL) of full cream milk, ~165 g cooked scramble, no butter/oil (AFCD recipe is 'no fat added'). Upper range allows ~10 g butter or oil (~70-90 kcal) which many people add. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "scrambled egg with milk, no fat added",
+        "grams": 165,
+        "kcal": 199,
+        "protein": 17.8,
+        "fat": 12.7,
+        "carb": 3.5,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F003732 'Egg, chicken, whole, scrambled, with regular fat cow's milk, no fat added'"
+      }
+    ]
+  },
+  {
+    "id": "salmon-fillet",
+    "category": "protein",
+    "text": "salmon fillet",
+    "reference": {
+      "kcal": 283,
+      "protein": 25.2,
+      "fat": 20.5,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      200,
+      420
+    ],
+    "assumptions": "One Australian supermarket Atlantic (Tasmanian) salmon portion ~125-150 g raw, skin on; grilled/pan-fried with no added fat; ~110 g cooked edible flesh. AFCD Atlantic salmon is high-fat (18.6 g/100 g); USDA farmed Atlantic (FDC 175168, 206 kcal/100 g) would give ~227 kcal. Range covers 90-150 g cooked and fat variability. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "Atlantic salmon fillet, grilled",
+        "grams": 110,
+        "kcal": 283,
+        "protein": 25.2,
+        "fat": 20.5,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F007826 'Salmon, Atlantic, fillet, grilled, no added fat'"
+      }
+    ]
+  },
+  {
+    "id": "beef-mince-with-rice",
+    "category": "protein",
+    "text": "150g cooked beef mince with a cup of white rice",
+    "reference": {
+      "kcal": 665,
+      "protein": 49.5,
+      "fat": 24.9,
+      "carb": 59
+    },
+    "acceptable_kcal": [
+      520,
+      770
+    ],
+    "assumptions": "150 g weight is cooked mince, regular fat, browned in the pan with no added oil, fat not drained. 1 Australian cup (250 mL) of cooked white rice ~170 g (USDA lists 158 g per 237 mL US cup). Lower-fat mince (F000667) would give ~305 kcal for the mince; cup of rice range ~140-200 g. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "beef mince, regular fat, pan-fried",
+        "grams": 150,
+        "kcal": 397,
+        "protein": 44.2,
+        "fat": 24.6,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F000679 'Beef, mince, regular fat, stir-fried, no added fat'"
+      },
+      {
+        "food": "white rice, boiled",
+        "grams": 170,
+        "kcal": 268,
+        "protein": 5.3,
+        "fat": 0.3,
+        "carb": 59,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F007661 'Rice, white, boiled or rice cooker, no added salt'"
+      }
+    ]
+  },
+  {
+    "id": "chicken-thighs-2",
+    "category": "protein",
+    "text": "2 chicken thigh fillets",
+    "reference": {
+      "kcal": 315,
+      "protein": 43.6,
+      "fat": 15.7,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      230,
+      450
+    ],
+    "assumptions": "Skinless boneless thigh fillets (the standard Australian supermarket cut), ~125 g raw each, baked/pan-cooked without added fat; ~90 g cooked each (range ~65-120 g). Skin-on would be much higher (AFCD F002807 = 236 kcal/100 g). AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "chicken thigh fillet, skinless, baked",
+        "grams": 180,
+        "kcal": 315,
+        "protein": 43.6,
+        "fat": 15.7,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F002804 'Chicken, thigh, lean flesh, baked, no added fat'"
+      }
+    ]
+  },
+  {
+    "id": "lamb-chops-2",
+    "category": "protein",
+    "text": "2 lamb chops",
+    "reference": {
+      "kcal": 359,
+      "protein": 34.8,
+      "fat": 24.6,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      220,
+      480
+    ],
+    "assumptions": "Two lamb loin chops, ~110-130 g raw each including bone; grilled; ~65 g edible meat + fat each after removing bone. Untrimmed composition (fat eaten). Lean-only eating (F005026) at same weight ~262 kcal; range also covers smaller cutlets and larger chump chops. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "lamb loin chop, untrimmed, grilled (edible portion)",
+        "grams": 130,
+        "kcal": 359,
+        "protein": 34.8,
+        "fat": 24.6,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F005043 'Lamb, loin chop, untrimmed, grilled, no added fat'"
+      }
+    ]
+  },
+  {
+    "id": "tuna-tin-95g",
+    "category": "protein",
+    "text": "95g tin of tuna in springwater",
+    "reference": {
+      "kcal": 90,
+      "protein": 18.3,
+      "fat": 1.8,
+      "carb": 0
+    },
+    "acceptable_kcal": [
+      75,
+      120
+    ],
+    "assumptions": "Standard 95 g net Australian tin, tuna in springwater, drained edible weight ~70 g (range ~65-80 g). AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "tuna in springwater, drained",
+        "grams": 70,
+        "kcal": 90,
+        "protein": 18.3,
+        "fat": 1.8,
+        "carb": 0,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F009300 'Tuna, unflavoured, canned in water, drained'"
+      }
+    ]
+  },
+  {
+    "id": "greek-yoghurt-200g",
+    "category": "protein",
+    "text": "200g greek yoghurt",
+    "reference": {
+      "kcal": 194,
+      "protein": 18,
+      "fat": 10,
+      "carb": 8
+    },
+    "acceptable_kcal": [
+      110,
+      280
+    ],
+    "assumptions": "Plain, unsweetened, full-fat Greek yoghurt. Australian products vary a lot: 0% fat Greek ~57 kcal/100 g (~114 kcal), thick Greek-style ~9-10% fat ~130 kcal/100 g (~260 kcal); range reflects this. No AFCD entry for Greek yoghurt, so USDA used.",
+    "components": [
+      {
+        "food": "Greek yoghurt, plain, full fat",
+        "grams": 200,
+        "kcal": 194,
+        "protein": 18,
+        "fat": 10,
+        "carb": 8,
+        "source": "USDA FoodData Central SR Legacy FDC ID 171304 'Yogurt, Greek, plain, whole milk' (per 100 g)"
+      }
+    ]
+  },
+  {
+    "id": "cottage-cheese-150g",
+    "category": "protein",
+    "text": "150g cottage cheese",
+    "reference": {
+      "kcal": 199,
+      "protein": 25.5,
+      "fat": 8.6,
+      "carb": 2.7
+    },
+    "acceptable_kcal": [
+      130,
+      220
+    ],
+    "assumptions": "Plain cottage cheese, regular (creamed) style. Reduced-fat cottage cheese (~90 kcal/100 g) gives ~135 kcal. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "cottage cheese",
+        "grams": 150,
+        "kcal": 199,
+        "protein": 25.5,
+        "fat": 8.6,
+        "carb": 2.7,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F002435 'Cheese, cottage'"
+      }
+    ]
+  },
+  {
+    "id": "protein-shake-whey-milk",
+    "category": "protein",
+    "text": "protein shake, 1 scoop whey with 300ml milk",
+    "reference": {
+      "kcal": 311,
+      "protein": 35.7,
+      "fat": 11.2,
+      "carb": 17
+    },
+    "acceptable_kcal": [
+      250,
+      390
+    ],
+    "assumptions": "One standard scoop of unflavoured/plain whey protein ~30 g (scoops range ~25-40 g; flavoured powders add a few g carb). 300 mL full cream milk (amount in mL, AFCD per-100 mL values). Light/skim milk would lower by ~60-90 kcal. AFCD kcal = 'Energy with dietary fibre, equated' kJ / 4.184.",
+    "components": [
+      {
+        "food": "whey protein powder",
+        "grams": 30,
+        "kcal": 112,
+        "protein": 25.5,
+        "fat": 0.7,
+        "carb": 0.5,
+        "source": "FSANZ AFCD Release 3 (2025), per 100 g: F007493 'Protein powder, whey based, protein >70%, unfortified'"
+      },
+      {
+        "food": "full cream milk",
+        "grams": 300,
+        "kcal": 199,
+        "protein": 10.2,
+        "fat": 10.5,
+        "carb": 16.5,
+        "source": "FSANZ AFCD Release 3 (2025), liquids per 100 mL: F005634 'Milk, cow, fluid, regular fat (~3.5%)' (amount in mL)"
+      }
+    ]
+  },
+  {
+    "id": "weetbix-light-milk",
+    "category": "carbs-breakfast-snacks",
+    "text": "2 weetbix with 200ml light milk",
+    "reference": {
+      "kcal": 200,
+      "protein": 10.8,
+      "fat": 2.8,
+      "carb": 30.4
+    },
+    "acceptable_kcal": [
+      180,
+      240
+    ],
+    "assumptions": "2 Weet-Bix biscuits = 31 g (Sanitarium panel serve). 'Light milk' taken as AU reduced-fat (~1-1.4%) milk, 200 mL measured. Range covers 1.4% 'lite' brands and 2 biscuits = 30-33 g. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "Weet-Bix (Sanitarium Original)",
+        "grams": 31,
+        "kcal": 109.7,
+        "protein": 3.8,
+        "fat": 0.4,
+        "carb": 20.4,
+        "source": "Sanitarium Weet-Bix Original nutrition panel (per 100 g; serve = 2 biscuits 31 g), https://weetbix.com.au/products/weet-bix/Original-575g"
+      },
+      {
+        "food": "light milk (~1% fat), mL",
+        "grams": 200,
+        "kcal": 89.9,
+        "protein": 7,
+        "fat": 2.4,
+        "carb": 10,
+        "source": "FSANZ AFCD Release 3 (2025), F005614 'Milk, cow, fluid, reduced fat (~1%)' per 100 mL"
+      }
+    ]
+  },
+  {
+    "id": "toast-butter-vegemite",
+    "category": "carbs-breakfast-snacks",
+    "text": "2 slices of toast with butter and vegemite",
+    "reference": {
+      "kcal": 259,
+      "protein": 8.2,
+      "fat": 9.7,
+      "carb": 33.1
+    },
+    "acceptable_kcal": [
+      220,
+      330
+    ],
+    "assumptions": "White sandwich/toast bread, 2 slices x 35 g fresh weight (AU sandwich slice ~30 g in 650 g loaf to ~37 g in 700 g loaf; toast-cut slices larger). Toasting only removes water so fresh-weight values used. Butter 5 g per slice (~1 tsp), Vegemite 3 g per slice (thin scrape). Butter quantity is the main variable (3-10 g/slice). Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "white sandwich bread",
+        "grams": 70,
+        "kcal": 175.7,
+        "protein": 6.6,
+        "fat": 1.4,
+        "carb": 32.3,
+        "source": "FSANZ AFCD Release 3 (2025), F001463 'Bread, from white flour' (fresh weight)"
+      },
+      {
+        "food": "butter",
+        "grams": 10,
+        "kcal": 73.4,
+        "protein": 0.1,
+        "fat": 8.2,
+        "carb": 0.1,
+        "source": "FSANZ AFCD Release 3 (2025), F001973 'Butter, plain, salted'"
+      },
+      {
+        "food": "Vegemite",
+        "grams": 6,
+        "kcal": 9.8,
+        "protein": 1.5,
+        "fat": 0.1,
+        "carb": 0.7,
+        "source": "FSANZ AFCD Release 3 (2025), F008785 'Spread, yeast, vegemite'"
+      }
+    ]
+  },
+  {
+    "id": "porridge-banana",
+    "category": "carbs-breakfast-snacks",
+    "text": "bowl of porridge made with water and a sliced banana",
+    "reference": {
+      "kcal": 264,
+      "protein": 6.6,
+      "fat": 4,
+      "carb": 45.7
+    },
+    "acceptable_kcal": [
+      230,
+      340
+    ],
+    "assumptions": "40 g dry rolled oats (typical bowl; packs suggest 30-50 g) cooked in water, plus 1 medium cavendish banana, 120 g peeled. No milk, sugar or honey. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "rolled oats (dry)",
+        "grams": 40,
+        "kcal": 149.5,
+        "protein": 4.9,
+        "fat": 3.8,
+        "carb": 21.8,
+        "source": "FSANZ AFCD Release 3 (2025), F006143 'Oats, rolled, uncooked' (dry weight; water adds nothing)"
+      },
+      {
+        "food": "banana, cavendish, peeled",
+        "grams": 120,
+        "kcal": 114.4,
+        "protein": 1.7,
+        "fat": 0.2,
+        "carb": 23.9,
+        "source": "FSANZ AFCD Release 3 (2025), F000262 'Banana, cavendish, peeled, raw'"
+      }
+    ]
+  },
+  {
+    "id": "cup-white-rice",
+    "category": "carbs-breakfast-snacks",
+    "text": "cup of cooked white rice",
+    "reference": {
+      "kcal": 268,
+      "protein": 5.3,
+      "fat": 0.3,
+      "carb": 59
+    },
+    "acceptable_kcal": [
+      220,
+      310
+    ],
+    "assumptions": "1 AU metric cup (250 mL) of boiled white rice, loosely filled ~170 g (USDA SR 20045 lists 158 g per 240 mL US cup; packed cups reach ~200 g). Plain, no oil or salt. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "white rice, boiled",
+        "grams": 170,
+        "kcal": 267.8,
+        "protein": 5.3,
+        "fat": 0.3,
+        "carb": 59,
+        "source": "FSANZ AFCD Release 3 (2025), F007661 'Rice, white, boiled or rice cooker, no added salt'"
+      }
+    ]
+  },
+  {
+    "id": "banana-and-apple",
+    "category": "carbs-breakfast-snacks",
+    "text": "a banana and an apple",
+    "reference": {
+      "kcal": 207,
+      "protein": 2,
+      "fat": 0.2,
+      "carb": 44.9
+    },
+    "acceptable_kcal": [
+      150,
+      230
+    ],
+    "assumptions": "Medium cavendish banana, 120 g peeled flesh; medium red apple (~180-190 g whole), 160 g edible portion with skin, core excluded. Range covers small-to-large fruit. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "banana, cavendish, peeled",
+        "grams": 120,
+        "kcal": 114.4,
+        "protein": 1.7,
+        "fat": 0.2,
+        "carb": 23.9,
+        "source": "FSANZ AFCD Release 3 (2025), F000262 'Banana, cavendish, peeled, raw'"
+      },
+      {
+        "food": "apple, red skin, unpeeled, cored",
+        "grams": 160,
+        "kcal": 92.5,
+        "protein": 0.3,
+        "fat": 0,
+        "carb": 21,
+        "source": "FSANZ AFCD Release 3 (2025), F000110 'Apple, red skin, unpeeled, raw' (edible portion, core excluded)"
+      }
+    ]
+  },
+  {
+    "id": "pasta-200g",
+    "category": "carbs-breakfast-snacks",
+    "text": "200g cooked pasta",
+    "reference": {
+      "kcal": 273,
+      "protein": 10.6,
+      "fat": 0.8,
+      "carb": 52.4
+    },
+    "acceptable_kcal": [
+      255,
+      300
+    ],
+    "assumptions": "200 g plain dried white wheat pasta weighed after boiling, no sauce/oil. Narrow range as weight is given; upper end allows for fresh/egg pasta values. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "pasta, boiled",
+        "grams": 200,
+        "kcal": 273.4,
+        "protein": 10.6,
+        "fat": 0.8,
+        "carb": 52.4,
+        "source": "FSANZ AFCD Release 3 (2025), F006456 'Pasta, white wheat flour, boiled from dry, no added salt'"
+      }
+    ]
+  },
+  {
+    "id": "crumpets-honey",
+    "category": "carbs-breakfast-snacks",
+    "text": "2 crumpets with honey",
+    "reference": {
+      "kcal": 281,
+      "protein": 7.2,
+      "fat": 1.2,
+      "carb": 58.5
+    },
+    "acceptable_kcal": [
+      250,
+      360
+    ],
+    "assumptions": "2 standard round crumpets, 50 g each (Golden 6-pack, 300 g), toasted; AFCD toasted-crumpet values applied to pack weight (slightly overstates as toasting loses some water). Honey 1 tbsp total (~21 g, i.e. ~1.5 tsp per crumpet). No butter. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "crumpet, toasted",
+        "grams": 100,
+        "kcal": 222.3,
+        "protein": 7.1,
+        "fat": 1.2,
+        "carb": 43.3,
+        "source": "FSANZ AFCD Release 3 (2025), F003313 'Crumpet, from white flour, toasted'"
+      },
+      {
+        "food": "honey",
+        "grams": 21,
+        "kcal": 58.3,
+        "protein": 0.1,
+        "fat": 0,
+        "carb": 15.2,
+        "source": "FSANZ AFCD Release 3 (2025), F004380 'Honey'"
+      }
+    ]
+  },
+  {
+    "id": "avo-sourdough",
+    "category": "carbs-breakfast-snacks",
+    "text": "smashed avo on 2 slices of sourdough",
+    "reference": {
+      "kcal": 316,
+      "protein": 9,
+      "fat": 11.5,
+      "carb": 40.1
+    },
+    "acceptable_kcal": [
+      250,
+      450
+    ],
+    "assumptions": "2 slices of commercial white sourdough, 45 g each (bakery slices vary 35-60 g); half a medium Hass avocado, 70 g flesh, smashed. No butter, oil, feta or egg. Range covers bigger slices or more avo. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "sourdough bread",
+        "grams": 90,
+        "kcal": 206.7,
+        "protein": 7.9,
+        "fat": 1.3,
+        "carb": 38.6,
+        "source": "FSANZ AFCD Release 3 (2025), F001537 'Bread, from white flour, sour dough, commercial' (fresh weight)"
+      },
+      {
+        "food": "avocado, hass",
+        "grams": 70,
+        "kcal": 109.2,
+        "protein": 1.1,
+        "fat": 10.2,
+        "carb": 1.5,
+        "source": "FSANZ AFCD Release 3 (2025), F000162 'Avocado, hass, raw'"
+      }
+    ]
+  },
+  {
+    "id": "flat-white-regular",
+    "category": "carbs-breakfast-snacks",
+    "text": "regular flat white",
+    "reference": {
+      "kcal": 105,
+      "protein": 6.4,
+      "fat": 5.7,
+      "carb": 7.7
+    },
+    "acceptable_kcal": [
+      85,
+      140
+    ],
+    "assumptions": "Regular AU cafe flat white ~220 mL (8 oz cup) with full cream milk, no sugar. Small (~180 mL) to large (~300 mL) sets the range. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "flat white, full cream milk, mL",
+        "grams": 220,
+        "kcal": 105.2,
+        "protein": 6.4,
+        "fat": 5.7,
+        "carb": 7.7,
+        "source": "FSANZ AFCD Release 3 (2025), F009796 'Coffee, flat white/latte/cappuccino, from ground coffee beans, with regular fat cow's milk' per 100 mL"
+      }
+    ]
+  },
+  {
+    "id": "handful-almonds",
+    "category": "carbs-breakfast-snacks",
+    "text": "handful of almonds",
+    "reference": {
+      "kcal": 171,
+      "protein": 5.9,
+      "fat": 15.1,
+      "carb": 1.6
+    },
+    "acceptable_kcal": [
+      120,
+      250
+    ],
+    "assumptions": "'Handful' assumed 30 g (~25 almonds; Australian Dietary Guidelines serve of nuts). Raw, with skin, unsalted. Real handfuls vary ~20-40 g, hence wide range. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "almonds, raw",
+        "grams": 30,
+        "kcal": 171.1,
+        "protein": 5.9,
+        "fat": 15.1,
+        "carb": 1.6,
+        "source": "FSANZ AFCD Release 3 (2025), F006081 'Nut, almond, with skin, raw, unsalted'"
+      }
+    ]
+  },
+  {
+    "id": "muesli-bar",
+    "category": "carbs-breakfast-snacks",
+    "text": "muesli bar",
+    "reference": {
+      "kcal": 118,
+      "protein": 2.6,
+      "fat": 3.6,
+      "carb": 18.4
+    },
+    "acceptable_kcal": [
+      100,
+      190
+    ],
+    "assumptions": "One standard supermarket chewy muesli bar ~31 g (e.g. Uncle Tobys 6-pack size), plain/fruit type. Bars vary 25-40 g and nut/chocolate versions are denser, hence wide range. Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "muesli bar, plain/fruit",
+        "grams": 31,
+        "kcal": 117.5,
+        "protein": 2.6,
+        "fat": 3.6,
+        "carb": 18.4,
+        "source": "FSANZ AFCD Release 3 (2025), F000333 'Bar, muesli, plain or with dried fruit'"
+      }
+    ]
+  },
+  {
+    "id": "large-baked-potato",
+    "category": "carbs-breakfast-snacks",
+    "text": "large baked potato, plain",
+    "reference": {
+      "kcal": 264,
+      "protein": 9,
+      "fat": 0,
+      "carb": 52.2
+    },
+    "acceptable_kcal": [
+      220,
+      330
+    ],
+    "assumptions": "1 large potato, baked with no fat or toppings, ~300 g cooked (USDA large baked potato = 299 g). AFCD has only peeled baked values; skin adds negligible energy. Range covers 250-350 g potatoes and varieties (AFCD baked 364-460 kJ/100 g). Energy = AFCD 'energy with dietary fibre' (or label kJ) / 4.184; carb = available carbohydrate (excludes fibre).",
+    "components": [
+      {
+        "food": "potato, baked, no fat",
+        "grams": 300,
+        "kcal": 263.9,
+        "protein": 9,
+        "fat": 0,
+        "carb": 52.2,
+        "source": "FSANZ AFCD Release 3 (2025), F007314 'Potato, pale skin, peeled, baked, no added fat'; large-potato weight per USDA SR NDB 11674 'Potatoes, baked, flesh and skin, without salt' (1 large = 299 g)"
+      }
+    ]
+  },
+  {
+    "id": "hj-whopper-meal-medium",
+    "category": "chain-branded",
+    "text": "hungry jacks whopper meal medium with a coke",
+    "reference": {
+      "kcal": 1077.5,
+      "protein": 31.9,
+      "fat": 59.5,
+      "carb": 133.8
+    },
+    "acceptable_kcal": [
+      991,
+      1164
+    ],
+    "assumptions": "Medium meal = standard Whopper (280 g, 2437 kJ), Medium Chips (108 g, 1289 kJ, from 20 Jan 2026 Sides guide) and Medium full-sugar Coke POM (434 g, 782 kJ, from 2 June 2026 Bundle Meals guide). Hungry Jack's AU official PDFs. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Hungry Jack's Whopper (Permanent)",
+        "grams": 280,
+        "kcal": 582.5,
+        "protein": 28.1,
+        "fat": 45.2,
+        "carb": 46.6,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Whopper-and-Beef-NutritionalGuideReport_Nutritional-Values-Report-2-June-2026.pdf"
+      },
+      {
+        "food": "Hungry Jack's Chips Medium",
+        "grams": 108,
+        "kcal": 308.1,
+        "protein": 3.8,
+        "fat": 14.3,
+        "carb": 41.1,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Nutritional-Guide-20-January-2026-Final-Sides-Snacks-Nutritionals.pdf"
+      },
+      {
+        "food": "Hungry Jack's Coke (post-mix) Medium",
+        "grams": 434,
+        "kcal": 186.9,
+        "protein": 0,
+        "fat": 0,
+        "carb": 46.1,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Bundle-Meals-NutritionalGuideReport_Nutritional-Values-Report-2-June-2026.pdf"
+      }
+    ]
+  },
+  {
+    "id": "hj-2-whopper-jr-small-chips",
+    "category": "chain-branded",
+    "text": "2 whopper juniors and small chips from hungry jacks",
+    "reference": {
+      "kcal": 918.1,
+      "protein": 31.7,
+      "fat": 59.6,
+      "carb": 93.7
+    },
+    "acceptable_kcal": [
+      845,
+      992
+    ],
+    "assumptions": "2 x Whopper Junior (151 g, 1389 kJ each, no cheese) + Small Chips (89 g, 1063 kJ). Hungry Jack's AU official PDFs. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Hungry Jack's Whopper Junior",
+        "grams": 302,
+        "kcal": 664,
+        "protein": 28.6,
+        "fat": 47.8,
+        "carb": 59.8,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Whopper-and-Beef-NutritionalGuideReport_Nutritional-Values-Report-2-June-2026.pdf"
+      },
+      {
+        "food": "Hungry Jack's Chips Small",
+        "grams": 89,
+        "kcal": 254.1,
+        "protein": 3.1,
+        "fat": 11.8,
+        "carb": 33.9,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Nutritional-Guide-20-January-2026-Final-Sides-Snacks-Nutritionals.pdf"
+      }
+    ]
+  },
+  {
+    "id": "hj-whopper-cheese-large-chips",
+    "category": "chain-branded",
+    "text": "whopper with cheese and large chips from hungry jacks",
+    "reference": {
+      "kcal": 1097,
+      "protein": 38.1,
+      "fat": 71.4,
+      "carb": 106.3
+    },
+    "acceptable_kcal": [
+      1009,
+      1185
+    ],
+    "assumptions": "Single-patty Whopper Cheese (302 g, 2747 kJ) + Large Chips (155 g, 1843 kJ). Hungry Jack's AU official PDFs. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Hungry Jack's Whopper Cheese",
+        "grams": 302,
+        "kcal": 656.5,
+        "protein": 32.7,
+        "fat": 51,
+        "carb": 47.5,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Whopper-and-Beef-NutritionalGuideReport_Nutritional-Values-Report-2-June-2026.pdf"
+      },
+      {
+        "food": "Hungry Jack's Chips Large",
+        "grams": 155,
+        "kcal": 440.5,
+        "protein": 5.4,
+        "fat": 20.4,
+        "carb": 58.8,
+        "source": "https://www.hungryjacks.com.au/Upload/HJ/Media/Media/Nutritional-Guide-20-January-2026-Final-Sides-Snacks-Nutritionals.pdf"
+      }
+    ]
+  },
+  {
+    "id": "subway-6in-teriyaki",
+    "category": "chain-branded",
+    "text": "6 inch sweet onion chicken teriyaki from subway",
+    "reference": {
+      "kcal": 394.4,
+      "protein": 25.3,
+      "fat": 8,
+      "carb": 54.5
+    },
+    "acceptable_kcal": [
+      363,
+      426
+    ],
+    "assumptions": "Subway Australia standard 6-inch build as listed (chicken strips in teriyaki glaze, mozzarella, spinach, tomato, cucumber, onion, capsicum, sweet onion sauce, white bread), May 2026 AU guide. Custom builds/extra sauce would vary. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Subway AU 6-inch Sweet Onion Chicken Teriyaki (standard build)",
+        "grams": 257,
+        "kcal": 394.4,
+        "protein": 25.3,
+        "fat": 8,
+        "carb": 54.5,
+        "source": "https://media.subway.com/dam/urn:aaid:aem:07679edc-a6f3-424c-a167-f7864b20da6e/original/as/AUS%20Nutritional%20Web%20Guide%20May%202026.pdf"
+      }
+    ]
+  },
+  {
+    "id": "subway-footlong-bmt",
+    "category": "chain-branded",
+    "text": "footlong italian bmt subway",
+    "reference": {
+      "kcal": 1013.4,
+      "protein": 49.2,
+      "fat": 51.6,
+      "carb": 85
+    },
+    "acceptable_kcal": [
+      912,
+      1115
+    ],
+    "assumptions": "Footlong = 2 x the 6-inch Italian B.M.T. standard build (238 g, 2120 kJ each: salami, pepperoni, leg ham, mozzarella, salad, mayo, Italian herbs & cheese bread). The AU guide itself says to double 6-inch values to approximate a Footlong, so range is widened to +/-10%. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Subway AU Italian B.M.T. (6-inch value x2 for Footlong)",
+        "grams": 476,
+        "kcal": 1013.4,
+        "protein": 49.2,
+        "fat": 51.6,
+        "carb": 85,
+        "source": "https://media.subway.com/dam/urn:aaid:aem:07679edc-a6f3-424c-a167-f7864b20da6e/original/as/AUS%20Nutritional%20Web%20Guide%20May%202026.pdf"
+      }
+    ]
+  },
+  {
+    "id": "gyg-chicken-burrito-coke-zero",
+    "category": "chain-branded",
+    "text": "gyg mild chicken burrito and a can of coke no sugar",
+    "reference": {
+      "kcal": 775.5,
+      "protein": 48.4,
+      "fat": 23.5,
+      "carb": 91.1
+    },
+    "acceptable_kcal": [
+      713,
+      838
+    ],
+    "assumptions": "GYG AU Nutrition & Allergen Guide (current at 8 Oct 2026): Mild Grilled Chicken regular burrito, 480 g, 3240 kJ (white rice, black beans standard; spicy adds +70 kJ). Coke Zero Sugar AU panel per 100 mL (1.2 kJ, 0.03 g carb) x 3.75 for a 375 mL can. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Guzman y Gomez Mild Grilled Chicken Burrito (regular)",
+        "grams": 480,
+        "kcal": 774.4,
+        "protein": 48.3,
+        "fat": 23.5,
+        "carb": 91,
+        "source": "https://www.guzmanygomez.com.au/wp-content/uploads/2026/10/261008_NUTRITION_ALLERGEN_GUIDE_420X297MM.pdf"
+      },
+      {
+        "food": "Coca-Cola Zero Sugar 375 mL can",
+        "grams": 375,
+        "kcal": 1.1,
+        "protein": 0.07,
+        "fat": 0,
+        "carb": 0.11,
+        "source": "https://www.coca-cola.com/au/en/brands/coca-cola/products"
+      }
+    ]
+  },
+  {
+    "id": "dominos-3-pepperoni-slices",
+    "category": "chain-branded",
+    "text": "3 slices of dominos pepperoni",
+    "reference": {
+      "kcal": 387.2,
+      "protein": 16.2,
+      "fat": 14.1,
+      "carb": 45.6
+    },
+    "acceptable_kcal": [
+      341,
+      434
+    ],
+    "assumptions": "Assumes the default Large Classic Crust Pepperoni; 1 slice = 1/8 pizza = 1 published serving (50 g, 540 kJ). Wider range (+/-12%) because crust choice and slice size vary (e.g. Deep Pan 691 kJ/slice, Thin 461 kJ/slice). All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Domino's AU Pepperoni, Classic Crust (large), per slice",
+        "grams": 150,
+        "kcal": 387.2,
+        "protein": 16.2,
+        "fat": 14.1,
+        "carb": 45.6,
+        "source": "https://www.dominos.com.au/menu/nutritional-information"
+      }
+    ]
+  },
+  {
+    "id": "dominos-bbq-meatlovers-garlic-bread",
+    "category": "chain-branded",
+    "text": "2 slices bbq meatlovers and a garlic bread from dominos",
+    "reference": {
+      "kcal": 816.9,
+      "protein": 26.5,
+      "fat": 29.8,
+      "carb": 105.1
+    },
+    "acceptable_kcal": [
+      735,
+      899
+    ],
+    "assumptions": "2 x 1/8 of a Large Classic Crust BBQ Meatlovers (59 g, 589 kJ per slice) + one Garlic Bread side (170 g, 2240 kJ, 1 serving per side). Values from the Domino's AU nutritional information page (2026 menu). All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Domino's AU BBQ Meatlovers, Classic Crust (large), per slice",
+        "grams": 118,
+        "kcal": 281.5,
+        "protein": 13.2,
+        "fat": 9.4,
+        "carb": 34.2,
+        "source": "https://www.dominos.com.au/menu/nutritional-information"
+      },
+      {
+        "food": "Domino's AU Garlic Bread (1 serve)",
+        "grams": 170,
+        "kcal": 535.4,
+        "protein": 13.3,
+        "fat": 20.4,
+        "carb": 70.9,
+        "source": "https://www.dominos.com.au/menu/nutritional-information"
+      }
+    ]
+  },
+  {
+    "id": "nandos-half-chicken-reg-chips",
+    "category": "chain-branded",
+    "text": "nandos half chicken and regular chips",
+    "reference": {
+      "kcal": 1039.6,
+      "protein": 113.4,
+      "fat": 43.8,
+      "carb": 45.8
+    },
+    "acceptable_kcal": [
+      957,
+      1125
+    ],
+    "assumptions": "Half chicken per Nando's AU page (460 g incl. bone as listed, 2990 kJ). Regular chips: the AU page's detailed table gives 1360 kJ / 140 g, but its headline says 1480 kJ; the detailed table is used, and the range is stretched upward to cover the 1480 kJ figure (~1068 kcal total). Basting heat level ignored. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Nando's AU 1/2 PERi-PERi Chicken",
+        "grams": 460,
+        "kcal": 714.6,
+        "protein": 108,
+        "fat": 30.8,
+        "carb": 1.1,
+        "source": "https://www.nandos.com.au/menu-item/half-chicken"
+      },
+      {
+        "food": "Nando's AU Regular PERi-PERi Chips",
+        "grams": 140,
+        "kcal": 325,
+        "protein": 5.4,
+        "fat": 13,
+        "carb": 44.7,
+        "source": "https://www.nandos.com.au/menu-item/peri-peri-chips"
+      }
+    ]
+  },
+  {
+    "id": "coke-can-2-timtams",
+    "category": "chain-branded",
+    "text": "can of coke and 2 tim tams",
+    "reference": {
+      "kcal": 353,
+      "protein": 1.6,
+      "fat": 9.8,
+      "carb": 63.5
+    },
+    "acceptable_kcal": [
+      325,
+      381
+    ],
+    "assumptions": "Coke Classic AU panel 180 kJ / 10.6 g sugar per 100 mL x 3.75 = 675 kJ per 375 mL can. Tim Tam Original AU panel: 1 biscuit (18.1 g) = 401 kJ, so 2 biscuits = 802 kJ. All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Coca-Cola Classic 375 mL can",
+        "grams": 375,
+        "kcal": 161.3,
+        "protein": 0,
+        "fat": 0,
+        "carb": 39.75,
+        "source": "https://www.coca-cola.com/au/en/brands/coca-cola/products"
+      },
+      {
+        "food": "Arnott's Tim Tam Original (2 biscuits)",
+        "grams": 36.2,
+        "kcal": 191.7,
+        "protein": 1.6,
+        "fat": 9.8,
+        "carb": 23.8,
+        "source": "https://www.arnotts.com/brands/tim-tam"
+      }
+    ]
+  },
+  {
+    "id": "up-and-go-choc",
+    "category": "chain-branded",
+    "text": "choc up&go for brekky",
+    "reference": {
+      "kcal": 196,
+      "protein": 8.3,
+      "fat": 4.2,
+      "carb": 28.8
+    },
+    "acceptable_kcal": [
+      180,
+      212
+    ],
+    "assumptions": "UP&GO OG Choc Ice 250 mL. Official page lists 195 Cal per serve and 328 kJ per 100 mL; per-serve kJ cell is blank, so kJ = 328 x 2.5 = 820 kJ (196 kcal). All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Sanitarium UP&GO OG Choc Ice 250 mL",
+        "grams": 250,
+        "kcal": 196,
+        "protein": 8.3,
+        "fat": 4.2,
+        "carb": 28.8,
+        "source": "https://upandgo.com.au/products/original"
+      }
+    ]
+  },
+  {
+    "id": "chobani-strawberry-pot",
+    "category": "chain-branded",
+    "text": "chobani strawberry greek yoghurt pot",
+    "reference": {
+      "kcal": 137.9,
+      "protein": 12.1,
+      "fat": 2.6,
+      "carb": 16
+    },
+    "acceptable_kcal": [
+      127,
+      149
+    ],
+    "assumptions": "Chobani AU Greek yoghurt Strawberry pot; per serve 577 kJ / 138 Cal (360 kJ per 100 g implies a 160 g pot). All kcal = published kJ / 4.184.",
+    "components": [
+      {
+        "food": "Chobani Greek Strawberry pot",
+        "grams": 160,
+        "kcal": 137.9,
+        "protein": 12.1,
+        "fat": 2.6,
+        "carb": 16,
+        "source": "https://www.chobani.com.au/our-products/chobani-greek/pots/strawberry/"
+      }
+    ]
+  }
+]
