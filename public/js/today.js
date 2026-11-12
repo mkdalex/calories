@@ -118,6 +118,33 @@ function todayFeedback(data) {
   return todayViewDate ? 'Past day. Only what was logged counts.' : 'Today is in progress.';
 }
 
+// Prompt to act on calibration. Dismissal is remembered per suggestion, so a
+// meaningfully different suggestion later shows again.
+function calibrationNudgeKey(n) { return `calNudge:${n.type}:${n.suggested || n.count || n.current || ''}`; }
+function calibrationNudgeHtml(n) {
+  if (!n) return '';
+  try { if (localStorage.getItem(calibrationNudgeKey(n))) return ''; } catch (_) {}
+  const fmt = v => Number(v).toLocaleString();
+  const text = n.type === 'ready'
+    ? `<strong>You have enough data to update your maintenance estimate.</strong> Your records suggest about ${fmt(n.suggested)} kcal; you're using ${fmt(n.current)} (${n.diff > 0 ? '+' : ''}${fmt(n.diff)}).`
+    : n.type === 'review'
+    ? `<strong>Your saved maintenance estimate may be out of date.</strong> It's over 6 weeks old, or your weight or activity level has changed since you saved it.`
+    : `<strong>${n.count} recent day${n.count === 1 ? '' : 's'} look${n.count === 1 ? 's' : ''} incomplete.</strong> Check whether meals are missing so your maintenance estimate stays accurate.`;
+  return `
+    <div class="card calibration-nudge" data-nudge-key="${escapeHtml(calibrationNudgeKey(n))}">
+      <p>${text}</p>
+      <div class="calibration-nudge-actions">
+        <button class="btn btn-sm" type="button" onclick="setActiveView('profile')">Review in Profile</button>
+        <button class="btn btn-secondary btn-sm" type="button" onclick="dismissCalibrationNudge(this)">Not now</button>
+      </div>
+    </div>`;
+}
+function dismissCalibrationNudge(btn) {
+  const card = btn.closest('.calibration-nudge');
+  try { localStorage.setItem(card.dataset.nudgeKey, '1'); } catch (_) {}
+  card.remove();
+}
+
 function renderZoneBar(data) {
   const el = $('#zoneWrap');
   const stats = data.stats;
@@ -130,7 +157,7 @@ function renderZoneBar(data) {
     : adjustment < 0 ? `${Math.abs(adjustment)} kcal planned deficit`
     : adjustment > 0 ? `${adjustment} kcal planned surplus` : 'maintenance target';
   const source = stats.target_source === 'saved_override' ? 'saved override' : 'profile formula';
-  el.innerHTML = `
+  el.innerHTML = calibrationNudgeHtml(data.calibration_nudge) + `
     <div class="card goal-summary">
       <h2>${escapeHtml(label)}</h2>
       <p><strong>${goal.toLocaleString()} kcal</strong> a day · <strong>${stats.protein_g} g</strong> protein</p>

@@ -616,6 +616,35 @@
 .intake-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-dim); }
 .calibration-confirm { display: block; margin: 16px 0; font-size: 13px; }
 #calibrateCard button { margin: 6px 8px 0 0; }
+#calibrateCard .low-day-row button { margin: 0; }
+.calibration-confirm input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; }
+
+/* Calibration: Today nudge, flagged low days, running maintenance estimate */
+.btn-sm { padding: 7px 12px; font-size: 13px; width: auto; }
+.calibration-nudge { border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border)); background: var(--info-soft); }
+.calibration-nudge p { margin: 0 0 12px; line-height: 1.55; font-size: 14px; }
+.calibration-nudge-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.low-days { margin: 12px 0; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+.low-days .goal-note { margin: 0 0 8px; }
+.low-day-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 13px; border-top: 1px solid var(--border); }
+.maint-estimate { margin: 12px 0 6px; }
+.maint-head { font-size: 14px; color: var(--text-dim); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.maint-num { font-size: 26px; font-weight: 700; color: var(--text); }
+.maint-conf { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.maint-conf-high { color: var(--accent); border-color: var(--accent); }
+.maint-conf-medium { color: var(--info); border-color: var(--info); }
+.maint-conf-low { color: var(--warn); border-color: var(--warn); }
+.maint-track { position: relative; height: 16px; background: var(--panel-2); border-radius: 8px; margin: 14px 0 8px; }
+.maint-band { position: absolute; top: 0; bottom: 0; background: var(--info-soft); border: 1px solid var(--info); border-radius: 8px; }
+.maint-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px; background: var(--info); border-radius: 2px; }
+.maint-current { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--text); }
+.cal-cell.in-progress { border: 1px dashed var(--info); }
+.cal-cell.unscored .cal-day-kcal, .cal-cell.in-progress .cal-day-kcal { color: var(--text); }
+.weight-legend { display: flex; justify-content: center; gap: 18px; font-size: 11px; color: var(--text-dim); margin-top: 6px; flex-wrap: wrap; }
+.weight-legend .leg-swatch { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 4px; }
+.weight-legend .leg-swatch.daily-dot { background: var(--text-dim); width: 5px; height: 5px; border-radius: 50%; margin-right: 6px; }
+.weight-legend .leg-swatch.avg { background: var(--info); border-radius: 2px; }
+.weight-legend .leg-swatch.goal { height: 0; border-top: 2px dashed var(--accent); margin-right: 6px; }
 
 .history-note { margin: 10px 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
 

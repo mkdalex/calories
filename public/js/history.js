@@ -255,16 +255,98 @@ function goalProgress(weights, last, goalKg, goalStarted) {
 async function renderPredictedActual() {
   const card = $('#predictedActualCard');
   if (!card) return;
-  const [review, profile] = await Promise.all([api('/api/calibrate'), api('/api/profile')]);
+  const [review, profile, weights] = await Promise.all([api('/api/calibrate'), api('/api/profile'), api('/api/weight')]);
   const stats = profile.stats;
   if (!stats) { card.innerHTML = '<h2>Target check</h2><p class="history-note">Set up a profile first.</p>'; return; }
   const label = GoalPolicy.LABELS[stats.goal] || stats.goal_meta.label;
+  const fmt = n => Number(n).toLocaleString();
+  const isReset = stats.goal === 'reset';
+  const est = review.estimate;
+  const planPerDay = (stats.kcal_goal - stats.tdee) / GoalPolicy.KCAL_PER_KG;
+  const planWeek = Math.round(planPerDay * 7 * 100) / 100;
+  const sign = n => (n > 0 ? '+' : '') + n;
+
+  // ---- Running maintenance estimate (#4) ----
+  let estimateHtml;
+  if (est) {
+    const lo = Math.min(est.low, stats.tdee) - 100, hi = Math.max(est.high, stats.tdee) + 100;
+    const pos = v => ((v - lo) / (hi - lo) * 100).toFixed(1);
+    estimateHtml = `
+      <div class="maint-estimate">
+        <div class="maint-head"><span class="maint-num">${fmt(est.tdee)}</span> kcal/day estimated maintenance
+          <span class="maint-conf maint-conf-${est.confidence}">${est.confidence} confidence</span></div>
+        <div class="maint-track" role="img" aria-label="Estimate ${est.tdee}, likely ${est.low} to ${est.high}; current target uses ${stats.tdee}">
+          <div class="maint-band" style="left:${pos(est.low)}%;width:${(pos(est.high) - pos(est.low)).toFixed(1)}%"></div>
+          <span class="maint-mark" style="left:${pos(est.tdee)}%"></span>
+          <span class="maint-current" style="left:${pos(stats.tdee)}%" title="Currently using ${stats.tdee}"></span>
+        </div>
+        <div class="intake-legend"><span>Likely ${fmt(est.low)}–${fmt(est.high)}</span><span>Using ${fmt(stats.tdee)} now</span></div>
+        <p class="history-note">From ${review.weigh_ins} weigh-ins and ${review.days_used} logged days. The range narrows as you add more.${review.can_calibrate ? '' : ' ' + escapeHtml(review.reason || '')}</p>
+      </div>`;
+  } else {
+    estimateHtml = `<p>${escapeHtml(review.reason || 'More recent records are needed before estimating maintenance.')}</p>
+      <p class="history-note">A running estimate appears after about a week with 3+ weigh-ins and most days logged.</p>`;
+  }
+
+  // ---- Plan vs actual weight (#5) ----
+  const start = review.window_start, end = review.window_end;
+  const pts = (weights || []).filter(w => w.date >= start && w.date <= end && w.kg > 0);
+  let chartHtml = '';
+  if (pts.length >= 2) {
+    const W = 600, H = 170, PAD = { l: 34, r: 14, t: 16, b: 24 };
+    const days = Math.max(1, GoalPolicy.daysBetween(start, end));
+    const xOf = d => PAD.l + GoalPolicy.daysBetween(start, d) / days * (W - PAD.l - PAD.r);
+    const first = pts[0], last = pts[pts.length - 1];
+    const anchorKg = review.trend_start ?? first.kg;
+    const planEndKg = anchorKg + planPerDay * GoalPolicy.daysBetween(first.date, end);
+    const ys = pts.map(p => p.kg).concat(isReset ? [] : [anchorKg, planEndKg]);
+    if (review.trend_end != null) ys.push(review.trend_end);
+    const yMin = Math.min(...ys) - 0.4, yMax = Math.max(...ys) + 0.4;
+    const yOf = kg => PAD.t + (yMax - kg) / (yMax - yMin) * (H - PAD.t - PAD.b);
+    const niceDate = ds => new Date(ds + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const ticks = [...new Set([Math.ceil(yMin * 2) / 2, Math.floor(yMax * 2) / 2])];
+    chartHtml = `
+      <div class="weight-chart">
+        <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block;font-family:inherit;">
+          ${ticks.map(v => `<text x="${PAD.l - 6}" y="${yOf(v) + 3}" text-anchor="end" fill="var(--text-dim)" font-size="10">${v}</text>`).join('')}
+          ${review.trend_end != null ? `<line x1="${xOf(first.date)}" y1="${yOf(review.trend_start)}" x2="${xOf(last.date)}" y2="${yOf(review.trend_end)}" stroke="var(--info)" stroke-width="2" stroke-linecap="round"/>` : ''}
+          ${isReset ? '' : `<line x1="${xOf(first.date)}" y1="${yOf(anchorKg)}" x2="${xOf(end)}" y2="${yOf(planEndKg)}" stroke="var(--accent)" stroke-width="1.75" stroke-dasharray="6 5" opacity="0.9"/>`}
+          ${pts.map(p => `<circle cx="${xOf(p.date).toFixed(1)}" cy="${yOf(p.kg).toFixed(1)}" r="2.6" fill="var(--text-dim)"/>`).join('')}
+          <text x="${PAD.l}" y="${H - 6}" fill="var(--text-dim)" font-size="10">${niceDate(start)}</text>
+          <text x="${W - PAD.r}" y="${H - 6}" text-anchor="end" fill="var(--text-dim)" font-size="10">${niceDate(end)}</text>
+        </svg>
+        <div class="weight-legend">
+          <span><span class="leg-swatch daily-dot"></span> weigh-in</span>
+          ${review.trend_end != null ? '<span><span class="leg-swatch avg"></span> your trend</span>' : ''}
+          ${isReset ? '' : '<span><span class="leg-swatch goal"></span> on-plan pace</span>'}
+        </div>
+      </div>`;
+  }
+  let paceHtml = '';
+  if (est && !isReset) {
+    // Pace vs plan is about outcome; whether the maintenance number is right depends
+    // on what was actually eaten, so judge that against the expected pace from intake.
+    const vsPlan = est.kg_per_week - planWeek;
+    const planText = Math.abs(vsPlan) <= 0.15 ? 'close to the planned pace'
+      : vsPlan < 0 ? 'below the planned pace (weight trending lower than planned)' : 'above the planned pace (weight trending higher than planned)';
+    const expectedWeek = Math.round((est.avg_kcal - stats.tdee) / GoalPolicy.KCAL_PER_KG * 7 * 100) / 100;
+    // Same 100 kcal threshold as the Today nudge, so the two never disagree.
+    const off = est.tdee - stats.tdee;
+    const estimateText = Math.abs(off) < 100
+      ? 'That matches your current maintenance estimate.'
+      : `With your current maintenance estimate (${fmt(stats.tdee)} kcal) that should give ${sign(expectedWeek)} kg/week, so your real maintenance looks ${off < 0 ? 'lower' : 'higher'}, closer to ${fmt(est.tdee)} kcal.`;
+    paceHtml = `<p>Trend <strong>${sign(est.kg_per_week)} kg/week</strong> · plan ${sign(planWeek)} kg/week: ${planText}.</p>
+      <p class="history-note">You averaged ${fmt(est.avg_kcal)} kcal on logged days (target ${fmt(stats.kcal_goal)}). ${estimateText}</p>`;
+  }
+
   card.innerHTML = `<h2>Target check · ${escapeHtml(label)}</h2>
-    ${stats.goal === 'reset' ? '<p class="history-note">Reset week: weight change isn\'t scored.</p>'
-      : review.can_calibrate
-        ? `<p class="history-note"><strong>${review.weight_start} → ${review.weight_end} kg</strong> over ${review.days_span} days, with food logged on ${review.days_logged} of them.</p>`
-        : `<p class="history-note">${escapeHtml(review.reason || 'Not enough recent records yet.')}</p>`}
+    <p class="history-note">Current goal tracked from ${escapeHtml(stats.goal_started || 'today')}. Your earlier records remain in the weight chart and calendar.</p>
+    ${isReset ? '<p>Reset week focuses on recording food. Weight change is not scored.</p>' : ''}
+    ${estimateHtml}
+    ${chartHtml}
+    ${paceHtml}
     <button class="btn btn-secondary" type="button" onclick="setActiveView('profile')">Review target</button>`;
+
 }
 
 // ===== Source quality breakdown =====

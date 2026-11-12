@@ -126,3 +126,26 @@ test('recent eligible calibration is provisional until explicitly applied and a 
   assert.equal(range[today].goal,2500);
   assert.equal((await u.call('GET','/api/calibrate')).data.can_calibrate,false);
 });
+
+test('low days can be confirmed as complete, and Today carries a calibration nudge',async () => {
+  const u=user(), start=policy.shiftDate(today,-21);
+  u.write('profile',recordGoalContext({}, {...profile,goal:'steady'},start,req));
+  const log={};
+  for(let i=0;i<21;i++)log[policy.shiftDate(start,i)]=[{name:'Food',kcal:3200}];
+  const low=policy.shiftDate(start,3); log[low]=[{name:'Forgot dinner',kcal:900}];
+  u.write('log',log);
+  u.write('weight',[0,7,14,21].map(i=>({date:policy.shiftDate(start,i),kg:80})));
+  const before=(await u.call('GET','/api/calibrate')).data;
+  assert.deepEqual(before.low_days.map(d=>d.date),[low]);
+  assert.equal(before.tdee_implied,3200);
+  const nudge=(await u.call('GET','/api/log')).data.calibration_nudge;
+  assert.equal(nudge.type,'ready');
+  assert.equal(nudge.suggested,3200);
+  assert.equal((await u.call('POST','/api/calibrate/day',{date:'bad'})).status,400);
+  await u.call('POST','/api/calibrate/day',{date:low,complete:true});
+  const after=(await u.call('GET','/api/calibrate')).data;
+  assert.equal(after.low_days.length,0);
+  assert.ok(after.tdee_implied<3200);
+  await u.call('POST','/api/calibrate/day',{date:low,complete:false});
+  assert.equal((await u.call('GET','/api/calibrate')).data.low_days.length,1);
+});

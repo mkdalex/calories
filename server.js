@@ -743,16 +743,40 @@ app.post('/api/comeback/complete', async (req, res) => {
   res.json({ profile, stats: computeStats(profile, req) });
 });
 
+function calibrationReview(req, profile) {
+  return GoalPolicy.calibrationWindow(readJson(req.dataFiles.log, {}), readJson(req.dataFiles.weight, []),
+    todayStr(req), profile.goal_started || todayStr(req), { confirmed: profile.calibration_complete_days || [] });
+}
+
 app.get('/api/calibrate', (req, res) => {
   const profile = readJson(req.dataFiles.profile, null);
   const stats = computeStats(profile, req);
   if (!stats) return res.json({ can_calibrate: false, reason: 'Set up your profile first.' });
-  const result = GoalPolicy.calibrationWindow(readJson(req.dataFiles.log, {}),
-    readJson(req.dataFiles.weight, []), todayStr(req), profile.goal_started || todayStr(req));
+  const result = calibrationReview(req, profile);
   res.json({ ...result, tdee_predicted: stats.tdee_predicted, tdee_current: stats.tdee,
+    kcal_goal: stats.kcal_goal, goal: stats.goal, goal_started: stats.goal_started,
     calibrated: stats.tdee_calibrated, override_review: stats.override_review,
     override_set_at: stats.override_set_at,
     diff: result.can_calibrate ? result.tdee_implied - stats.tdee : null });
+});
+
+// Mark a flagged low-intake day as genuinely complete (include it) or undo that.
+app.post('/api/calibrate/day', async (req, res) => {
+  const { date, complete } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+  const days = await withFileLock(req.dataFiles.profile, () => {
+    const profile = readJson(req.dataFiles.profile, null);
+    if (!profile) return null;
+    // Only the recent window matters; drop older confirmations so the list stays small.
+    const keepFrom = GoalPolicy.shiftDate(todayStr(req), -60);
+    const set = new Set((profile.calibration_complete_days || []).filter(d => d >= keepFrom));
+    if (complete) set.add(date); else set.delete(date);
+    profile.calibration_complete_days = [...set].sort();
+    writeJson(req.dataFiles.profile, profile);
+    return profile.calibration_complete_days;
+  });
+  if (!days) return res.status(400).json({ error: 'Set up your profile first.' });
+  res.json({ calibration_complete_days: days });
 });
 
 // ---------- Streak + weekly avg ----------// ---------- Streak + weekly avg ----------
@@ -813,6 +837,7 @@ app.get('/api/log', (req, res) => {
     streak: isToday ? computeStreak(log) : undefined,
     weekly_avg_kcal: isToday ? weekly.average : undefined,
     weekly_logged_days: isToday ? weekly.days : undefined,
+    calibration_nudge: isToday && stats ? GoalPolicy.calibrationNudge(stats, calibrationReview(req, profile)) : undefined,
     assessment: GoalPolicy.assess(date, todayStr(req), totals.kcal, context, entries.length > 0)
   });
 });

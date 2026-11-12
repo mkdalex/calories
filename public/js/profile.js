@@ -114,18 +114,39 @@ async function renderCalibrate() {
   try { r = await api('/api/calibrate'); } catch (_) {
     card.innerHTML = '<h2>Review maintenance estimate</h2><p>Could not load the records. Try again later.</p>'; return;
   }
-  const reset = r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset">Reset to formula (${r.tdee_predicted.toLocaleString()} kcal)</button>` : '';
+  const fmt = n => Number(n).toLocaleString();
+  const niceDay = d => new Date(d + 'T00:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const reset = r.calibrated ? `<button class="btn btn-secondary" id="tdeeReset">Reset to formula (${fmt(r.tdee_predicted)} kcal)</button>` : '';
+  const est = r.estimate;
+  const running = est && !r.can_calibrate ? `
+    <p>Running estimate so far: <strong>${fmt(est.tdee)} kcal</strong> <span class="goal-note">(likely ${fmt(est.low)}–${fmt(est.high)}, ${est.confidence} confidence)</span></p>` : '';
+  const lowDays = (r.low_days || []).length ? `
+    <div class="low-days">
+      <p class="goal-note"><strong>${r.low_days.length} day${r.low_days.length === 1 ? '' : 's'} look${r.low_days.length === 1 ? 's' : ''} incomplete</strong>, well below your typical ${fmt(r.low_days[0].typical_kcal)} kcal. They're left out of the estimate. If a day really was that low, include it.</p>
+      ${r.low_days.map(d => `
+        <div class="low-day-row">
+          <span>${niceDay(d.date)} · ${fmt(d.kcal)} kcal</span>
+          <button class="btn btn-secondary btn-sm" type="button" data-include-day="${d.date}">It was complete</button>
+        </div>`).join('')}
+    </div>` : '';
   card.innerHTML = `<h2>Review maintenance estimate</h2>
-    <p class="goal-note">From up to 42 days of food and weight on your current goal. Today isn't counted.</p>
-    <p>Active estimate: <strong>${r.tdee_current?.toLocaleString() || '—'} kcal</strong> · Formula: ${r.tdee_predicted?.toLocaleString() || '—'} kcal</p>
+    <p class="goal-note">Uses recent food and weight records from the current goal period, up to 42 days. Weight change comes from a trend line through all your weigh-ins, so one noisy reading has little effect. Today's intake is excluded.</p>
+    <p>Active estimate: <strong>${r.tdee_current ? fmt(r.tdee_current) : '—'} kcal</strong> · Formula: ${r.tdee_predicted ? fmt(r.tdee_predicted) : '—'} kcal</p>
     ${r.can_calibrate ? `
-      <p>Recent records suggest approximately <strong>${r.tdee_implied.toLocaleString()} kcal</strong> for maintenance.</p>
-      <p class="goal-note">${r.weight_start_date} → ${r.weight_end_date}: ${r.days_logged}/${r.days_span} days with food entries, ${r.avg_kcal.toLocaleString()} kcal average on logged days. Weight: ${r.weight_start} → ${r.weight_end} kg.</p>
+      <p>Recent records suggest approximately <strong>${fmt(r.tdee_implied)} kcal</strong> for maintenance${est ? ` <span class="goal-note">(likely ${fmt(est.low)}–${fmt(est.high)}, ${est.confidence} confidence)</span>` : ''}.</p>
+      <p class="goal-note">${r.weight_start_date} → ${r.weight_end_date}: ${r.weigh_ins} weigh-ins, ${r.days_logged}/${r.days_span} days with food entries${r.days_used !== r.days_logged ? ` (${r.days_used} used)` : ''}, ${fmt(r.avg_kcal)} kcal average. Weight trend: ${r.trend_start} → ${r.trend_end} kg (${est && est.kg_per_week > 0 ? '+' : ''}${est ? est.kg_per_week : r.weight_delta_kg} kg/week).</p>
+      ${lowDays}
       <p class="goal-note">${escapeHtml(r.caveat)}</p>
-      <label class="calibration-confirm"><input type="checkbox" id="calibrationConfirm"> I’ve reviewed this period’s food logs for omitted meals.</label>
-      <button class="btn" id="tdeeUse" disabled>Use ${r.tdee_implied.toLocaleString()} kcal as maintenance</button>
-    ` : `<p>${escapeHtml(r.reason || 'Not enough recent data to recalibrate.')}</p>`}
+      <label class="calibration-confirm"><input type="checkbox" id="calibrationConfirm"> I've reviewed this period's food logs for omitted meals.</label>
+      <button class="btn" id="tdeeUse" disabled>Use ${fmt(r.tdee_implied)} kcal as maintenance</button>
+    ` : `${running}<p>${escapeHtml(r.reason || 'Not enough recent data to recalibrate.')}</p>${lowDays}`}
     ${reset}`;
+  card.querySelectorAll('[data-include-day]').forEach(btn => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const saved = await api('/api/calibrate/day', { method: 'POST', body: { date: btn.dataset.includeDay, complete: true } });
+    if (saved.error) { btn.disabled = false; return showToast(saved.error); }
+    showToast('Day included in the estimate'); renderCalibrate();
+  }));
   const apply = $('#tdeeUse');
   if (apply) {
     $('#calibrationConfirm').addEventListener('change', e => { apply.disabled = !e.target.checked; });
